@@ -1,0 +1,137 @@
+{
+  "startedAt": 1794801597,
+  "startingPacks": 12,
+  "weeklyPacks": 4,
+  "weeklyWildcards": {
+    "common": 4,
+    "uncommon": 2,
+    "rare": 1,
+    "mythic": 1
+  },
+  "mythicProbability": 0.125,
+  "enabledSets": [
+    "FDN"
+  ],
+  "booster": {
+    "commons": 10,
+    "uncommons": 4,
+    "rareSlots": 1,
+    "basicLands": 0
+  },
+  "wildcardDropProbability": 0,
+  "autoUnlock": {
+    "intervalWeeks": 0,
+    "setCodes": []
+  },
+  "deckRestrictions": {
+    "minimumMainDeck": 60,
+    "maximumSideboard": 15,
+    "normalCopyLimit": 4
+  },
+  "expansionSchedule": [
+    {
+      "week": 0,
+      "code": "FDN",
+      "name": "Foundations",
+      "description": "Balanced starting pool, all five colors",
+      "bonusPacks": 0
+    },
+    {
+      "week": 4,
+      "code": "BLB",
+      "name": "Bloomburrow",
+      "description": "Animal tribes, tokens, aggressive decks",
+      "bonusPacks": 8
+    },
+    {
+      "week": 8,
+      "code": "WOE",
+      "name": "Wilds of Eldraine",
+      "description": "Enchantments, Adventures, fairy-tale themes",
+      "bonusPacks": 8
+    },
+    {
+      "week": 12,
+      "code": "LCI",
+      "name": "The Lost Caverns of Ixalan",
+      "description": "Dinosaurs, explore, graveyard strategies",
+      "bonusPacks": 8
+    },
+    {
+      "week": 16,
+      "code": "OTJ",
+      "name": "Outlaws of Thunder Junction",
+      "description": "Outlaws, crime, plotting spells",
+      "bonusPacks": 8
+    },
+    {
+      "week": 20,
+      "code": "DSK",
+      "name": "Duskmourn: House of Horror",
+      "description": "Horror creatures, Rooms, delirium",
+      "bonusPacks": 8
+    },
+    {
+      "week": 24,
+      "code": "NEO",
+      "name": "Kamigawa: Neon Dynasty",
+      "description": "Ninjas, artifacts, enchantments",
+      "bonusPacks": 8
+    },
+    {
+      "week": 28,
+      "code": "BRO",
+      "name": "The Brothers' War",
+      "description": "Artifact-heavy strategies, giant machines",
+      "bonusPacks": 8
+    },
+    {
+      "week": 32,
+      "code": "DFT",
+      "name": "Aetherdrift",
+      "description": "Vehicles, racing, speed mechanics",
+      "bonusPacks": 8
+    },
+    {
+      "week": 36,
+      "code": "TDM",
+      "name": "Tarkir: Dragonstorm",
+      "description": "Dragons, three-color clans",
+      "bonusPacks": 8
+    },
+    {
+      "week": 40,
+      "code": "EOE",
+      "name": "Edge of Eternities",
+      "description": "Spacecraft, colorless and artifact strategies",
+      "bonusPacks": 8
+    },
+    {
+      "week": 44,
+      "code": "ECL",
+      "name": "Lorwyn Eclipsed",
+      "description": "Elves, Goblins, Faeries, Changelings",
+      "bonusPacks": 8
+    },
+    {
+      "week": 48,
+      "code": "SOS",
+      "name": "Secrets of Strixhaven",
+      "description": "Instants, sorceries, spell-focused decks",
+      "bonusPacks": 8
+    },
+    {
+      "week": 52,
+      "code": "MOM",
+      "name": "March of the Machine",
+      "description": "Battles, Phyrexians, multiverse invasion",
+      "bonusPacks": 8
+    }
+  ],
+  "wildcardRewardIntervals": {
+    "common": 1,
+    "uncommon": 1,
+    "rare": 2,
+    "mythic": 4
+  }
+}

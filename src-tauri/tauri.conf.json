@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Eternal League",
+  "version": "0.1.0",
+  "identifier": "com.eternalleague.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Eternal League",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 980,
+        "minHeight": 700,
+        "backgroundColor": "#101312"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost; font-src 'self'; object-src 'none'; base-uri 'self'",
+      "devCsp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420; font-src 'self'; object-src 'none'; base-uri 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "shortDescription": "Your local MTG Forge collection companion",
+    "category": "Game"
+  },
+  "plugins": {
+    "sql": {
+      "preload": ["sqlite:eternal-league.db"]
+    }
+  }
+}
