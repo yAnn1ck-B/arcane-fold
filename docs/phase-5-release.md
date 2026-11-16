@@ -12,7 +12,7 @@ This document defines the release procedure and records implementation/verificat
 
 SQLite and companion caches resolve within the profile selected by the Tauri identifier. On Windows the database is under `%APPDATA%\<identifier>\eternal-league.db`. Changing the production identifier after release would strand existing progress, so the production identifier is permanent.
 
-The development wrapper injects the tracked override only when its first argument is `dev` and no explicit `--config` / `-c` was provided. Explicit preview/verification configuration takes precedence, including joined option forms. Injection happens before the runtime `--` argument separator. `build` never gets the development override. Ordinary development launches should use this wrapper rather than starting a debug app directly against the base production identifier.
+The development wrapper injects the tracked override only when its first argument is `dev` and no explicit `--config` / `-c` was provided. Explicit preview/verification configuration takes precedence, including joined option forms. Injection happens before the runtime `--` argument separator. `build` never gets the development override. Ordinary development launches should use this wrapper rather than starting a debug app directly against the base production identifier. Development and preview builds suppress updater scheduling and prompts, so they cannot offer to replace a working development/preview session with the production installation.
 
 This separation provides a clean first production profile without deleting or moving any legacy `.app`, `.preview`, or Forge data. Production must not automatically import development ownership, decks, settings, opening history, operation receipts, or queued rewards. Reusing existing Forge artwork is allowed; external artwork and untracked Forge decks are not collection progress. Fresh migrations may create initial schema rows, and normal catalog setup may import metadata. A late installation still receives rewards legitimately earned since the shared production start.
 
@@ -75,7 +75,7 @@ Use the actual version, not the placeholder. Changes after tagging need a new re
 
 ## Signing and update behavior
 
-The pipeline builds a current-user Windows NSIS installer on Windows 2022 and a Linux AppImage on Ubuntu 22.04, using Node 24 and Rust 1.90. The NSIS configuration prevents downgrade and adds no custom uninstall deletion hooks. Installation/uninstallation behavior still requires the platform tests recorded below.
+The pipeline builds a current-user Windows NSIS installer on Windows 2022 and a Linux AppImage on Ubuntu 22.04, using Node 24 and Rust 1.90. The NSIS configuration prevents downgrade and adds no custom uninstall deletion hooks. Local Windows installation and the Linux AppImage launch/file-replacement checks passed as recorded below; Windows uninstall/reinstall and signed upgrades remain pending.
 
 Default signing happens **locally**. CI needs no signing key or password secrets and drafts only the two raw installers. The public updater verification key is committed in application configuration. `updater.key` and its DPAPI-protected password remain on this PC; they are never uploaded to GitHub or included in source, docs, logs, or artifacts.
 
@@ -83,29 +83,36 @@ Automatic approval review rejected exporting the private key/password to GitHub 
 
 Local authenticated operations use `scripts/github.mjs`, which obtains credentials in memory and passes a child-only `GH_TOKEN`. Do not print credentials or persist temporary tokens. Keep the signing identity stable between releases so installed clients continue to verify updates.
 
-The app checks for updates at startup and every four hours. It presents **Install update** and **Later**, installs only after acceptance, verifies the signed update, and restarts as needed. Updates and reinstalls retain the database, collection, decks, rewards, settings, and downloaded artwork. Windows uninstall preserves user data by default.
+Production builds check for updates at startup and every four hours; development and preview builds do not start the updater or show update prompts. It presents **Install update** and **Later**, installs only after acceptance, verifies the signed update, and restarts as needed. Updates and reinstalls must retain the database, collection, decks, rewards, settings, and downloaded artwork. NSIS uses its standard user-data-preserving configuration; actual Windows uninstall/reinstall and signed-upgrade preservation still require verification.
 
 ## Verification record
 
-Completed identity/routing checks:
+Completed identity and local checks:
 
-- Base production identity is `com.eternalleague.desktop`; tracked development is `.app`; ignored preview remains `.preview`.
-- Eight isolated wrapper cases passed: ordinary development, production build, explicit long/short config options, their joined forms, runtime argument separation, and a different CLI command. No application process, profile, or Forge file was changed by these checks.
+- Production uses `com.eternalleague.desktop`; tracked development retains `.app`; the isolated preview retains `.preview`. Eight wrapper routing cases passed without changing profiles or Forge files.
+- Version preparation/check/tag helpers and their two tests passed. The initial candidate is `0.2.0`, with the fixed shared start committed in the release policy and built-in rules before tagging.
+- All **21 Node tests** passed: 13 updater, two version, and six release-verifier tests. These include rejection of missing or incorrect signed trusted-comment versions.
+- The native follow-up suite passed **99 tests: 96 unit tests and three cold-configuration integration tests**. The new integration tests check Windows/Linux platform configuration merges, development/preview overrides, freshly generated Tauri context, and the reported missing/null updater configuration case. Signed-version requirements and the HTTPS endpoint remain present after cold configuration loading. `cargo fmt` passed.
+- Development/preview updater scheduling and prompts are suppressed. Production keeps the startup/four-hour schedule and explicit download/install controls; public-channel and actual signed-upgrade checks remain pending.
+- Workflow validation passed checksum-verified actionlint 1.7.12. Linux Forge path coverage includes `~/.forge`, `~/.cache/forge`, and a bounded scan for extracted installations.
 
-Other completed local checks:
+Completed remote build and Linux execution checks:
 
-- The version preparation/check/tag helpers are implemented and their two tests passed. The initial application version is now `0.2.0`, with the fixed production start recorded in the release policy.
-- All **21 Node tests** passed: 13 updater, two version, and six release-verifier tests, including rejection of missing or incorrect signed trusted-comment versions. All **96 native tests** passed, including Linux Forge path coverage. `cargo fmt` passed.
-- The workflow passed checksum-verified actionlint 1.7.12 validation. The configured Windows/Linux jobs and draft/local-signing contract are validated locally; this is not evidence that remote packaging or installation has already run.
-- Linux Forge detection includes `~/.forge` and `~/.cache/forge` defaults plus a bounded extracted-install scan. No Linux GUI installation or updater preservation check is claimed by those path tests.
-- A Linux AppImage first-launch/relaunch/file-reinstall smoke test is configured in CI and release packaging with isolated HOME/XDG/TMPDIR. It checks schema 7, zero game progress, and settings/cache marker preservation, and uploads JSON evidence. Python syntax and workflow lint passed; actual Linux smoke execution awaits the first CI run.
+- [Desktop CI run 43914055166](https://github.com/yAnn1ck-B/eternal-league/actions/runs/43914055166), commit `32404c205218ba6d6ce1948441cc69200380cbe1`, passed **both** Windows and Linux jobs. Linux completed at `2026-11-16T17:17:58Z`; Windows completed at `2026-11-16T17:22:20Z`. This push run passed the then-current 96 native and 21 Node tests on each platform, frontend builds, and packaging; the three newer cold-configuration tests are local follow-up evidence, not part of that run.
+- The Linux job produced `Eternal League_0.2.0_amd64.AppImage` (82.84 MiB). Its real Xvfb/software-WebKit smoke check completed in about 6.3 seconds using isolated HOME/XDG/TMPDIR directories.
+- The downloaded smoke artifact reports schema **7** and `success`, `freshProfileEmpty`, `relaunchPreserved`, and `reinstallPreserved` all `true`. The first profile had no collection, decks, wildcards, opening history, receipts, league state, or development queue. A non-game settings probe and cache marker survived relaunch and removal/re-copy of the AppImage file, while game progress remained empty.
+- Local evidence is `.verification/ci/43914055166-linux-smoke/linux-install-smoke.json`, from artifact `linux-install-smoke-43914055166-1`. Its SHA-256 is `B0DF5F025A7CCC6B95D25809ABFD04F8EB79AB0C039C25E90BCDA88923ADC168`. This verifies AppImage launch and file replacement, not a signed updater installation or desktop/package-manager integration.
 
-Phase 5 delivery validation still needs recorded evidence for:
+Completed local Windows candidate checks:
 
-- Remote execution of the complete immutable-tag build workflow.
-- Downloadable Windows NSIS and Linux AppImage deliverables with valid updater signatures and correct manifest URLs/versions.
-- First launch with a clean production profile, including legitimate shared rewards without inherited development progress.
-- Installation, uninstall/reinstall, and signed update preservation on both supported platforms.
-- Public release publication and client startup/four-hour update notification behavior.
+- The `0.2.0` Windows NSIS installer built successfully, received a local version-bound updater signature, passed signature verification, and installed successfully.
+- A cold launch of the installed production app used the fresh `.desktop` profile: owned cards, decks, and wildcards were zero, with no inherited development progress. The release reported `previewWeeks: 0`, Daylight/Larger appearance, and the correct detected Forge version **2.0.13**.
+- These results establish local packaging, signing, installation, and first launch. They do not establish Windows uninstall/reinstall or signed-upgrade preservation. The private key remains on this PC.
 
-Earlier application checks are recorded in [Phase 4 verification](phase-4-verification.md); they do not substitute for packaging and updater tests.
+Still pending before Phase 5 is complete:
+
+- The actual immutable-tag release workflow and its private draft, followed by both final signed deliverables and matching `latest.json` verification.
+- Windows uninstall/reinstall preservation and actual signed-upgrade preservation on both supported platforms. Linux file-replacement smoke and updater/controller tests do not substitute for those checks.
+- Public repository/release publication and anonymous installer/updater downloads, plus live public-channel notification behavior.
+
+The repository remains private and publication has not occurred. Private-key/password export to GitHub remains unapproved; the local-signing procedure is the supported release path while consent is pending. Earlier application checks remain in [Phase 4 verification](phase-4-verification.md).

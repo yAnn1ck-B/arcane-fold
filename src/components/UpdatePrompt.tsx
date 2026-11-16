@@ -9,13 +9,14 @@ import "@/styles/update-prompt.css";
 export default function UpdatePrompt({ busy = false }: { busy?: boolean }) {
   const state = useSyncExternalStore(updater.subscribe, updater.getSnapshot);
   useEffect(() => {
-    if (!isTauri()) return;
+    // Development and preview profiles must never install the production app.
+    if (import.meta.env.DEV || !isTauri()) return;
     updater.start();
     const timer = window.setInterval(() => void updater.poll(), UPDATE_CHECK_INTERVAL);
     return () => window.clearInterval(timer);
   }, []);
 
-  if (!isTauri() || ["idle", "checking", "current", "dismissed"].includes(state.phase)) return null;
+  if (import.meta.env.DEV || !isTauri() || ["idle", "checking", "current", "dismissed"].includes(state.phase)) return null;
   const working = ["downloading", "installing", "restarting"].includes(state.phase);
   const windows = /Windows/i.test(navigator.userAgent);
   const percent = state.totalBytes && state.totalBytes > 0
