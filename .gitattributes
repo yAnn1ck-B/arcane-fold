@@ -1,0 +1,2 @@
+# SQLx hashes the exact migration bytes. Every checkout must embed the same LF SQL.
+*.sql text eol=lf

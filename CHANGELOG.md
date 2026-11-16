@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0]
+## [0.2.1]
 
 First public desktop release for Windows and Linux.
 
@@ -10,3 +10,8 @@ First public desktop release for Windows and Linux.
 - Use a fixed shared expansion calendar, Daylight appearance, and larger text.
 - Install optional, cryptographically verified updates without losing local collection, decks, settings, or cached artwork.
 - Start production with a fresh data profile, separate from development and preview leagues.
+- Keep SQL migration checksums identical across Windows and Linux builds.
+
+## [0.2.0]
+
+Unpublished candidate, superseded before release after installer checks found inconsistent SQL migration line endings between platforms.

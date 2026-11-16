@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { validateRelease, validateUnsignedRelease, decodePublicKey, decodeSignature, createReleaseRequest, downloadInstaller } from './verify-release.mjs';
+import { validateRelease as validateReleaseForRepository, validateUnsignedRelease, decodePublicKey, decodeSignature, createReleaseRequest, downloadInstaller } from './verify-release.mjs';
+
+import { canonicalAssetUrl, findDraftRelease } from './release-assets.mjs';
+
+function validateRelease(release, assets, manifest, tag, published = false) {
+  return validateReleaseForRepository(release, assets, manifest, tag, published, 'owner/repo');
+}
 
 function fixture() {
   const release = { tag_name: 'v0.2.0', draft: true, prerelease: false };
@@ -182,4 +188,46 @@ test("updater manifest must use matching public browser URL rather than authenti
       ),
     /windows/,
   );
+});
+
+
+test('canonical asset URLs use the final tag and exact GitHub asset name', () => {
+  assert.equal(canonicalAssetUrl('owner/repo', 'v0.2.0', 'Eternal.League_0.2.0_x64-setup.exe'), 'https://github.com/owner/repo/releases/download/v0.2.0/Eternal.League_0.2.0_x64-setup.exe');
+  assert.equal(canonicalAssetUrl('owner/repo', 'v0.2.0', 'asset #1.sig'), 'https://github.com/owner/repo/releases/download/v0.2.0/asset%20%231.sig');
+  assert.throws(() => canonicalAssetUrl('owner/repo', 'untagged-123', 'asset.exe'), /tag/);
+  assert.throws(() => canonicalAssetUrl('owner/repo', 'v0.2.0', '../asset.exe'), /separators/);
+});
+
+test('draft temporary browser URLs never enter the manifest and published URLs must match', () => {
+  const { release, assets, manifest } = fixture();
+  for (const asset of assets) asset.browser_download_url = asset.browser_download_url.replace('/v0.2.0/', '/untagged-056331ca5fe677dc5419/');
+  assert.equal(validateRelease(release, assets, manifest, 'v0.2.0').length, 2);
+  assert.throws(() => validateRelease({ ...release, draft: false }, assets, manifest, 'v0.2.0', true), /Published download URL/);
+  manifest.platforms['windows-x86_64'].url = assets[0].browser_download_url;
+  assert.throws(() => validateRelease(release, assets, manifest, 'v0.2.0'), /windows/);
+  manifest.platforms['windows-x86_64'].url = canonicalAssetUrl('owner/repo', 'v0.2.0', assets[0].name.replace('Eternal.League', 'Eternal League'));
+  assert.throws(() => validateRelease(release, assets, manifest, 'v0.2.0'), /windows/);
+});
+
+test('attachment finds the matching draft through release listing when tag API returns 404', () => {
+  const draft = { tag_name: 'v0.2.0', draft: true, id: 123 };
+  const requests = [];
+  const result = findDraftRelease('owner/repo', 'v0.2.0', args => {
+    requests.push(args);
+    if (requests.length === 1) throw new Error('GitHub CLI failed (1): gh: Not Found (HTTP 404)');
+    return JSON.stringify([{ tag_name: 'v0.1.0', draft: true }, draft]);
+  });
+  assert.deepEqual(result, draft);
+  assert.deepEqual(requests, [
+    ['api', 'repos/owner/repo/releases/tags/v0.2.0'],
+    ['api', 'repos/owner/repo/releases?per_page=100'],
+  ]);
+});
+
+test('attachment lookup never treats authorization failures or published releases as a draft', () => {
+  let calls = 0;
+  assert.throws(() => findDraftRelease('owner/repo', 'v0.2.0', () => { calls++; throw new Error('Forbidden (HTTP 403)'); }), /403/);
+  assert.equal(calls, 1);
+  assert.throws(() => findDraftRelease('owner/repo', 'v0.2.0', () => JSON.stringify({ tag_name: 'v0.2.0', draft: false })), /immutable/);
+  assert.throws(() => findDraftRelease('owner/repo', 'v0.2.0', args => { if (args[1].includes('/tags/')) throw new Error('Not Found (HTTP 404)'); return '[]'; }), /not found/);
 });

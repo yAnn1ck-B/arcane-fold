@@ -4,10 +4,11 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { repository as defaultRepository } from './github.mjs';
+import { canonicalAssetUrl } from './release-assets.mjs';
 
 const targets = [['windows-x86_64', '.exe'], ['linux-x86_64', '.AppImage']];
 
-export function validateRelease(release, assets, manifest, tag, published = false) {
+export function validateRelease(release, assets, manifest, tag, published = false, repository = defaultRepository) {
   if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new Error('Use an exact vX.Y.Z release tag.');
   if (release?.tag_name !== tag || release.draft !== !published) throw new Error(published ? 'The tagged release must be published.' : 'The tagged release must remain a draft.');
   if (release.prerelease) throw new Error('Stable updater releases cannot be prereleases.');
@@ -20,8 +21,9 @@ export function validateRelease(release, assets, manifest, tag, published = fals
   const allowed = new Set(['latest.json']);
   const plan = targets.map(([platform, extension]) => {
     const entry = manifest.platforms?.[platform];
-    const payload = assets.find((asset) => asset.browser_download_url === entry?.url);
+    const payload = assets.find((asset) => canonicalAssetUrl(repository, tag, asset.name) === entry?.url);
     if (!payload || !payload.name.endsWith(extension) || payload.size < 1 || !payload.name.includes(tag.slice(1))) throw new Error(`Missing versioned installer for ${platform}.`);
+    if (published && payload.browser_download_url !== entry.url) throw new Error(`Published download URL differs for ${platform}.`);
     if (/[\\/\0]/.test(payload.name)) throw new Error('Installer filenames cannot contain path separators.');
     const signature = assets.find((asset) => asset.name === `${payload.name}.sig` && asset.size > 0);
     if (!signature || typeof entry.signature !== 'string' || !entry.signature.trim()) throw new Error(`Missing updater signature for ${platform}.`);
@@ -113,7 +115,7 @@ async function verifyRelease(tag, published, unsigned = false) {
   } else {
     manifest = JSON.parse(await request(manifestAsset.url, 'text'));
   }
-  const plan = validateRelease(release, assets, manifest, tag, published);
+  const plan = validateRelease(release, assets, manifest, tag, published, repository);
   const publicKey = decodePublicKey(config.plugins?.updater?.pubkey);
   const directory = mkdtempSync(path.join(tmpdir(), 'eternal-league-release-'));
   try {

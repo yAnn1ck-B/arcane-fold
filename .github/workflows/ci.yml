@@ -61,7 +61,7 @@ jobs:
       - name: Check versions and release identity
         run: node scripts/check-version.mjs
       - name: Test updater and release verification
-        run: node --test scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs
+        run: node --test scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
       - name: Test native code (Windows)

@@ -1,3 +1,5 @@
+import { repository } from './github.mjs';
+import { canonicalAssetUrl } from './release-assets.mjs';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -45,7 +47,7 @@ try {
   const notes = changelog.split(`## [${version}]`)[1]?.split('\n## [')[0]?.trim() ?? `Eternal League ${version}`;
   const manifest = {
     version, notes, pub_date: new Date().toISOString(),
-    platforms: Object.fromEntries(payloads.map(payload => [payload.target, { signature: payload.signature, url: `https://github.com/yAnn1ck-B/eternal-league/releases/download/${tag}/${encodeURIComponent(payload.name)}` }])),
+    platforms: Object.fromEntries(payloads.map(payload => [payload.target, { signature: payload.signature, url: canonicalAssetUrl(repository, tag, payload.name) }])),
   };
   writeFileSync(path.join(directory, 'latest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`Signed both ${version} installers locally and wrote latest.json. No key or password was uploaded. Verify the public signatures before attaching them to the draft.`);

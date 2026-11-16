@@ -3,12 +3,13 @@ import path from 'node:path';
 import { readVersionState, projectRoot } from './check-version.mjs';
 import { repository, runGithub } from './github.mjs';
 import { validateUnsignedRelease } from './verify-release.mjs';
+import { canonicalAssetUrl, findDraftRelease } from './release-assets.mjs';
 
 try {
   const { version } = readVersionState(), tag = process.argv[2] ?? `v${version}`;
   if (tag !== `v${version}` || process.argv.length > 4) throw new Error(`Usage: release-attach.mjs [v${version}] [directory]`);
   const directory = path.resolve(process.argv[3] ?? path.join(projectRoot, '.verification', 'releases', tag));
-  const release = JSON.parse(runGithub(['api', `repos/${repository}/releases/tags/${tag}`]));
+  const release = findDraftRelease(repository, tag, runGithub);
   if (!release.draft) throw new Error('Published releases are immutable. Create a higher version instead.');
   const plan = validateUnsignedRelease(release, release.assets.filter(asset => asset.name.endsWith('.exe') || asset.name.endsWith('.AppImage')), tag);
   const manifestPath = path.join(directory, 'latest.json'), manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -19,7 +20,7 @@ try {
     const signature = readFileSync(signaturePath, 'utf8').trim();
     const decoded = Buffer.from(signature, 'base64').toString('utf8');
     if (signature.length > 16000 || !decoded.startsWith('untrusted comment:') || !decoded.includes('trusted comment:')) throw new Error('Only public updater signatures can be uploaded.');
-    if (manifest.platforms[platform]?.signature !== signature || manifest.platforms[platform]?.url !== payload.browser_download_url) throw new Error('Manifest signature/URL does not match the draft payload.');
+    if (manifest.platforms[platform]?.signature !== signature || manifest.platforms[platform]?.url !== canonicalAssetUrl(repository, tag, payload.name)) throw new Error('Manifest signature/URL does not match the draft payload.');
     files.push(signaturePath);
   }
   runGithub(['release', 'upload', tag, ...files, manifestPath, '--repo', repository, '--clobber']);

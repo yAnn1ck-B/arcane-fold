@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkMigrations } from './check-migrations.mjs';
 
 export const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -30,6 +31,7 @@ export function validateVersionValues(values, tag) {
   return version;
 }
 export function readVersionState(root = projectRoot, tag) {
+  checkMigrations(root);
   const json = file => JSON.parse(readFileSync(path.join(root, file), 'utf8'));
   const pkg = json('package.json'), lock = json('package-lock.json'), config = json('src-tauri/tauri.conf.json');
   const cargo = readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8');
