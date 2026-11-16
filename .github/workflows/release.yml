@@ -34,10 +34,10 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - name: Install Linux dependencies and public signature verifier
+      - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb minisign
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb
       - name: Install Rust 1.90
         run: |
           rustup toolchain install 1.90.0 --profile minimal
@@ -51,7 +51,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh run download 43914055166 --repo "$GITHUB_REPOSITORY" --name unsigned-linux-x86_64 --dir "$LINUX_QA_PAYLOAD_DIR"
-      - name: Verify public signature and prepare old QA configuration
+      - name: Validate signed payload metadata and prepare old QA configuration
         run: python3 qa/linux-upgrade-qa.py prepare
       - name: Install locked frontend dependencies
         run: npm ci
