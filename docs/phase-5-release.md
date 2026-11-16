@@ -64,6 +64,14 @@ The **LOCAL-only signing helper** reads the local updater key and DPAPI-protecte
 
 The **separate attach helper** validates the draft, version, URLs, and signature contents before uploading only the two public signatures and updater manifest. GitHub can normalize asset filenames (for example, spaces become dots); preserve the exact downloaded GitHub asset name. All manifest URLs use the stable final `/releases/download/vX.Y.Z/ASSET_NAME` path, never a draft's temporary `untagged-*` URL. If the by-tag API returns HTTP 404 for a draft, attachment finds that tagged draft through the authenticated release list; authorization failures are not treated as missing releases. Full verification then requires exactly five assets and actual minisign verification of both installers. The app requires version-bound signatures with `requireSignedVersion: true`. Use `MINISIGN_EXECUTABLE` for a portable Windows verifier or provide minisign on PATH; the verified local verifier is official minisign 0.12.
 
+After both signatures and `latest.json` have been attached, an optional independent remote check runs current main verification tools against the unchanged draft:
+
+```powershell
+node scripts/github.mjs workflow run verify-release.yml --ref main -f tag=vX.Y.Z
+```
+
+Wait for **Verify signed draft release** to pass before treating this remote check as evidence. The input must match current main's application version. The Windows 2022 job runs the 31 Node checks and version validation, downloads official minisign 0.12 with a pinned SHA-256, and verifies all five draft assets with the public key. Its `contents: write` token is needed for GitHub draft visibility; the workflow performs no upload, signing, publication, or private-key export. It is separate from the immutable tag workflow so verification-only fixes on main can check the same tagged bytes. Workflow implementation alone is not a completed run.
+
 After verification, promote that exact draft and verify public downloads anonymously:
 
 ```powershell

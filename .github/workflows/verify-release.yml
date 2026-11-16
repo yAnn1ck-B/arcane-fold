@@ -1,0 +1,79 @@
+name: Verify signed draft release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact draft release tag (vX.Y.Z), matching the current main version
+        required: true
+        type: string
+
+# GitHub requires push access to expose draft releases, including their assets.
+# This workflow only reads release assets; it never signs, uploads, or publishes.
+permissions:
+  contents: write
+
+concurrency:
+  group: verify-signed-draft-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify both signed draft installers
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check out current verification tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Validate exact tag against current main
+        run: |
+          if ($env:RELEASE_TAG -cnotmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+            throw 'Supply one exact stable vX.Y.Z release tag.'
+          }
+          node scripts/check-version.mjs --tag $env:RELEASE_TAG
+      - name: Install locked test dependencies
+        run: npm ci
+      - name: Test updater and release verification
+        run: node --test scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
+      - name: Install checksum-pinned public signature verifier
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'minisign-0.12-win64.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'minisign-0.12'
+          Invoke-WebRequest -Uri 'https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip' -OutFile $archive -TimeoutSec 120
+          $expected = '37B600344E20C19314B2E82813DB2BFDCC408B77B876F7727889DBD46D539479'
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -cne $expected) {
+            throw 'Official minisign 0.12 archive checksum mismatch.'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $executable = Join-Path $destination 'minisign-win64/x86_64/minisign.exe'
+          if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+            throw 'The verified archive has no x86_64 minisign executable.'
+          }
+          "MINISIGN_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Verify all five draft assets and both version-bound signatures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/verify-release.mjs --tag $env:RELEASE_TAG
+      - name: Report verified draft scope
+        run: |
+          @"
+          ## Signed draft verified
+          - Tag: $env:RELEASE_TAG
+          - Exactly five assets: Windows NSIS installer, Linux AppImage, both public signatures, and latest.json.
+          - Both downloaded native executables passed minisign verification with the configured public key and matching signed versions.
+          - Manifest version, platforms, canonical tagged URLs, signature contents, and asset sizes matched.
+          - The release remains a draft. No asset was changed, no release was published, and no private signing key or password was used.
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
