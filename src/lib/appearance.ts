@@ -1,5 +1,10 @@
 import type { AppearanceSettings } from "@/lib/types";
 
+export const defaultAppearance: AppearanceSettings = {
+  theme: "light",
+  fontSize: "large",
+};
+
 export const appearanceThemes = [
   {
     id: "forest",
@@ -37,7 +42,8 @@ export function normalizeAppearance(
   return {
     theme: appearanceThemes.some((theme) => theme.id === value?.theme)
       ? value!.theme!
-      : "forest",
-    fontSize: value?.fontSize === "large" ? "large" : "normal",
+      : defaultAppearance.theme,
+    fontSize:
+      value?.fontSize === "normal" ? "normal" : defaultAppearance.fontSize,
   };
 }

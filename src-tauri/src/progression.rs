@@ -10,7 +10,7 @@ use rand::{rngs::OsRng, seq::SliceRandom, Rng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{Row, SqliteConnection, SqlitePool};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use tauri::AppHandle;
 
 const WEEK_SECONDS: i64 = 7 * 24 * 60 * 60;
@@ -66,6 +66,9 @@ pub struct BoosterHistory {
 #[serde(rename_all = "camelCase")]
 pub struct LeagueStatus {
     pub started: bool,
+    pub openable_packs: i64,
+    pub preview_weeks: i64,
+    pub effective_now: String,
     pub available_packs: i64,
     pub wildcards: WildcardBalances,
     pub enabled_sets: Vec<String>,
@@ -92,6 +95,8 @@ pub struct LeagueStatus {
 pub struct BoosterOpening {
     pub id: String,
     pub packs: i64,
+    #[serde(default)]
+    pub per_set_packs: BTreeMap<String, i64>,
     pub set_code: String,
     pub cards: Vec<CatalogCard>,
     pub wildcards: WildcardBalances,
@@ -171,6 +176,26 @@ fn enabled_sets(config: &LeagueConfig, _state: Option<LeagueState>, now: i64) ->
         );
     }
     normalized_sets(values)
+}
+
+pub(crate) async fn unlocked_sets_connection(
+    connection: &mut SqliteConnection,
+) -> Result<Vec<String>, String> {
+    #[cfg(test)]
+    if let Some(value) =
+        sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key='test.unlocked-sets'")
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(|error| error.to_string())?
+    {
+        return serde_json::from_str(&value).map_err(|error| error.to_string());
+    }
+    let rules = config(connection).await?;
+    Ok(enabled_sets(
+        &rules,
+        None,
+        crate::league_clock::effective_now(),
+    ))
 }
 
 fn validate_config(config: &LeagueConfig) -> Result<(), String> {
@@ -419,6 +444,258 @@ async fn unclaimed_expansion_rewards(
         .collect())
 }
 
+// Queue rows retain the expansion and calendar order of every unspent grant.
+// Balances remain authoritative for compatibility with existing local profiles.
+fn pack_set_at(config: &LeagueConfig, week: i64) -> Result<String, String> {
+    let mut selected = config.enabled_sets.first().cloned().map(|code| (0, code));
+    for expansion in &config.expansion_schedule {
+        if expansion.week <= week
+            && selected
+                .as_ref()
+                .is_none_or(|(at, _)| expansion.week >= *at)
+        {
+            selected = Some((expansion.week, expansion.code.clone()));
+        }
+    }
+    if config.auto_unlock.interval_weeks > 0 {
+        for (index, code) in config.auto_unlock.set_codes.iter().enumerate() {
+            let at = (index as i64 + 1) * config.auto_unlock.interval_weeks;
+            if at <= week
+                && selected
+                    .as_ref()
+                    .is_none_or(|(previous, _)| at >= *previous)
+            {
+                selected = Some((at, code.clone()));
+            }
+        }
+    }
+    selected
+        .map(|(_, code)| code.trim().to_lowercase())
+        .ok_or_else(|| "No expansion is available for these booster rewards.".into())
+}
+
+async fn enqueue_packs(
+    connection: &mut SqliteConnection,
+    id: &str,
+    code: &str,
+    source: &str,
+    week: i64,
+    priority: i64,
+    count: i64,
+) -> Result<(), String> {
+    if count == 0 {
+        return Ok(());
+    }
+    sqlx::query("INSERT INTO booster_pack_queue(id,set_code,source,earned_period,priority,remaining) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET remaining=remaining+excluded.remaining")
+        .bind(id).bind(code).bind(source).bind(week).bind(priority).bind(count).execute(&mut *connection).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+async fn enqueue_weekly(
+    connection: &mut SqliteConnection,
+    config: &LeagueConfig,
+    from: i64,
+    through: i64,
+) -> Result<(), String> {
+    if through <= from || config.weekly_packs == 0 {
+        return Ok(());
+    }
+    let end = through
+        .checked_add(1)
+        .ok_or("The reward calendar is outside the supported range.")?;
+    let mut boundaries = BTreeSet::from([from + 1, end]);
+    for expansion in &config.expansion_schedule {
+        if expansion.week > from && expansion.week < end {
+            boundaries.insert(expansion.week);
+        }
+    }
+    if config.auto_unlock.interval_weeks > 0 {
+        for index in 0..config.auto_unlock.set_codes.len() {
+            let at = (index as i64 + 1) * config.auto_unlock.interval_weeks;
+            if at > from && at < end {
+                boundaries.insert(at);
+            }
+        }
+    }
+    let boundaries: Vec<_> = boundaries.into_iter().collect();
+    for pair in boundaries.windows(2) {
+        let first = pair[0];
+        let count = (pair[1] - first)
+            .checked_mul(config.weekly_packs)
+            .filter(|count| *count <= MAX_BALANCE)
+            .ok_or("The queued reward balance is too large.")?;
+        let code = pack_set_at(config, first)?;
+        enqueue_packs(
+            connection,
+            &format!("weekly:{first:012}"),
+            &code,
+            "general",
+            first,
+            1,
+            count,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn consume_queued_source(
+    connection: &mut SqliteConnection,
+    source: &str,
+    code: &str,
+    mut count: i64,
+) -> Result<(), String> {
+    let rows = sqlx::query("SELECT id,remaining FROM booster_pack_queue WHERE source=? AND (?='' OR set_code=?) AND remaining>0 ORDER BY earned_period,priority,id")
+        .bind(source).bind(code).bind(code).fetch_all(&mut *connection).await.map_err(|e| e.to_string())?;
+    for row in rows {
+        if count == 0 {
+            break;
+        }
+        let take = count.min(row.get("remaining"));
+        sqlx::query(
+            "UPDATE booster_pack_queue SET remaining=remaining-? WHERE id=? AND remaining>=?",
+        )
+        .bind(take)
+        .bind(row.get::<&str, _>("id"))
+        .bind(take)
+        .execute(&mut *connection)
+        .await
+        .map_err(|e| e.to_string())?;
+        count -= take;
+    }
+    if count != 0 {
+        return Err("The chronological pack queue does not match the saved balance.".into());
+    }
+    Ok(())
+}
+
+async fn reconcile_queue_source(
+    connection: &mut SqliteConnection,
+    source: &str,
+    code: &str,
+    actual: i64,
+    fallback: &str,
+    week: i64,
+) -> Result<(), String> {
+    let queued: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(remaining),0) FROM booster_pack_queue WHERE source=? AND (?='' OR set_code=?)")
+        .bind(source).bind(code).bind(code).fetch_one(&mut *connection).await.map_err(|e| e.to_string())?;
+    if queued > actual {
+        consume_queued_source(connection, source, code, queued - actual).await?;
+    }
+    if queued < actual {
+        enqueue_packs(
+            connection,
+            &format!("legacy:{source}:{code}"),
+            fallback,
+            source,
+            week,
+            0,
+            actual - queued,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn ensure_pack_queue(
+    connection: &mut SqliteConnection,
+    config: &LeagueConfig,
+    current: Option<LeagueState>,
+) -> Result<(), String> {
+    let initial = pack_set_at(config, 0)?;
+    reconcile_queue_source(
+        connection,
+        "general",
+        "",
+        current.map(|state| state.available_packs).unwrap_or(0),
+        &initial,
+        0,
+    )
+    .await?;
+    let mut bonuses = set_pack_balances(connection).await?;
+    let previous: Vec<String> =
+        sqlx::query_scalar("SELECT DISTINCT set_code FROM booster_pack_queue WHERE source='bonus'")
+            .fetch_all(&mut *connection)
+            .await
+            .map_err(|e| e.to_string())?;
+    for code in previous {
+        bonuses.entry(code).or_default();
+    }
+    for (code, balance) in bonuses {
+        let week = config
+            .expansion_schedule
+            .iter()
+            .find(|entry| entry.code.eq_ignore_ascii_case(&code))
+            .map(|entry| entry.week)
+            .unwrap_or(0);
+        reconcile_queue_source(connection, "bonus", &code, balance, &code, week).await?;
+    }
+    Ok(())
+}
+
+async fn accrue_rewards(
+    connection: &mut SqliteConnection,
+    config: &LeagueConfig,
+    now: i64,
+    auto_start: bool,
+) -> Result<(), String> {
+    let mut current = state(connection, config).await?;
+    ensure_pack_queue(connection, config, current).await?;
+    if current.is_none() {
+        if !auto_start {
+            return Ok(());
+        }
+        if now < config.started_at {
+            return Err(format!(
+                "This league begins on {}.",
+                timestamp(config.started_at)?
+            ));
+        }
+        sqlx::query("INSERT INTO league_state(id,started_at,available_packs,last_claimed_period) VALUES(1,?,?,0)")
+            .bind(config.started_at).bind(config.starting_packs).execute(&mut *connection).await.map_err(|e| e.to_string())?;
+        enqueue_packs(
+            connection,
+            "starting",
+            &pack_set_at(config, 0)?,
+            "general",
+            0,
+            0,
+            config.starting_packs,
+        )
+        .await?;
+        current = Some(LeagueState {
+            started_at: config.started_at,
+            available_packs: config.starting_packs,
+            last_claimed_period: 0,
+        });
+    }
+    let current = current.unwrap();
+    let elapsed = period(config.started_at, now);
+    let (packs, wildcards) = rewards_between(config, current.last_claimed_period, elapsed)?;
+    let credited = elapsed.max(current.last_claimed_period);
+    let changed = sqlx::query("UPDATE league_state SET available_packs=available_packs+?,last_claimed_period=? WHERE id=1 AND available_packs<=?")
+        .bind(packs).bind(credited).bind(MAX_BALANCE - packs).execute(&mut *connection).await.map_err(|e| e.to_string())?.rows_affected();
+    if changed != 1 {
+        return Err("The accumulated booster balance is full.".into());
+    }
+    add_wildcards(connection, &wildcards).await?;
+    enqueue_weekly(connection, config, current.last_claimed_period, elapsed).await?;
+    grant_expansion_rewards(connection, config, now).await?;
+    Ok(())
+}
+
+pub async fn automatic_status_pool(pool: &SqlitePool, now: i64) -> Result<LeagueStatus, String> {
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    let config = config(&mut transaction).await?;
+    accrue_rewards(&mut transaction, &config, now, false).await?;
+    let result = status_connection(&mut transaction, now).await?;
+    transaction.commit().await.map_err(|e| e.to_string())?;
+    Ok(result)
+}
+
 async fn grant_expansion_rewards(
     connection: &mut SqliteConnection,
     config: &LeagueConfig,
@@ -445,6 +722,16 @@ async fn grant_expansion_rewards(
                 code.to_uppercase()
             ));
         }
+        enqueue_packs(
+            connection,
+            &format!("expansion:{code}"),
+            &code,
+            "bonus",
+            expansion.week,
+            0,
+            amount,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -580,6 +867,15 @@ async fn status_connection(
         .transpose()?;
     Ok(LeagueStatus {
         started: state.is_some(),
+        openable_packs: if state.is_some() {
+            available_packs
+                .checked_add(claimable_packs)
+                .ok_or("The openable pack balance exceeds the supported range.")?
+        } else {
+            join_packs
+        },
+        preview_weeks: crate::league_clock::preview_weeks(),
+        effective_now: timestamp(now)?,
         available_packs,
         wildcards: balances(connection).await?,
         enabled_sets: enabled_sets(&config, state, now),
@@ -602,6 +898,7 @@ async fn status_connection(
     })
 }
 
+#[cfg(test)]
 pub async fn status_pool(pool: &SqlitePool, now: i64) -> Result<LeagueStatus, String> {
     let mut transaction = pool
         .begin_with("BEGIN IMMEDIATE")
@@ -618,25 +915,11 @@ pub async fn begin_pool(pool: &SqlitePool, now: i64) -> Result<LeagueStatus, Str
         .await
         .map_err(|e| e.to_string())?;
     let config = config(&mut transaction).await?;
-    if state(&mut transaction, &config).await?.is_none() {
-        if now < config.started_at {
-            return Err(format!(
-                "This league begins on {}.",
-                timestamp(config.started_at)?
-            ));
-        }
-        let elapsed = period(config.started_at, now);
-        let (weekly_packs, wildcards) = accumulated_rewards(&config, elapsed)?;
-        let packs = config
-            .starting_packs
-            .checked_add(weekly_packs)
-            .filter(|packs| *packs <= MAX_BALANCE)
-            .ok_or("The catch-up pack balance exceeds the supported range.")?;
-        sqlx::query("INSERT INTO league_state(id,started_at,available_packs,last_claimed_period) VALUES(1,?,?,?)")
-            .bind(config.started_at).bind(packs).bind(elapsed)
-            .execute(&mut *transaction).await.map_err(|e| e.to_string())?;
-        add_wildcards(&mut transaction, &wildcards).await?;
-        grant_expansion_rewards(&mut transaction, &config, now).await?;
+    let existing = state(&mut transaction, &config).await?;
+    if existing.is_none() {
+        accrue_rewards(&mut transaction, &config, now, true).await?;
+    } else {
+        ensure_pack_queue(&mut transaction, &config, existing).await?;
     }
     let status = status_connection(&mut transaction, now).await?;
     transaction.commit().await.map_err(|e| e.to_string())?;
@@ -652,6 +935,7 @@ pub async fn claim_pool(pool: &SqlitePool, now: i64) -> Result<LeagueStatus, Str
     let state = state(&mut transaction, &config)
         .await?
         .ok_or("Begin your league before claiming weekly rewards.")?;
+    ensure_pack_queue(&mut transaction, &config, Some(state)).await?;
     let current = period(config.started_at, now);
     let bonuses = unclaimed_expansion_rewards(&mut transaction, &config, now).await?;
     if current < 1 && bonuses.is_empty() {
@@ -670,6 +954,13 @@ pub async fn claim_pool(pool: &SqlitePool, now: i64) -> Result<LeagueStatus, Str
     if changed != 1 {
         return Err("The weekly rewards could not be claimed because the pack balance is full or they were already claimed.".into());
     }
+    enqueue_weekly(
+        &mut transaction,
+        &config,
+        state.last_claimed_period,
+        current,
+    )
+    .await?;
     add_wildcards(&mut transaction, &wildcards).await?;
     grant_expansion_rewards(&mut transaction, &config, now).await?;
     let status = status_connection(&mut transaction, now).await?;
@@ -729,13 +1020,15 @@ async fn save_receipt<T: Serialize>(
 }
 
 fn craftable(metadata: &Value, card: &CatalogCard) -> bool {
-    matches!(
-        card.rarity.as_str(),
-        "common" | "uncommon" | "rare" | "mythic"
-    ) && !metadata
-        .get("digital")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
+    crate::card_policy::eligible(metadata, card)
+        && matches!(
+            card.rarity.as_str(),
+            "common" | "uncommon" | "rare" | "mythic"
+        )
+        && !metadata
+            .get("digital")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
         && !metadata
             .get("oversized")
             .and_then(Value::as_bool)
@@ -951,6 +1244,7 @@ pub async fn open_pool_boosters(
     let state = state(&mut transaction, &config)
         .await?
         .ok_or("Begin your league before opening booster packs.")?;
+    ensure_pack_queue(&mut transaction, &config, Some(state)).await?;
     if !enabled_sets(&config, Some(state), now).contains(&set_code) {
         return Err("This set is locked until its shared league unlock date.".into());
     }
@@ -994,6 +1288,8 @@ pub async fn open_pool_boosters(
             return Err("The general pack balance changed. Try opening again.".into());
         }
     }
+    consume_queued_source(&mut transaction, "bonus", &set_code, use_reserved).await?;
+    consume_queued_source(&mut transaction, "general", "", use_general).await?;
     let pools = booster_pools(&mut transaction, &set_code).await?;
     validate_pools(&pools, &config.booster, &set_code)?;
     let mut rng = OsRng;
@@ -1040,6 +1336,7 @@ pub async fn open_pool_boosters(
     let result = BoosterOpening {
         id: request_id.into(),
         packs: count,
+        per_set_packs: BTreeMap::from([(set_code.clone(), count)]),
         set_code,
         cards,
         wildcards: balances(&mut transaction).await?,
@@ -1051,6 +1348,185 @@ pub async fn open_pool_boosters(
         .await
         .map_err(|e| format!("The booster opening was not saved: {e}"))?;
     Ok(result)
+}
+
+pub async fn open_next_pool_boosters(
+    pool: &SqlitePool,
+    requested: i64,
+    request_id: &str,
+    now: i64,
+) -> Result<BoosterOpening, String> {
+    const MAX_OPENING: i64 = 10_000;
+    valid_request_id(request_id)?;
+    if !(0..=MAX_OPENING).contains(&requested) {
+        return Err("Open between one and 10,000 packs, or use Open all.".into());
+    }
+    let request = serde_json::json!({ "count": requested }).to_string();
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Some(result) = receipt(&mut transaction, request_id, "open", &request).await? {
+        transaction.commit().await.map_err(|e| e.to_string())?;
+        return Ok(result);
+    }
+    let config = config(&mut transaction).await?;
+    accrue_rewards(&mut transaction, &config, now, true).await?;
+    let queued = sqlx::query("SELECT id,set_code,source,remaining FROM booster_pack_queue WHERE remaining>0 ORDER BY earned_period,priority,id")
+        .fetch_all(&mut *transaction).await.map_err(|e| e.to_string())?;
+    let available = queued
+        .iter()
+        .try_fold(0_i64, |sum, row| {
+            sum.checked_add(row.get::<i64, _>("remaining"))
+        })
+        .ok_or("The pack queue exceeds the supported range.")?;
+    let count = if requested == 0 { available } else { requested };
+    if count == 0 {
+        return Err("No booster packs are available yet.".into());
+    }
+    if count > available {
+        return Err(format!("You have {available} booster packs available."));
+    }
+    if count > MAX_OPENING {
+        return Err(
+            "This opening exceeds the 10,000-pack transaction limit. Open a smaller group first."
+                .into(),
+        );
+    }
+    let mut remaining = count;
+    let mut plan = Vec::new();
+    for row in queued {
+        if remaining == 0 {
+            break;
+        }
+        let quantity = remaining.min(row.get("remaining"));
+        plan.push((
+            row.get::<String, _>("id"),
+            row.get::<String, _>("set_code"),
+            row.get::<String, _>("source"),
+            quantity,
+        ));
+        remaining -= quantity;
+    }
+    let unlocked = enabled_sets(&config, None, now);
+    let mut pools_by_set = HashMap::new();
+    for (_, code, _, _) in &plan {
+        if !unlocked.contains(code) {
+            return Err(format!(
+                "{} packs are not unlocked yet.",
+                code.to_uppercase()
+            ));
+        }
+        if !pools_by_set.contains_key(code) {
+            let pools = booster_pools(&mut transaction, code).await?;
+            validate_pools(&pools, &config.booster, code)?;
+            pools_by_set.insert(code.clone(), pools);
+        }
+    }
+    let mut rng = OsRng;
+    let mut owned = owned_totals(&mut transaction).await?;
+    let mut cards = Vec::new();
+    let mut rewards = WildcardBalances::default();
+    let mut duplicates = WildcardBalances::default();
+    let mut outcomes = Vec::new();
+    let mut per_set_packs = BTreeMap::<String, i64>::new();
+    for (id, code, source, quantity) in plan {
+        let pools = &pools_by_set[&code];
+        for _ in 0..quantity {
+            let pack = generate_pack(pools, &config, &mut owned, &mut rng);
+            duplicates.add(&pack.duplicate_wildcards);
+            rewards.add(&pack.duplicate_wildcards);
+            outcomes.push((code.clone(), pack.cards.len(), pack.duplicate_wildcards));
+            cards.extend(pack.cards);
+            if rng.gen_bool(config.wildcard_drop_probability) {
+                rewards.add_rarity(
+                    ["common", "uncommon", "rare", "mythic"]
+                        .choose(&mut rng)
+                        .copied()
+                        .unwrap(),
+                );
+            }
+        }
+        *per_set_packs.entry(code.clone()).or_default() += quantity;
+        let changed = sqlx::query(
+            "UPDATE booster_pack_queue SET remaining=remaining-? WHERE id=? AND remaining>=?",
+        )
+        .bind(quantity)
+        .bind(&id)
+        .bind(quantity)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|e| e.to_string())?
+        .rows_affected();
+        if changed != 1 {
+            return Err("The queued pack balance changed. Retry the same opening.".into());
+        }
+        let changed = if source == "general" {
+            sqlx::query("UPDATE league_state SET available_packs=available_packs-? WHERE id=1 AND available_packs>=?")
+                .bind(quantity).bind(quantity).execute(&mut *transaction).await.map_err(|e| e.to_string())?.rows_affected()
+        } else {
+            sqlx::query("UPDATE set_booster_balances SET quantity=quantity-? WHERE set_code=? AND quantity>=?")
+                .bind(quantity).bind(&code).bind(quantity).execute(&mut *transaction).await.map_err(|e| e.to_string())?.rows_affected()
+        };
+        if changed != 1 {
+            return Err("The saved pack balance changed. Retry the same opening.".into());
+        }
+    }
+    add_cards(&mut transaction, &mut cards).await?;
+    add_wildcards(&mut transaction, &rewards).await?;
+    let mut offset = 0;
+    for (index, (code, size, duplicate_wildcards)) in outcomes.into_iter().enumerate() {
+        let contents = PackContents {
+            cards: cards[offset..offset + size].to_vec(),
+            duplicate_wildcards,
+        };
+        offset += size;
+        sqlx::query(
+            "INSERT INTO booster_history(id,set_code,opened_at,contents_json) VALUES(?,?,?,?)",
+        )
+        .bind(format!("{request_id}:{index}"))
+        .bind(code)
+        .bind(timestamp(now)?)
+        .bind(serde_json::to_string(&contents).map_err(|e| e.to_string())?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    let result = BoosterOpening {
+        id: request_id.into(),
+        packs: count,
+        set_code: if per_set_packs.len() == 1 {
+            per_set_packs.keys().next().unwrap().clone()
+        } else {
+            "mixed".into()
+        },
+        per_set_packs,
+        cards,
+        wildcards: balances(&mut transaction).await?,
+        duplicate_wildcards: duplicates,
+    };
+    save_receipt(&mut transaction, request_id, "open", &request, &result, now).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|e| format!("The booster opening was not saved: {e}"))?;
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn open_next_boosters(
+    app: AppHandle,
+    count: i64,
+    request_id: String,
+) -> Result<BoosterOpening, String> {
+    let _operation = database_mutation_guard()?;
+    open_next_pool_boosters(
+        &open_pool(&app).await?,
+        count,
+        &request_id,
+        crate::league_clock::effective_now(),
+    )
+    .await
 }
 
 pub async fn craft_pool(
@@ -1132,17 +1608,29 @@ pub async fn craft_pool(
 #[tauri::command]
 pub async fn league_status(app: AppHandle) -> Result<LeagueStatus, String> {
     let _operation = database_mutation_guard()?;
-    status_pool(&open_pool(&app).await?, Utc::now().timestamp()).await
+    automatic_status_pool(
+        &open_pool(&app).await?,
+        crate::league_clock::effective_now(),
+    )
+    .await
 }
 #[tauri::command]
 pub async fn begin_league(app: AppHandle) -> Result<LeagueStatus, String> {
     let _operation = database_mutation_guard()?;
-    begin_pool(&open_pool(&app).await?, Utc::now().timestamp()).await
+    begin_pool(
+        &open_pool(&app).await?,
+        crate::league_clock::effective_now(),
+    )
+    .await
 }
 #[tauri::command]
 pub async fn claim_weekly_reward(app: AppHandle) -> Result<LeagueStatus, String> {
     let _operation = database_mutation_guard()?;
-    claim_pool(&open_pool(&app).await?, Utc::now().timestamp()).await
+    claim_pool(
+        &open_pool(&app).await?,
+        crate::league_clock::effective_now(),
+    )
+    .await
 }
 #[tauri::command]
 pub async fn open_boosters(
@@ -1157,7 +1645,7 @@ pub async fn open_boosters(
         &set_code,
         count,
         &request_id,
-        Utc::now().timestamp(),
+        crate::league_clock::effective_now(),
     )
     .await
 }
@@ -1172,7 +1660,7 @@ pub async fn craft_card(
         &open_pool(&app).await?,
         &card_id,
         &request_id,
-        Utc::now().timestamp(),
+        crate::league_clock::effective_now(),
     )
     .await
 }
@@ -1219,6 +1707,10 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::raw_sql(include_str!("../migrations/007_pack_queue.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
         let settings = serde_json::json!({ "league": { "startedAt": NOW, "startingPacks": 2, "weeklyPacks": 4, "weeklyWildcards": { "common": 0, "uncommon": 0, "rare": 2, "mythic": 0 }, "enabledSets": ["tst"], "mythicProbability": 0.125 } });
         sqlx::query("INSERT INTO settings(key,value) VALUES('app',?)")
             .bind(settings.to_string())
@@ -1261,6 +1753,262 @@ mod tests {
                 .bind(code).bind(code).bind(code).execute(&db.pool).await.unwrap();
         }
         db
+    }
+
+    #[test]
+    fn automatic_status_credits_four_weeks_once_and_keeps_shared_anchor() {
+        tauri::async_runtime::block_on(async {
+            let db = scheduled_fixture().await;
+            open_next_pool_boosters(&db.pool, 0, "initial-open", NOW)
+                .await
+                .unwrap();
+            let before = status_pool(&db.pool, NOW).await.unwrap();
+            let now = NOW + 4 * WEEK_SECONDS;
+            let next = automatic_status_pool(&db.pool, now).await.unwrap();
+            assert_eq!(next.available_packs, 24);
+            assert_eq!(next.openable_packs, 24);
+            assert_eq!(next.claimable_packs, 0);
+            assert_eq!(next.started_at, NOW);
+            assert_eq!(next.effective_now, timestamp(now).unwrap());
+            assert_eq!(next.week, 5);
+            assert!(next.enabled_sets.contains(&"blb".into()));
+            assert_eq!(next.wildcards.common - before.wildcards.common, 16);
+            assert_eq!(next.wildcards.uncommon - before.wildcards.uncommon, 8);
+            assert_eq!(next.wildcards.rare - before.wildcards.rare, 2);
+            assert_eq!(next.wildcards.mythic - before.wildcards.mythic, 1);
+            let again = automatic_status_pool(&db.pool, now).await.unwrap();
+            assert_eq!(again.available_packs, next.available_packs);
+            assert_eq!(again.wildcards, next.wildcards);
+        });
+    }
+
+    #[test]
+    fn chronological_opening_spends_old_foundations_before_bloomburrow_bonus() {
+        tauri::async_runtime::block_on(async {
+            let db = scheduled_fixture().await;
+            open_next_pool_boosters(&db.pool, 0, "starting-open", NOW)
+                .await
+                .unwrap();
+            let now = NOW + 4 * WEEK_SECONDS;
+            automatic_status_pool(&db.pool, now).await.unwrap();
+            let first = open_next_pool_boosters(&db.pool, 1, "first-weekly", now)
+                .await
+                .unwrap();
+            assert_eq!(first.set_code, "fdn");
+            let rest_old = open_next_pool_boosters(&db.pool, 11, "old-weeklies", now)
+                .await
+                .unwrap();
+            assert_eq!(rest_old.per_set_packs, BTreeMap::from([("fdn".into(), 11)]));
+            let first_new = open_next_pool_boosters(&db.pool, 1, "first-bonus", now)
+                .await
+                .unwrap();
+            assert_eq!(first_new.set_code, "blb");
+            let status = status_pool(&db.pool, now).await.unwrap();
+            assert_eq!(status.general_packs, 4);
+            assert_eq!(status.set_packs.get("blb"), Some(&7));
+            let rest = open_next_pool_boosters(&db.pool, 0, "all-new", now)
+                .await
+                .unwrap();
+            assert_eq!(rest.packs, 11);
+            assert_eq!(rest.per_set_packs, BTreeMap::from([("blb".into(), 11)]));
+        });
+    }
+
+    #[test]
+    fn chronological_open_all_over_one_hundred_is_atomic_and_receipt_replays_mode() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            let now = NOW + 30 * WEEK_SECONDS;
+            let opened = open_next_pool_boosters(&db.pool, 0, "large-all", now)
+                .await
+                .unwrap();
+            assert_eq!(opened.packs, 122);
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM booster_history")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                122
+            );
+            assert_eq!(status_pool(&db.pool, now).await.unwrap().available_packs, 0);
+            assert_eq!(
+                serde_json::to_string(&opened).unwrap(),
+                serde_json::to_string(
+                    &open_next_pool_boosters(&db.pool, 0, "large-all", now + WEEK_SECONDS)
+                        .await
+                        .unwrap()
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                status_pool(&db.pool, now + WEEK_SECONDS)
+                    .await
+                    .unwrap()
+                    .general_packs,
+                0
+            );
+            assert_eq!(
+                automatic_status_pool(&db.pool, now + WEEK_SECONDS)
+                    .await
+                    .unwrap()
+                    .available_packs,
+                4
+            );
+            assert!(open_next_pool_boosters(&db.pool, 1, "large-all", now)
+                .await
+                .is_err());
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COALESCE(MAX(quantity),0) FROM collection")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                4
+            );
+        });
+    }
+
+    #[test]
+    fn chronological_open_failure_rolls_back_join_rewards_queue_and_history() {
+        tauri::async_runtime::block_on(async {
+            let db = scheduled_fixture().await;
+            sqlx::query("DELETE FROM cards WHERE set_code='blb' AND rarity='rare'")
+                .execute(&db.pool)
+                .await
+                .unwrap();
+            let now = NOW + 4 * WEEK_SECONDS;
+            assert!(
+                open_next_pool_boosters(&db.pool, 0, "repair-and-retry", now)
+                    .await
+                    .unwrap_err()
+                    .contains("rare cards")
+            );
+            for table in [
+                "league_state",
+                "collection",
+                "booster_history",
+                "progression_operations",
+                "booster_pack_queue",
+                "expansion_reward_claims",
+            ] {
+                assert_eq!(
+                    sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM {table}"))
+                        .fetch_one(&db.pool)
+                        .await
+                        .unwrap(),
+                    0,
+                    "{table}"
+                );
+            }
+            assert_eq!(
+                status_pool(&db.pool, now).await.unwrap().wildcards,
+                WildcardBalances::default()
+            );
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,type_line) SELECT 'blb-' || id,'blb-' || oracle_id,name,'blb',collector_number,rarity,metadata_json,type_line FROM cards WHERE set_code='tst' AND rarity='rare'").execute(&db.pool).await.unwrap();
+            let opened = open_next_pool_boosters(&db.pool, 0, "repair-and-retry", now)
+                .await
+                .unwrap();
+            assert_eq!(opened.packs, 36);
+            assert_eq!(opened.set_code, "mixed");
+            assert_eq!(
+                opened.per_set_packs,
+                BTreeMap::from([("fdn".into(), 24), ("blb".into(), 12)])
+            );
+        });
+    }
+
+    #[test]
+    fn legacy_pack_balances_backfill_without_losing_history_or_double_credit() {
+        tauri::async_runtime::block_on(async {
+            let db = scheduled_fixture().await;
+            sqlx::query("INSERT INTO league_state(id,started_at,available_packs,last_claimed_period) VALUES(1,?,3,4)").bind(NOW).execute(&db.pool).await.unwrap();
+            sqlx::query("INSERT INTO set_booster_balances(set_code,quantity) VALUES('blb',2)")
+                .execute(&db.pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO expansion_reward_claims(set_code,week,quantity,claimed_at) VALUES('blb',4,8,'old')").execute(&db.pool).await.unwrap();
+            sqlx::query("INSERT INTO booster_history(id,set_code,opened_at,contents_json) VALUES('old-history','fdn','old','[]')").execute(&db.pool).await.unwrap();
+            let now = NOW + 4 * WEEK_SECONDS;
+            assert_eq!(
+                automatic_status_pool(&db.pool, now)
+                    .await
+                    .unwrap()
+                    .available_packs,
+                5
+            );
+            assert_eq!(
+                automatic_status_pool(&db.pool, now)
+                    .await
+                    .unwrap()
+                    .available_packs,
+                5
+            );
+            let first = open_next_pool_boosters(&db.pool, 1, "legacy-first", now)
+                .await
+                .unwrap();
+            assert_eq!(first.set_code, "fdn");
+            let rest = open_next_pool_boosters(&db.pool, 0, "legacy-rest", now)
+                .await
+                .unwrap();
+            assert_eq!(
+                rest.per_set_packs,
+                BTreeMap::from([("fdn".into(), 2), ("blb".into(), 2)])
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM booster_history")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                6
+            );
+        });
+    }
+
+    #[test]
+    fn concurrent_chronological_open_all_cannot_spend_the_same_packs_twice() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            begin_pool(&db.pool, NOW).await.unwrap();
+            let a = db.pool.clone();
+            let b = db.pool.clone();
+            let one = tokio::spawn(async move {
+                open_next_pool_boosters(&a, 0, "concurrent-next-a", NOW).await
+            });
+            let two = tokio::spawn(async move {
+                open_next_pool_boosters(&b, 0, "concurrent-next-b", NOW).await
+            });
+            let results = [one.await.unwrap(), two.await.unwrap()];
+            assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM booster_history")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                2
+            );
+        });
+    }
+
+    #[test]
+    fn legacy_and_chronological_openers_share_one_queue_balance() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            begin_pool(&db.pool, NOW).await.unwrap();
+            open_pool_boosters(&db.pool, "tst", 1, "old-api", NOW)
+                .await
+                .unwrap();
+            let result = open_next_pool_boosters(&db.pool, 0, "new-api", NOW)
+                .await
+                .unwrap();
+            assert_eq!(result.packs, 1);
+            assert_eq!(status_pool(&db.pool, NOW).await.unwrap().available_packs, 0);
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT SUM(remaining) FROM booster_pack_queue")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                0
+            );
+        });
     }
 
     #[test]

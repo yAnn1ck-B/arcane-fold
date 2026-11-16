@@ -65,6 +65,15 @@ public class ForgeDeckCheck {
                     res + "blockdata", res + "setlookup", "Original Art All Editions",
                     false, false, false, false);
 
+            // With lazy scripts, Forge can fall back to a card's first artwork
+            // on its first lookup. Load each requested name/edition before the
+            // deck parser so the exact collector checks below remain meaningful.
+            for (List<RequestedCard> section : readRequestedPrintings(deckFile.toPath()).values()) {
+                for (RequestedCard wanted : section) {
+                    if (wanted.edition() == null) StaticData.instance().attemptToLoadCard(wanted.name());
+                    else StaticData.instance().attemptToLoadCard(wanted.name(), wanted.edition());
+                }
+            }
             Deck deck = DeckSerializer.fromFile(deckFile);
             if (deck == null) throw new IllegalStateException("Forge could not parse deck metadata");
             if (deck.getMain().countAll() != 60) {
@@ -111,7 +120,7 @@ public class ForgeDeckCheck {
         }
     }
 
-    private static int verifyRequestedPrintings(Path source, Deck deck) throws Exception {
+    private static Map<DeckSection, List<RequestedCard>> readRequestedPrintings(Path source) throws Exception {
         Map<DeckSection, List<RequestedCard>> requested = new LinkedHashMap<>();
         requested.put(DeckSection.Main, new ArrayList<>());
         requested.put(DeckSection.Sideboard, new ArrayList<>());
@@ -153,6 +162,11 @@ public class ForgeDeckCheck {
             requested.get(section).add(new RequestedCard(fields[0].strip(), edition, collector, quantity, lineNumber));
         }
 
+        return requested;
+    }
+
+    private static int verifyRequestedPrintings(Path source, Deck deck) throws Exception {
+        Map<DeckSection, List<RequestedCard>> requested = readRequestedPrintings(source);
         int exactCopies = 0;
         for (Map.Entry<DeckSection, List<RequestedCard>> sectionEntry : requested.entrySet()) {
             DeckSection requestedSection = sectionEntry.getKey();

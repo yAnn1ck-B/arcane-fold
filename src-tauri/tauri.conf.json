@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Eternal League",
-  "version": "0.1.0",
-  "identifier": "com.eternalleague.app",
+  "version": "0.2.0",
+  "identifier": "com.eternalleague.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -18,7 +18,7 @@
         "height": 940,
         "minWidth": 980,
         "minHeight": 700,
-        "backgroundColor": "#101312"
+        "backgroundColor": "#f1f0ea"
       }
     ],
     "security": {
@@ -28,14 +28,32 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "createUpdaterArtifacts": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
     "shortDescription": "Your local MTG Forge collection companion",
     "category": "Game"
   },
   "plugins": {
+    "updater": {
+      "requireSignedVersion": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE0QzA0RkVEQzQ0NTRBNTIKUldSU1NrWEU3VS9BRkRIWFhESm1jcCtJaXFESzBDNEk2ejRad3ZUWVR4eENqZWc1OFJoMVVxdW8K",
+      "endpoints": [
+        "https://github.com/yAnn1ck-B/eternal-league/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    },
     "sql": {
-      "preload": ["sqlite:eternal-league.db"]
+      "preload": [
+        "sqlite:eternal-league.db"
+      ]
     }
   }
 }

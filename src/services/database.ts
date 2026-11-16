@@ -1,6 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
-import { normalizeAppearance } from "@/lib/appearance";
+import { defaultAppearance } from "@/lib/appearance";
 import { detectForgePaths } from "@/services/forge";
 import type { AppSettings, DashboardStats } from "@/lib/types";
 
@@ -45,7 +45,7 @@ export async function loadSettings(): Promise<AppSettings> {
           : savedInstall,
     },
     league,
-    appearance: normalizeAppearance(saved?.appearance),
+    appearance: { ...defaultAppearance },
   };
   if (JSON.stringify(settings) !== JSON.stringify(saved))
     await saveSettings(settings);

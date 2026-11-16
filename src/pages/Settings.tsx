@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   FolderOpen,
   Loader2,
-  Palette,
   Save,
   Sparkles,
   TriangleAlert,
@@ -12,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { listSets } from "@/services/cards";
-import { appearanceThemes } from "@/lib/appearance";
 import { chooseDirectory, testForgeIntegration } from "@/services/forge";
 import type {
   AppSettings,
@@ -29,7 +27,7 @@ interface SettingsProps {
   catalogCount?: number;
 }
 
-type SettingsTab = "forge" | "league" | "appearance";
+type SettingsTab = "forge" | "league";
 type EditablePath = "installDir" | "deckDir" | "imageCacheDir";
 const pathFields: { key: EditablePath; label: string; hint: string }[] = [
   {
@@ -78,7 +76,6 @@ export default function Settings({
     message: string;
   } | null>(null);
   const savedKey = pathKey(settings.forge);
-  const savedAppearanceKey = JSON.stringify(settings.appearance);
   useEffect(() => {
     setDraft((current) => ({
       ...current,
@@ -89,17 +86,12 @@ export default function Settings({
     }));
   }, [savedKey]);
   useEffect(() => {
-    setDraft((current) => ({ ...current, appearance: settings.appearance }));
-  }, [savedAppearanceKey]);
-  useEffect(() => {
     void listSets()
       .then(setSets)
       .catch(() => {});
   }, [catalogCount]);
   const draftKey = pathKey(draft.forge);
   const dirty = draftKey !== savedKey;
-  const appearanceDirty =
-    JSON.stringify(draft.appearance) !== savedAppearanceKey;
   const currentReport = dirty
     ? draftReport?.key === draftKey
       ? draftReport.report
@@ -173,20 +165,6 @@ export default function Settings({
       setSaving(false);
     }
   }
-  async function saveAppearance(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (saving) return;
-    setSaving(true);
-    setNotice(null);
-    try {
-      await onSave({ ...settings, appearance: draft.appearance });
-      setNotice({ error: false, message: "Appearance saved." });
-    } catch (error) {
-      setNotice({ error: true, message: String(error) });
-    } finally {
-      setSaving(false);
-    }
-  }
   const expansionName = (code: string) =>
     settings.league.expansionSchedule.find(
       (entry) => entry.code.toLowerCase() === code.toLowerCase(),
@@ -228,15 +206,6 @@ export default function Settings({
           onClick={() => setTab("league")}
         >
           <Sparkles size={16} /> League rules
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "appearance"}
-          className={`settings-tab ${tab === "appearance" ? "active" : ""}`}
-          onClick={() => setTab("appearance")}
-        >
-          <Palette size={16} /> Appearance
         </button>
       </div>
       {notice && (
@@ -443,110 +412,6 @@ export default function Settings({
           </section>
         </div>
       </section>
-      <form onSubmit={saveAppearance} hidden={tab !== "appearance"}>
-        <section className="panel appearance-panel">
-          <div className="panel-header">
-            <h2 className="section-title">Appearance</h2>
-          </div>
-          <div className="panel-body settings-stack">
-            <fieldset className="appearance-group">
-              <legend>Theme</legend>
-              <div
-                className="theme-options"
-                role="radiogroup"
-                aria-label="Color theme"
-              >
-                {appearanceThemes.map((theme) => (
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={draft.appearance.theme === theme.id}
-                    className={`theme-choice ${draft.appearance.theme === theme.id ? "active" : ""}`}
-                    key={theme.id}
-                    disabled={saving}
-                    onClick={() =>
-                      setDraft((current) => ({
-                        ...current,
-                        appearance: { ...current.appearance, theme: theme.id },
-                      }))
-                    }
-                  >
-                    <span
-                      className="theme-preview"
-                      style={{ backgroundColor: theme.background }}
-                    >
-                      <i style={{ backgroundColor: theme.accent }} />
-                      <i style={{ backgroundColor: theme.accent }} />
-                      <i style={{ backgroundColor: theme.accent }} />
-                    </span>
-                    <strong>{theme.name}</strong>
-                    <small>{theme.description}</small>
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset className="appearance-group">
-              <legend>Text size</legend>
-              <div
-                className="font-options"
-                role="radiogroup"
-                aria-label="Text size"
-              >
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={draft.appearance.fontSize === "normal"}
-                  className={
-                    draft.appearance.fontSize === "normal" ? "active" : ""
-                  }
-                  disabled={saving}
-                  onClick={() =>
-                    setDraft((current) => ({
-                      ...current,
-                      appearance: { ...current.appearance, fontSize: "normal" },
-                    }))
-                  }
-                >
-                  <span>Aa</span>
-                  <strong>Standard</strong>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={draft.appearance.fontSize === "large"}
-                  className={
-                    draft.appearance.fontSize === "large" ? "active" : ""
-                  }
-                  disabled={saving}
-                  onClick={() =>
-                    setDraft((current) => ({
-                      ...current,
-                      appearance: { ...current.appearance, fontSize: "large" },
-                    }))
-                  }
-                >
-                  <span className="large-text-preview">Aa</span>
-                  <strong>Larger text</strong>
-                </button>
-              </div>
-              <p className="field-hint">
-                Larger text increases labels, controls, rules text, and card
-                details throughout the app.
-              </p>
-            </fieldset>
-          </div>
-          <div className="panel-footer settings-save-row">
-            <Button type="submit" disabled={!appearanceDirty || saving}>
-              {saving ? (
-                <Loader2 size={15} className="animate-spin" />
-              ) : (
-                <Save size={15} />
-              )}{" "}
-              Save appearance
-            </Button>
-          </div>
-        </section>
-      </form>
     </div>
   );
 }

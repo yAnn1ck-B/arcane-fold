@@ -1,6 +1,6 @@
 [package]
 name = "eternal-league"
-version = "0.1.0"
+version = "0.2.0"
 description = "A local card-collection companion for MTG Forge"
 authors = ["Eternal League contributors"]
 edition = "2021"
@@ -30,3 +30,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 unicode-normalization = "0.1"
 tempfile = "3"
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

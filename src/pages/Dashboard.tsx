@@ -10,7 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { listDecks } from "@/services/decks";
 import CardImage from "@/components/CardImage";
-import { listSets } from "@/services/cards";
+import { getBannerMoxes, listSets, resolveCardImage } from "@/services/cards";
+import "@/styles/dashboard-art.css";
 import type {
   AppSettings,
   DashboardStats,
@@ -32,6 +33,14 @@ interface DashboardProps {
   revision: number;
 }
 
+const bannerMoxes = [
+  { name: "Mox Pearl", position: "pearl" },
+  { name: "Mox Sapphire", position: "sapphire" },
+  { name: "Mox Jet", position: "jet" },
+  { name: "Mox Ruby", position: "ruby" },
+  { name: "Mox Emerald", position: "emerald" },
+];
+
 export default function Dashboard({
   settings,
   stats,
@@ -46,11 +55,32 @@ export default function Dashboard({
   const [sets, setSets] = useState<CatalogSet[]>([]);
   const [recentDecks, setRecentDecks] = useState<DeckSummary[]>([]);
   const [deckError, setDeckError] = useState<string | null>(null);
+  const [moxCards, setMoxCards] = useState<CatalogCard[]>([]);
   useEffect(() => {
     void listSets()
       .then(setSets)
       .catch(() => {});
   }, [catalogCount]);
+  useEffect(() => {
+    if (!catalogCount) return;
+    let active = true;
+    void getBannerMoxes()
+      .then((cards) => {
+        if (active) setMoxCards(cards);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [catalogCount]);
+  useEffect(() => {
+    // Warm all five layers, including the portions behind Black Lotus.
+    for (const card of moxCards) {
+      void resolveCardImage(card.id, settings.forge.imageCacheDir).catch(
+        () => {},
+      );
+    }
+  }, [moxCards, settings.forge.imageCacheDir]);
   useEffect(() => {
     let active = true;
     void listDecks()
@@ -69,6 +99,14 @@ export default function Dashboard({
   }, [revision]);
 
   const currentWeek = Math.max(0, (league.week || 1) - 1);
+  const availablePacks =
+    league.openablePacks ??
+    (league.started
+      ? league.availablePacks
+      : (league.joinPacks ?? settings.league.startingPacks));
+  const nextWeeklyReward = league.nextRewardAt
+    ? new Date(league.nextRewardAt)
+    : new Date((settings.league.startedAt + (currentWeek + 1) * 604800) * 1000);
   const upcoming =
     league.upcomingExpansions ??
     settings.league.expansionSchedule.filter(
@@ -105,9 +143,7 @@ export default function Dashboard({
           <div className="hero-actions">
             <Button onClick={onBoosters} disabled={!catalogCount}>
               {catalogCount
-                ? league.started
-                  ? `Open boosters · ${league.availablePacks} available`
-                  : "Begin your league"
+                ? `Open boosters - ${availablePacks} available`
                 : "Preparing card catalog..."}
               <ArrowRight size={16} />
             </Button>
@@ -117,15 +153,28 @@ export default function Dashboard({
           </div>
         </div>
         <div
-          className="hero-art hero-art-upright"
-          aria-label="Black Lotus banner artwork"
+          className="hero-art hero-art-upright hero-art-mox"
+          aria-label="Black Lotus with Mox Pearl, Mox Sapphire, Mox Jet, Mox Ruby, and Mox Emerald"
         >
           <div className="orbit orbit-one" />
           <div className="orbit orbit-two" />
           <span className="art-spark art-spark-one">✧</span>
           <span className="art-spark art-spark-two">✧</span>
-          <div className="card-shadow card-shadow-back" aria-hidden="true" />
-          <div className="card-shadow card-shadow-front" aria-hidden="true" />
+          {bannerMoxes.map(({ name, position }) => {
+            const card = moxCards.find((candidate) => candidate.name === name);
+            return (
+              <div className={`banner-mox banner-mox-${position}`} key={name}>
+                {card ? (
+                  <CardImage
+                    card={card}
+                    imageCacheDir={settings.forge.imageCacheDir}
+                  />
+                ) : (
+                  <div className="banner-mox-placeholder">{name}</div>
+                )}
+              </div>
+            );
+          })}
           <div className="hero-card hero-banner-card">
             {bannerCard ? (
               <CardImage
@@ -141,7 +190,6 @@ export default function Dashboard({
               </div>
             )}
           </div>
-          <span className="art-caption">BLACK LOTUS</span>
         </div>
       </section>
       <section
@@ -160,14 +208,8 @@ export default function Dashboard({
       </section>
       <section className="league-status-strip panel">
         <div>
-          <span>
-            {league.started ? `League week ${currentWeek}` : "Starting packs"}
-          </span>
-          <strong>
-            {league.started
-              ? `${league.availablePacks} booster ${league.availablePacks === 1 ? "pack" : "packs"} available`
-              : `${league.joinPacks ?? settings.league.startingPacks} packs available when you join`}
-          </strong>
+          <span>Booster packs</span>
+          <strong>{availablePacks} available</strong>
         </div>
         <div>
           <span>Unlocked expansions</span>
@@ -179,22 +221,10 @@ export default function Dashboard({
         </div>
         <div>
           <span>Next weekly reward</span>
-          <strong>
-            {!league.started
-              ? "Begin a league first"
-              : league.canClaimWeekly
-                ? "Ready to claim"
-                : league.nextRewardAt
-                  ? new Date(league.nextRewardAt).toLocaleString()
-                  : "Not scheduled"}
-          </strong>
+          <strong>{nextWeeklyReward.toLocaleString()}</strong>
         </div>
         <Button size="sm" variant="outline" onClick={onBoosters}>
-          {league.canClaimWeekly
-            ? "Claim reward"
-            : league.started
-              ? "Open packs"
-              : "Begin league"}
+          Open boosters
           <ArrowRight size={13} />
         </Button>
       </section>
@@ -284,8 +314,17 @@ export default function Dashboard({
                   <span
                     className={`wildcard-balance wildcard-balance-${rarity}`}
                     key={rarity}
+                    title={`${league.wildcards[rarity]} ${rarity} wildcards`}
+                    aria-label={`${league.wildcards[rarity]} ${rarity} wildcards`}
                   >
-                    <Sparkles size={14} /> {league.wildcards[rarity]} {rarity}
+                    <i
+                      className={`rarity-dot rarity-${rarity}`}
+                      aria-hidden="true"
+                    />
+                    <strong className="dashboard-wildcard-count">
+                      {league.wildcards[rarity]}
+                    </strong>
+                    <span className="dashboard-wildcard-label">{rarity}</span>
                   </span>
                 ),
               )}

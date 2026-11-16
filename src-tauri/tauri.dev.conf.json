@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.eternalleague.app",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Eternal League - Development",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 980,
+        "minHeight": 700,
+        "backgroundColor": "#f1f0ea"
+      }
+    ]
+  }
+}

@@ -1174,38 +1174,72 @@ async fn draft_entries(
     deck: &DeckDraft,
 ) -> Result<Vec<DeckEntry>, String> {
     validated_name(&deck.name)?;
+    let unlocked = crate::progression::unlocked_sets_connection(connection).await?;
     let mut result = Vec::new();
     for entry in normalize_entries(&deck.cards)? {
         let row = sqlx::query(&format!("SELECT c.*,COALESCE(o.quantity,0) AS owned,{ORACLE_OWNED_SQL} AS oracle_owned FROM cards c LEFT JOIN collection o ON o.card_id=c.id WHERE c.id=?"))
             .bind(&entry.card_id).fetch_optional(&mut *connection).await.map_err(|e| e.to_string())?.ok_or("A deck printing is missing from the catalog.")?;
+        let card = card_from_row(&row)?;
+        let metadata = serde_json::from_str(row.get("metadata_json"))
+            .map_err(|error| format!("Cannot read {} printing metadata: {error}", card.name))?;
+        if !crate::card_policy::eligible(&metadata, &card) {
+            return Err(format!(
+                "{} ({} #{}) is not an eligible regular paper printing for this league.",
+                card.name,
+                card.set_code.to_uppercase(),
+                card.collector_number
+            ));
+        }
+        if !unlocked.contains(&card.set_code.to_lowercase()) {
+            return Err(format!("{} ({} #{}) is locked until its global league unlock date. Choose an unlocked printing.", card.name, card.set_code.to_uppercase(), card.collector_number));
+        }
         result.push(DeckEntry {
-            card: card_from_row(&row)?,
+            card,
             section: entry.section,
             quantity: entry.quantity,
         });
     }
+    let printing_errors = single_printing_warnings(&result);
+    if !printing_errors.is_empty() {
+        return Err(printing_errors.join(" "));
+    }
     Ok(result)
+}
+
+fn single_printing_warnings(entries: &[DeckEntry]) -> Vec<String> {
+    let mut identities = BTreeMap::<String, (&str, HashSet<&str>)>::new();
+    for entry in entries {
+        let identity = if entry.card.oracle_id.is_empty() {
+            entry.card.name.to_lowercase()
+        } else {
+            entry.card.oracle_id.clone()
+        };
+        identities
+            .entry(identity)
+            .or_insert((&entry.card.name, HashSet::new()))
+            .1
+            .insert(&entry.card.id);
+    }
+    identities.values().filter(|(_,printings)|printings.len()>1).map(|(name,_)|format!("Choose one printing of {name} for the whole deck, including the sideboard. Apply the chosen artwork to all copies.")).collect()
 }
 
 fn ownership_warnings(entries: &[DeckEntry]) -> Vec<String> {
     let mut printing_counts: BTreeMap<&str, (&CatalogCard, i64)> = BTreeMap::new();
     for entry in entries {
         printing_counts
-            .entry(&entry.card.id)
+            .entry(&entry.card.oracle_id)
             .or_insert((&entry.card, 0))
             .1 += entry.quantity;
     }
     printing_counts
         .values()
-        .filter(|(card, count)| !is_unlimited_basic(card) && *count > card.owned)
+        .filter(|(card, count)| !is_unlimited_basic(card) && *count > card.oracle_owned)
         .map(|(card, count)| {
             let noun = if *count == 1 { "copy" } else { "copies" };
             format!(
-                "{} ({} #{}) needs {count} {noun} across the main deck and sideboard, and you own {}.",
+                "{} needs {count} {noun} across the main deck and sideboard, and you own {} across all printings.",
                 card.name,
-                card.set_code.to_uppercase(),
-                card.collector_number,
-                card.owned,
+                card.oracle_owned,
             )
         })
         .collect()
@@ -1268,6 +1302,7 @@ fn validate_entries_with_restrictions(
     restrictions: &DeckRestrictions,
 ) -> DeckValidation {
     let mut warnings = ownership_warnings(entries);
+    warnings.extend(single_printing_warnings(entries));
     let main_count = entries
         .iter()
         .filter(|e| e.section == "main")
@@ -1403,6 +1438,10 @@ pub async fn export_deck(
 }
 
 fn serialize_deck(name: &str, entries: &[DeckEntry], index: &ForgeIndex) -> Result<String, String> {
+    let printing_errors = single_printing_warnings(entries);
+    if !printing_errors.is_empty() {
+        return Err(printing_errors.join(" "));
+    }
     let name = validated_name(name)?;
     let mut content = format!("[metadata]\nName={name}\n[Main]\n");
     for section in ["main", "sideboard"] {
@@ -1609,15 +1648,26 @@ fn edition_from_text(text: &str) -> Option<Edition> {
             if let Some((key, value)) = line.split_once('=') {
                 metadata.insert(key.trim().to_lowercase(), value.trim().to_owned());
             }
-        } else if section.eq_ignore_ascii_case("cards")
-            && !line.is_empty()
-            && !line.starts_with('#')
-        {
-            let mut words = line.splitn(3, char::is_whitespace);
-            let number = words.next().unwrap_or_default();
-            let rarity = words.next().unwrap_or_default();
-            let rest = words.next().unwrap_or_default();
-            if !number.is_empty() && rarity.len() == 1 && !rest.is_empty() {
+        } else if is_card_entry_section(section) && !line.is_empty() && !line.starts_with('#') {
+            let Some((number, rest)) = line.split_once(char::is_whitespace) else {
+                continue;
+            };
+            let Some((rarity, rest)) = rest.trim_start().split_once(char::is_whitespace) else {
+                continue;
+            };
+            let rest = rest.trim();
+            if !number.is_empty()
+                && number.chars().all(|character| {
+                    !character.is_control()
+                        && !character.is_whitespace()
+                        && !matches!(character, '[' | ']' | '|' | '@' | '$' | '=')
+                })
+                && number
+                    .chars()
+                    .any(|character| character.is_ascii_alphanumeric())
+                && matches!(rarity, "S" | "C" | "U" | "R" | "M" | "L")
+                && !rest.is_empty()
+            {
                 let card_name = rest
                     .split(" @")
                     .next()
@@ -1626,12 +1676,14 @@ fn edition_from_text(text: &str) -> Option<Edition> {
                     .next()
                     .unwrap_or(rest)
                     .trim();
-                if !card_name.is_empty() {
+                if !card_name.is_empty() && !card_name.contains('|') {
                     cards.push((number.to_owned(), card_name.to_owned()));
                 }
             }
         }
     }
+    let mut seen = HashSet::new();
+    cards.retain(|(number, name)| seen.insert((number.to_lowercase(), name.to_lowercase())));
     let code = metadata.get("code")?.clone();
     Some(Edition {
         code2: metadata
@@ -1648,6 +1700,36 @@ fn edition_from_text(text: &str) -> Option<Edition> {
     })
 }
 
+fn is_card_entry_section(section: &str) -> bool {
+    // Forge CardEdition.EditionSectionWithCollectorNumbers. Booster slot
+    // definitions and custom print sheets have different grammars and must
+    // not create fabricated exact-printing mappings.
+    matches!(
+        section.trim().to_lowercase().as_str(),
+        "cards"
+            | "special slot"
+            | "precon product"
+            | "borderless"
+            | "etched"
+            | "showcase"
+            | "full art"
+            | "extended art"
+            | "alternate art"
+            | "retro frame"
+            | "buy a box"
+            | "promo"
+            | "prerelease promo"
+            | "bundle"
+            | "box topper"
+            | "jumpstart"
+            | "rebalanced"
+            | "eternal"
+            | "conjured"
+            | "scheme"
+            | "printsheets"
+    )
+}
+
 pub(crate) fn resource_candidates(hint: Option<&str>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(hint) = hint.filter(|hint| !hint.trim().is_empty()) {
@@ -1657,37 +1739,84 @@ pub(crate) fn resource_candidates(hint: Option<&str>) -> Vec<PathBuf> {
             candidates.push(path);
         }
     }
-    for variable in ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"] {
-        if let Some(base) = env::var_os(variable) {
-            let base = PathBuf::from(base);
-            let base = if variable == "LOCALAPPDATA" {
-                base.join("Programs")
-            } else {
-                base
-            };
-            if let Ok(entries) = fs::read_dir(base) {
-                let mut matches: Vec<_> = entries
-                    .filter_map(Result::ok)
-                    .filter(|entry| {
-                        entry
-                            .file_name()
-                            .to_string_lossy()
-                            .to_lowercase()
-                            .starts_with("forge")
-                    })
-                    .map(|entry| entry.path().join("res"))
-                    .collect();
-                matches.sort_by_key(|path| {
-                    fs::metadata(path)
-                        .and_then(|metadata| metadata.modified())
-                        .unwrap_or(SystemTime::UNIX_EPOCH)
-                });
-                matches.reverse();
-                candidates.extend(matches);
+    if cfg!(windows) {
+        for variable in ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"] {
+            if let Some(base) = env::var_os(variable) {
+                let base = PathBuf::from(base);
+                let base = if variable == "LOCALAPPDATA" {
+                    base.join("Programs")
+                } else {
+                    base
+                };
+                if let Ok(entries) = fs::read_dir(base) {
+                    let mut matches: Vec<_> = entries
+                        .filter_map(Result::ok)
+                        .filter(|entry| {
+                            entry
+                                .file_name()
+                                .to_string_lossy()
+                                .to_lowercase()
+                                .starts_with("forge")
+                        })
+                        .map(|entry| entry.path().join("res"))
+                        .collect();
+                    matches.sort_by_key(|path| {
+                        fs::metadata(path)
+                            .and_then(|metadata| metadata.modified())
+                            .unwrap_or(SystemTime::UNIX_EPOCH)
+                    });
+                    matches.reverse();
+                    candidates.extend(matches);
+                }
             }
+        }
+    } else {
+        let profile = env::var_os("HOME").map(PathBuf::from);
+        let mut roots = vec![
+            PathBuf::from("/opt"),
+            PathBuf::from("/usr/local/share"),
+            PathBuf::from("/usr/share"),
+        ];
+        if let Some(profile) = profile {
+            roots.extend([
+                profile.join(".local/share"),
+                profile.join("Applications"),
+                profile.join("Games"),
+                profile.join("games"),
+                profile.join("Downloads"),
+                profile,
+            ]);
+        }
+        for root in roots {
+            candidates.extend(forge_installations_under(&root));
         }
     }
     candidates
+}
+
+// Forge's Unix releases are user-extracted folders. Inspect a bounded single
+// level in conventional locations; custom portable paths remain selectable.
+fn forge_installations_under(root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<_> = entries
+        .take(10_000)
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            (name.starts_with("forge") || name.starts_with("mtg-forge"))
+                && entry.file_type().is_ok_and(|kind| kind.is_dir())
+        })
+        .map(|entry| entry.path().join("res"))
+        .collect();
+    paths.sort_by_key(|path| {
+        fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+    });
+    paths.reverse();
+    paths
 }
 
 /// Read installed edition identities without loading Forge's card scripts.
@@ -1876,6 +2005,26 @@ mod tests {
     }
 
     #[test]
+    fn unix_installation_search_is_shallow_and_supports_extracted_forge_folders() {
+        let root = tempfile::tempdir().unwrap();
+        let forge = root.path().join("forge-gui-desktop-2.0.13");
+        fs::create_dir_all(forge.join("res")).unwrap();
+        fs::create_dir_all(
+            root.path()
+                .join("unrelated")
+                .join("forge-nested")
+                .join("res"),
+        )
+        .unwrap();
+        fs::write(root.path().join("forge-not-a-directory"), "ignored").unwrap();
+        let paths = forge_installations_under(root.path());
+        assert_eq!(paths, vec![forge.join("res")]);
+        assert!(
+            resource_candidates(forge.to_str()).starts_with(&[forge.join("res"), forge.clone()])
+        );
+    }
+
+    #[test]
     fn copy_limits_use_oracle_identity_and_exceptions() {
         let mut forest = card("f", "f", "Forest", "3");
         forest.type_line = "Basic Land — Forest".into();
@@ -1904,6 +2053,11 @@ mod tests {
             .any(|warning| warning.contains("5 copies")));
         entries[1].card.oracle_text = "A deck can have any number of cards named Elf.".into();
         entries[2].card.oracle_text = entries[1].card.oracle_text.clone();
+        assert!(validate_entries(&entries, Some(&test_index()))
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Choose one printing")));
+        entries[2].card = entries[1].card.clone();
         assert!(validate_entries(&entries, Some(&test_index())).can_export);
         let mut dwarves = card("d", "d", "Seven Dwarves", "4");
         dwarves.oracle_text = "A deck can have up to seven cards named Seven Dwarves.".into();
@@ -1960,6 +2114,7 @@ mod tests {
         let mut nonbasic = card("nonbasic", "nonbasic", "Command Tower", "1");
         nonbasic.type_line = "Land".into();
         nonbasic.owned = 0;
+        nonbasic.oracle_owned = 0;
         assert_eq!(copy_limit(&nonbasic), Some(4));
         assert!(validate_entries(
             &[DeckEntry {
@@ -1981,6 +2136,7 @@ mod tests {
         forest.owned = 0;
         let mut elf = card("elf", "elf", "Elf", "1");
         elf.owned = 1;
+        elf.oracle_owned = 1;
         let mut entries = vec![
             DeckEntry {
                 card: forest,
@@ -2006,6 +2162,7 @@ mod tests {
             .iter()
             .any(|warning| warning.contains("you own 1")));
         entries[1].card.owned = 2;
+        entries[1].card.oracle_owned = 2;
         assert!(
             validate_entries_with_restrictions(&entries, Some(&test_index()), &restrictions)
                 .can_export
@@ -2115,6 +2272,116 @@ mod tests {
     }
 
     #[test]
+    fn alternate_edition_sections_map_import_and_save_exact_printings() {
+        const TEXT: &str = include_str!("../test-fixtures/forge-printing-sections.txt");
+        let edition = edition_from_text(TEXT).unwrap();
+        assert_eq!(edition.cards.len(), 6);
+        let index = ForgeIndex {
+            editions: vec![edition],
+            supported: HashSet::from([
+                "llanowar elves".into(),
+                "forest".into(),
+                "plains".into(),
+                "another creature".into(),
+            ]),
+        };
+        assert_eq!(
+            index
+                .printing("Forest", "tst", "Test Set", "290")
+                .unwrap()
+                .collector_number,
+            "290"
+        );
+        assert_eq!(
+            index
+                .printing("Plains", "tst", "Test Set", "293")
+                .unwrap()
+                .collector_number,
+            "293"
+        );
+        assert_eq!(
+            index
+                .printing("Llanowar Elves", "tst", "Test Set", "429")
+                .unwrap()
+                .art_index,
+            2
+        );
+        assert_eq!(
+            index
+                .printing("Llanowar Elves", "tst", "Test Set", "439")
+                .unwrap()
+                .art_index,
+            3
+        );
+        for number in ["440", "900", "901", "999"] {
+            assert!(index.editions[0]
+                .cards
+                .iter()
+                .all(|(candidate, _)| candidate != number));
+        }
+        let installation = tempfile::tempdir().unwrap();
+        let res = installation.path().join("res");
+        fs::create_dir_all(res.join("editions")).unwrap();
+        fs::create_dir_all(res.join("cardsfolder")).unwrap();
+        fs::write(res.join("editions").join("Test.txt"), TEXT).unwrap();
+        let catalog = catalog_editions(installation.path().to_str()).unwrap();
+        let numbers: HashSet<_> = catalog["tst"]
+            .1
+            .iter()
+            .map(|(number, _)| number.as_str())
+            .collect();
+        assert!(numbers.contains("290") && numbers.contains("429") && numbers.contains("439"));
+        tauri::async_runtime::block_on(async {
+            let pool = managed_file_fixture().await;
+            sqlx::query("UPDATE collection SET quantity=4 WHERE card_id='elf'")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,set_name,collector_number,rarity,type_line,metadata_json) VALUES('elf227','elf','Llanowar Elves','tst','Test Set','227','common','Creature — Elf Druid','{}'),('elf429','elf','Llanowar Elves','tst','Test Set','429','mythic','Creature — Elf Druid','{}'),('forest290','forest','Forest','tst','Test Set','290','common','Basic Land — Forest','{}')").execute(&pool).await.unwrap();
+            let cards = [("elf429", 4), ("forest290", 56)]
+                .into_iter()
+                .map(|(id, quantity)| DraftCard {
+                    card_id: id.into(),
+                    section: "main".into(),
+                    quantity,
+                })
+                .collect();
+            let directory = tempfile::tempdir().unwrap();
+            let saved = save_synced_with_index(
+                &pool,
+                DeckDraft {
+                    id: None,
+                    name: "Chosen showcase artwork".into(),
+                    cards,
+                },
+                directory.path().to_str().unwrap(),
+                &index,
+            )
+            .await
+            .unwrap();
+            assert!(saved.export.content.contains("4 Llanowar Elves|TST|[429]"));
+            assert!(saved.export.content.contains("56 Forest|TST|[290]"));
+            assert_eq!(
+                saved
+                    .deck
+                    .cards
+                    .iter()
+                    .map(|entry| entry.quantity)
+                    .sum::<i64>(),
+                60
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT quantity FROM collection WHERE card_id='elf'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                4
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
     fn double_faced_cards_use_the_forge_front_name() {
         let index = ForgeIndex { editions: vec![edition_from_text("[metadata]\nCode=ISD\nScryfallCode=isd\nName=Innistrad\n[cards]\n51 C Delver of Secrets @Nils Hamm\n").unwrap()], supported: HashSet::from(["delver of secrets".into()]) };
         let mut delver = card(
@@ -2187,6 +2454,10 @@ mod tests {
                 .await
                 .unwrap();
             sqlx::raw_sql(include_str!("../migrations/002_catalog.sql"))
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO settings(key,value) VALUES('test.unlocked-sets','[\"tst\"]')")
                 .execute(&pool)
                 .await
                 .unwrap();
@@ -2308,6 +2579,10 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query("INSERT INTO settings(key,value) VALUES('test.unlocked-sets','[\"tst\"]')")
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json) VALUES('elf','elf','Elf','tst','1','common','{}'),('unowned','other','Unowned','tst','2','rare','{}')").execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO collection(card_id,quantity) VALUES('elf',2)")
             .execute(&pool)
@@ -2316,6 +2591,329 @@ mod tests {
         sqlx::query("INSERT INTO decks(id,name) VALUES('deck','Stored deck'),('invalid','Invalid unsynced deck')").execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO deck_cards(deck_id,card_id,section,quantity) VALUES('deck','elf','main',2),('invalid','unowned','main',1)").execute(&pool).await.unwrap();
         pool
+    }
+
+    #[test]
+    fn mixed_oracle_printings_are_rejected_but_legacy_decks_remain_readable() {
+        tauri::async_runtime::block_on(async {
+            let pool = managed_file_fixture().await;
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,set_name,collector_number,rarity,type_line,metadata_json) VALUES('alternate','elf','Elf','tst','Test Set','2','common','Creature','{}')").execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO decks(id,name) VALUES('legacy-mixed','Legacy mixed artwork')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO deck_cards(deck_id,card_id,section,quantity) VALUES('legacy-mixed','elf','main',1),('legacy-mixed','alternate','sideboard',1)").execute(&pool).await.unwrap();
+            let legacy = load_pool(&pool, "legacy-mixed").await.unwrap();
+            assert_eq!(legacy.cards.len(), 2);
+            assert!(legacy.cards.iter().any(|entry| entry.card.id == "elf"));
+            assert!(legacy
+                .cards
+                .iter()
+                .any(|entry| entry.card.id == "alternate"));
+            assert!(validate_entries(&legacy.cards, Some(&test_index()))
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Choose one printing")));
+            assert!(serialize_deck(&legacy.name, &legacy.cards, &test_index())
+                .unwrap_err()
+                .contains("Choose one printing"));
+            assert!(duplicate_pool(&pool, &legacy.id)
+                .await
+                .unwrap_err()
+                .contains("Choose one printing"));
+            let mixed = DeckDraft {
+                id: Some(legacy.id.clone()),
+                name: "Uncorrected artwork".into(),
+                cards: legacy
+                    .cards
+                    .iter()
+                    .map(|entry| DraftCard {
+                        card_id: entry.card.id.clone(),
+                        section: entry.section.clone(),
+                        quantity: entry.quantity,
+                    })
+                    .collect(),
+            };
+            assert!(save_pool(&pool, mixed.clone())
+                .await
+                .unwrap_err()
+                .contains("Choose one printing"));
+            let directory = tempfile::tempdir().unwrap();
+            assert!(save_synced_with_index(
+                &pool,
+                mixed,
+                directory.path().to_str().unwrap(),
+                &test_index()
+            )
+            .await
+            .unwrap_err()
+            .contains("Choose one printing"));
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+            assert_eq!(
+                load_pool(&pool, &legacy.id).await.unwrap().name,
+                "Legacy mixed artwork"
+            );
+            assert_eq!(load_pool(&pool, &legacy.id).await.unwrap().cards.len(), 2);
+            let corrected = save_pool(
+                &pool,
+                DeckDraft {
+                    id: Some(legacy.id.clone()),
+                    name: "Chosen artwork".into(),
+                    cards: vec![
+                        DraftCard {
+                            card_id: "alternate".into(),
+                            section: "main".into(),
+                            quantity: 1,
+                        },
+                        DraftCard {
+                            card_id: "alternate".into(),
+                            section: "sideboard".into(),
+                            quantity: 1,
+                        },
+                    ],
+                },
+            )
+            .await
+            .unwrap();
+            assert!(corrected
+                .cards
+                .iter()
+                .all(|entry| entry.card.id == "alternate"));
+            assert!(serialize_deck(&corrected.name, &corrected.cards, &test_index()).is_ok());
+            assert!(duplicate_pool(&pool, &corrected.id).await.is_ok());
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT quantity FROM collection WHERE card_id='elf'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                2
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn pooled_unlocked_printings_share_budget_and_locked_or_novelty_entries_cannot_be_saved() {
+        tauri::async_runtime::block_on(async {
+            let pool = managed_file_fixture().await;
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,set_name,collector_number,rarity,metadata_json,type_line) VALUES('alternate','elf','Elf','tst','Test Set','2','common','{}','Creature'),('locked-basic','forest','Forest','future','Future','3','common','{}','Basic Land — Forest'),('gold','elf','Elf','tst','Test Set','1','common','{\"border_color\":\"gold\"}','Creature')").execute(&pool).await.unwrap();
+            let entry = |id: &str, section: &str, quantity| DraftCard {
+                card_id: id.into(),
+                section: section.into(),
+                quantity,
+            };
+            let draft = |name: &str, cards| DeckDraft {
+                id: None,
+                name: name.into(),
+                cards,
+            };
+            let saved = save_pool(
+                &pool,
+                draft(
+                    "Alternate artwork",
+                    vec![
+                        entry("alternate", "main", 1),
+                        entry("alternate", "sideboard", 1),
+                    ],
+                ),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                saved.cards.iter().map(|entry| entry.quantity).sum::<i64>(),
+                2
+            );
+            assert!(saved.cards.iter().any(|entry| entry.card.id == "alternate"
+                && entry.card.owned == 0
+                && entry.card.oracle_owned == 2));
+            assert!(duplicate_pool(&pool, &saved.id).await.is_ok());
+            assert!(save_pool(
+                &pool,
+                draft(
+                    "Over pooled budget",
+                    vec![
+                        entry("alternate", "main", 2),
+                        entry("alternate", "sideboard", 1)
+                    ]
+                )
+            )
+            .await
+            .unwrap_err()
+            .contains("needs 3 copies"));
+            for (id, message) in [("locked-basic", "locked"), ("gold", "not an eligible")] {
+                let invalid = draft("Unavailable printing", vec![entry(id, "main", 60)]);
+                assert!(save_pool(&pool, invalid.clone())
+                    .await
+                    .unwrap_err()
+                    .contains(message));
+                let folder = tempfile::tempdir().unwrap();
+                assert!(save_synced_with_index(
+                    &pool,
+                    invalid,
+                    folder.path().to_str().unwrap(),
+                    &test_index()
+                )
+                .await
+                .unwrap_err()
+                .contains(message));
+                assert_eq!(fs::read_dir(folder.path()).unwrap().count(), 0);
+            }
+            sqlx::query("INSERT INTO decks(id,name) VALUES('legacy-locked','Old deck')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO deck_cards(deck_id,card_id,section,quantity) VALUES('legacy-locked','locked-basic','main',60)").execute(&pool).await.unwrap();
+            assert_eq!(
+                load_pool(&pool, "legacy-locked").await.unwrap().cards[0].quantity,
+                60
+            );
+            assert!(duplicate_pool(&pool, "legacy-locked")
+                .await
+                .unwrap_err()
+                .contains("locked"));
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT quantity FROM collection WHERE card_id='elf'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                2
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn globally_unlocked_artwork_uses_pooled_ownership_without_collecting_each_expansion() {
+        tauri::async_runtime::block_on(async {
+            let pool = managed_file_fixture().await;
+            sqlx::query(
+                "UPDATE settings SET value='[\"tst\",\"nxt\"]' WHERE key='test.unlocked-sets'",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,set_name,collector_number,rarity,type_line,metadata_json) VALUES('next-owned','elf','Elf','nxt','Next Set','1','common','Creature','{}'),('next-art','elf','Elf','nxt','Next Set','2','common','Creature','{}'),('next-land','forest','Forest','nxt','Next Set','3','common','Basic Land — Forest','{}'),('locked-art','elf','Elf','future','Future Set','2','common','Creature','{}')").execute(&pool).await.unwrap();
+            let entry = |id: &str, section: &str, quantity| DraftCard {
+                card_id: id.into(),
+                section: section.into(),
+                quantity,
+            };
+            let draft = |name: &str, cards| DeckDraft {
+                id: None,
+                name: name.into(),
+                cards,
+            };
+            let uncollected = draft(
+                "Uncollected expansion artwork",
+                vec![entry("next-art", "main", 2)],
+            );
+            let selected = save_pool(&pool, uncollected.clone()).await.unwrap();
+            assert_eq!(selected.cards[0].card.set_code, "nxt");
+            assert_eq!(selected.cards[0].card.owned, 0);
+            assert_eq!(selected.cards[0].card.oracle_owned, 2);
+            sqlx::query("INSERT INTO decks(id,name) VALUES('legacy-next','Legacy next')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO deck_cards(deck_id,card_id,section,quantity) VALUES('legacy-next','next-art','main',2)").execute(&pool).await.unwrap();
+            assert!(duplicate_pool(&pool, "legacy-next").await.is_ok());
+            let mut index = test_index();
+            index.editions.push(edition_from_text("[metadata]\nCode=NXT\nScryfallCode=nxt\nName=Next Set\n[cards]\n1 C Elf @Artist\n[showcase]\n2 C Elf @Other Artist\n[full art]\n3 L Forest @Artist\n").unwrap());
+            let directory = tempfile::tempdir().unwrap();
+            let exported = save_synced_with_index(
+                &pool,
+                uncollected,
+                directory.path().to_str().unwrap(),
+                &index,
+            )
+            .await
+            .unwrap();
+            assert!(exported.export.content.contains("2 Elf|NXT|[2]"));
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+            let locked = draft(
+                "Still globally locked",
+                vec![entry("locked-art", "main", 1)],
+            );
+            assert!(save_pool(&pool, locked.clone())
+                .await
+                .unwrap_err()
+                .contains("locked until its global league unlock date"));
+            assert!(save_synced_with_index(
+                &pool,
+                locked,
+                directory.path().to_str().unwrap(),
+                &index
+            )
+            .await
+            .unwrap_err()
+            .contains("locked until its global league unlock date"));
+            assert_eq!(
+                fs::read_to_string(&exported.export.path).unwrap(),
+                exported.export.content
+            );
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+            sqlx::query("INSERT INTO decks(id,name) VALUES('legacy-future','Legacy future')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO deck_cards(deck_id,card_id,section,quantity) VALUES('legacy-future','locked-art','main',1)").execute(&pool).await.unwrap();
+            assert!(duplicate_pool(&pool, "legacy-future")
+                .await
+                .unwrap_err()
+                .contains("locked until its global league unlock date"));
+            let basic = save_pool(
+                &pool,
+                draft("Free new-set basics", vec![entry("next-land", "main", 60)]),
+            )
+            .await
+            .unwrap();
+            assert_eq!(basic.cards[0].quantity, 60);
+            sqlx::query("INSERT INTO collection(card_id,quantity) VALUES('next-owned',1)")
+                .execute(&pool)
+                .await
+                .unwrap();
+            let saved = save_synced_with_index(
+                &pool,
+                draft(
+                    "Collected expansion artwork",
+                    vec![entry("next-art", "main", 3), entry("next-land", "main", 57)],
+                ),
+                directory.path().to_str().unwrap(),
+                &index,
+            )
+            .await
+            .unwrap();
+            assert!(saved.export.content.contains("3 Elf|NXT|[2]"));
+            assert!(saved
+                .deck
+                .cards
+                .iter()
+                .any(|entry| entry.card.id == "next-art"
+                    && entry.card.owned == 0
+                    && entry.card.oracle_owned == 3));
+            assert!(duplicate_pool(&pool, "legacy-next").await.is_ok());
+            assert!(save_pool(
+                &pool,
+                draft(
+                    "Still pooled across sets",
+                    vec![
+                        entry("next-art", "main", 2),
+                        entry("next-art", "sideboard", 2)
+                    ]
+                )
+            )
+            .await
+            .unwrap_err()
+            .contains("needs 4 copies"));
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT SUM(quantity) FROM collection")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                3
+            );
+            pool.close().await;
+        });
     }
 
     async fn track_test_files(pool: &SqlitePool, id: &str, paths: &[PathBuf]) {
@@ -2703,6 +3301,10 @@ mod tests {
                 .execute(&pool)
                 .await
                 .unwrap();
+            sqlx::query("INSERT INTO settings(key,value) VALUES('test.unlocked-sets','[\"tst\"]')")
+                .execute(&pool)
+                .await
+                .unwrap();
             sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,set_name,collector_number,rarity,type_line,metadata_json) VALUES('owned','elf','Elf','tst','Test Set','1','common','Creature','{}'),('unowned','elf','Elf','tst','Test Set','2','common','Creature','{}'),('basic','forest','Forest','tst','Test Set','3','common','Basic Land — Forest','{}')")
                 .execute(&pool).await.unwrap();
             sqlx::query("INSERT INTO collection(card_id,quantity) VALUES('owned',2)")
@@ -2730,15 +3332,12 @@ mod tests {
             };
 
             let unowned = draft("Unowned printing", vec![entry("unowned", "main", 1)]);
-            assert!(save_pool(&pool, unowned.clone())
-                .await
-                .unwrap_err()
-                .contains("you own 0"));
             let mut transaction = pool.begin().await.unwrap();
             let entries = draft_entries(&mut transaction, &unowned).await.unwrap();
             transaction.commit().await.unwrap();
+            assert!(ownership_warnings(&entries).is_empty());
             assert!(
-                !validate_entries_with_restrictions(
+                validate_entries_with_restrictions(
                     &entries,
                     Some(&test_index()),
                     &restrictions_pool(&pool).await.unwrap()
@@ -2749,7 +3348,10 @@ mod tests {
                 &pool,
                 draft(
                     "Too many across sections",
-                    vec![entry("owned", "main", 2), entry("owned", "sideboard", 1)]
+                    vec![
+                        entry("unowned", "main", 2),
+                        entry("unowned", "sideboard", 1)
+                    ]
                 )
             )
             .await
@@ -2757,7 +3359,7 @@ mod tests {
             .contains("needs 3 copies"));
             assert!(list_pool(&pool).await.unwrap().is_empty());
 
-            let saved = save_pool(&pool, draft("Owned", vec![entry("owned", "main", 2)]))
+            let saved = save_pool(&pool, draft("Owned", vec![entry("unowned", "main", 2)]))
                 .await
                 .unwrap();
             let duplicate = duplicate_pool(&pool, &saved.id).await.unwrap();
@@ -2839,6 +3441,10 @@ mod tests {
                 .await
                 .unwrap();
             sqlx::raw_sql(include_str!("../migrations/002_catalog.sql"))
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO settings(key,value) VALUES('test.unlocked-sets','[\"tst\"]')")
                 .execute(&pool)
                 .await
                 .unwrap();

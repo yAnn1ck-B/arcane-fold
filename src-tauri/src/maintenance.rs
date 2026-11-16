@@ -26,6 +26,7 @@ const TABLES: &[&str] = &[
     "progression_operations",
     "set_booster_balances",
     "expansion_reward_claims",
+    "booster_pack_queue",
 ];
 
 #[derive(Serialize)]
@@ -181,6 +182,8 @@ fn migration_sql(version: i64) -> Result<&'static str, String> {
         3 => Ok(include_str!("../migrations/003_progression.sql")),
         4 => Ok(include_str!("../migrations/004_land_policy.sql")),
         5 => Ok(include_str!("../migrations/005_expansion_rewards.sql")),
+        6 => Ok(include_str!("../migrations/006_catalog_eligibility.sql")),
+        7 => Ok(include_str!("../migrations/007_pack_queue.sql")),
         _ => {
             Err("This backup requires a database migration unavailable in this app version.".into())
         }
@@ -345,6 +348,10 @@ pub async fn restore_pool(pool: &SqlitePool, source: &Path, cache: &Path) -> Res
             sqlx::query(&format!("INSERT INTO main.\"{table}\" ({names}) SELECT {names} FROM restore_source.\"{table}\""))
                 .execute(&mut *transaction).await.map_err(|error| format!("Cannot restore {table}: {error}"))?;
         }
+        // Eligibility is a derived cache. Older snapshots may have just gained
+        // the cache column during upgrade, so rebuild it on the next browse.
+        sqlx::query("DELETE FROM settings WHERE key='catalog_browse_policy'")
+            .execute(&mut *transaction).await.map_err(|error| error.to_string())?;
         if sqlx::query("PRAGMA main.foreign_key_check").fetch_optional(&mut *transaction).await.map_err(|error| error.to_string())?.is_some() {
             return Err("The restored data contains invalid card or deck references.".into());
         }
@@ -460,20 +467,7 @@ pub async fn save_app_settings(app: AppHandle, settings_json: String) -> Result<
     }
     settings["league"] = serde_json::to_value(crate::league_rules::builtin_rules()?)
         .map_err(|error| error.to_string())?;
-    let appearance = settings.get("appearance");
-    let theme = appearance
-        .and_then(|value| value.get("theme"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| ["forest", "midnight", "slate", "light"].contains(value))
-        .unwrap_or("forest")
-        .to_owned();
-    let font_size = appearance
-        .and_then(|value| value.get("fontSize"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| ["normal", "large"].contains(value))
-        .unwrap_or("normal")
-        .to_owned();
-    settings["appearance"] = serde_json::json!({ "theme": theme, "fontSize": font_size });
+    settings["appearance"] = serde_json::json!({ "theme": "light", "fontSize": "large" });
     if let Some(forge) = settings
         .get_mut("forge")
         .and_then(serde_json::Value::as_object_mut)
@@ -644,7 +638,7 @@ mod tests {
     fn snapshots_include_wal_and_restore_all_data_without_replacing_connections() {
         tauri::async_runtime::block_on(async {
             let directory = tempfile::tempdir().unwrap();
-            let pool = fixture(&directory.path().join("live.sqlite"), 5).await;
+            let pool = fixture(&directory.path().join("live.sqlite"), 7).await;
             seed(&pool).await;
             let backup = directory.path().join("backup.sqlite");
             let saved = backup_pool(&pool, &backup).await.unwrap();
@@ -724,7 +718,7 @@ mod tests {
     fn invalid_and_incompatible_backups_preserve_the_live_database() {
         tauri::async_runtime::block_on(async {
             let directory = tempfile::tempdir().unwrap();
-            let pool = fixture(&directory.path().join("live.sqlite"), 5).await;
+            let pool = fixture(&directory.path().join("live.sqlite"), 7).await;
             seed(&pool).await;
             let corrupt = directory.path().join("bad.sqlite");
             fs::write(&corrupt, b"not a sqlite backup").unwrap();
@@ -765,7 +759,7 @@ mod tests {
             let backup = directory.path().join("old-backup.sqlite");
             backup_pool(&old, &backup).await.unwrap();
             old.close().await;
-            let pool = fixture(&directory.path().join("live.sqlite"), 5).await;
+            let pool = fixture(&directory.path().join("live.sqlite"), 7).await;
             restore_pool(&pool, &backup, directory.path())
                 .await
                 .unwrap();
@@ -805,7 +799,7 @@ mod tests {
     fn a_restore_insert_failure_rolls_back_every_live_table() {
         tauri::async_runtime::block_on(async {
             let directory = tempfile::tempdir().unwrap();
-            let pool = fixture(&directory.path().join("live.sqlite"), 5).await;
+            let pool = fixture(&directory.path().join("live.sqlite"), 7).await;
             seed(&pool).await;
             let backup = directory.path().join("invalid-data.sqlite");
             backup_pool(&pool, &backup).await.unwrap();

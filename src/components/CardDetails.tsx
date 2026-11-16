@@ -1,9 +1,19 @@
 import { formatMana } from "@/lib/mana";
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, RotateCw, Sparkles, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import {
+  Layers3,
+  LoaderCircle,
+  Plus,
+  RotateCw,
+  Sparkles,
+  X,
+} from "lucide-react";
 import CardImage from "@/components/CardImage";
+import PrintingPicker from "@/components/PrintingPicker";
+import "@/styles/card-browser.css";
 import { Button } from "@/components/ui/button";
-import { getCard } from "@/services/cards";
+import { getCard, getCardPrintings } from "@/services/cards";
 import { craftCard } from "@/services/progression";
 import { isUnlimitedBasic } from "@/lib/cards";
 import type { CatalogCard, LeagueStatus, WildcardRarity } from "@/lib/types";
@@ -14,6 +24,8 @@ interface CardDetailsProps {
   league: LeagueStatus;
   onClose: () => void;
   onChange: () => void;
+  onAddToDeck?: (card: CatalogCard) => void;
+  onPrintingChange?: (card: CatalogCard) => void;
 }
 
 /** Shared card dialog. History snapshots always refresh ownership. */
@@ -23,9 +35,20 @@ export default function CardDetails({
   league,
   onClose,
   onChange,
+  onAddToDeck,
+  onPrintingChange,
 }: CardDetailsProps) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [requested, setRequested] = useState(card);
   const [current, setCurrent] = useState(card);
+  const [choosingPrinting, setChoosingPrinting] = useState(false);
+  const [printingError, setPrintingError] = useState(false);
+  const [unlockedPrintingIds, setUnlockedPrintingIds] = useState<string[]>([]);
+  const [printingRevision, setPrintingRevision] = useState(0);
+  const enabledSetsKey = league.enabledSets
+    .map((code) => code.toLowerCase())
+    .sort()
+    .join(",");
   const [face, setFace] = useState<"front" | "back">("front");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -44,14 +67,18 @@ export default function CardDetails({
   }, []);
 
   useEffect(() => {
+    setRequested(card);
+  }, [card.id]);
+
+  useEffect(() => {
     let active = true;
-    setCurrent(card);
+    setCurrent(requested);
     setFace("front");
     setLoading(true);
     setLoadError(false);
     setError(null);
     setNotice(null);
-    getCard(card.id)
+    getCard(requested.id)
       .then((fresh) => {
         if (active) {
           setCurrent(fresh);
@@ -69,7 +96,25 @@ export default function CardDetails({
     return () => {
       active = false;
     };
-  }, [card.id]);
+  }, [requested.id]);
+
+  useEffect(() => {
+    let active = true;
+    setUnlockedPrintingIds([]);
+    setPrintingError(false);
+    getCardPrintings(requested.oracleId)
+      .then((printings) => {
+        if (active) {
+          setUnlockedPrintingIds(printings.map((printing) => printing.id));
+        }
+      })
+      .catch(() => {
+        if (active) setPrintingError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [requested.oracleId, printingRevision, enabledSetsKey]);
 
   const unlimited = isUnlimitedBasic(current);
   const oracleOwned = current.oracleOwned ?? current.owned;
@@ -110,10 +155,11 @@ export default function CardDetails({
     } finally {
       running.current = false;
       setBusy(false);
+      setPrintingRevision((revision) => revision + 1);
     }
   }
 
-  return (
+  return createPortal(
     <dialog
       ref={dialog}
       className="card-dialog"
@@ -124,7 +170,7 @@ export default function CardDetails({
       aria-label={`${current.name} details`}
     >
       <div className="card-dialog-layout">
-        <div>
+        <div className="card-dialog-art-column">
           <CardImage card={current} imageCacheDir={imageCacheDir} face={face} />
           {current.backImageUri && (
             <Button
@@ -134,6 +180,32 @@ export default function CardDetails({
               <RotateCw size={15} /> Show {face === "front" ? "back" : "front"}{" "}
               face
             </Button>
+          )}
+          <div className="card-detail-art-printing">
+            <div className="card-detail-printing-meta">
+              <strong>{current.setName}</strong>
+              <span>
+                #{current.collectorNumber} - {current.rarity}
+              </span>
+            </div>
+            {unlockedPrintingIds.length > 1 && (
+              <Button
+                className="card-detail-printing-button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                aria-haspopup="dialog"
+                aria-expanded={choosingPrinting}
+                onClick={() => setChoosingPrinting(true)}
+              >
+                <Layers3 size={13} /> Printing
+              </Button>
+            )}
+          </div>
+          {printingError && (
+            <p className="field-hint" role="alert">
+              Could not load printings.
+            </p>
           )}
         </div>
         <div className="card-dialog-copy">
@@ -146,9 +218,7 @@ export default function CardDetails({
           >
             <X size={19} />
           </Button>
-          <span className="eyebrow">
-            {current.setName} · #{current.collectorNumber}
-          </span>
+          <span className="eyebrow">Card details</span>
           <h2>{current.name}</h2>
           <p className="card-detail-mana">
             {formatMana(current.manaCost) || "No mana cost"} · Mana value{" "}
@@ -158,9 +228,6 @@ export default function CardDetails({
           <p className="card-rules">
             {formatMana(current.oracleText) || "No rules text."}
           </p>
-          <span className="badge badge-muted">
-            {current.rarity.toUpperCase()} · {current.setCode.toUpperCase()}
-          </span>
           {loading && (
             <p className="field-hint card-detail-loading" role="status">
               <LoaderCircle size={14} className="animate-spin" /> Refreshing
@@ -179,10 +246,7 @@ export default function CardDetails({
           )}
           {unlimited ? (
             <div className="craft-panel">
-              <p>
-                Unlimited for deck building. You can use these basic lands
-                without collecting or crafting copies.
-              </p>
+              <p>Unlimited basic land.</p>
             </div>
           ) : (
             <>
@@ -214,14 +278,43 @@ export default function CardDetails({
                     : `Craft one ${current.rarity} card`}
                 </Button>
               </div>
-              <p className="card-preview-owned">
-                {current.owned} owned of this printing · {oracleOwned}/4 owned
-                across all printings
-              </p>
+              <p className="card-preview-owned">{oracleOwned} owned</p>
             </>
+          )}
+          {onAddToDeck && (
+            <Button
+              className="card-detail-add-deck"
+              variant="outline"
+              disabled={
+                loading ||
+                loadError ||
+                busy ||
+                !unlocked ||
+                !unlockedPrintingIds.includes(current.id) ||
+                (!unlimited && oracleOwned < 1)
+              }
+              onClick={() => onAddToDeck(current)}
+            >
+              <Plus size={15} /> Add to deck
+            </Button>
           )}
         </div>
       </div>
-    </dialog>
+      {choosingPrinting && (
+        <PrintingPicker
+          card={current}
+          imageCacheDir={imageCacheDir}
+          currentCardId={current.id}
+          disabled={busy}
+          onClose={() => setChoosingPrinting(false)}
+          onSelect={(printing) => {
+            setChoosingPrinting(false);
+            setRequested(printing);
+            onPrintingChange?.(printing);
+          }}
+        />
+      )}
+    </dialog>,
+    document.body,
   );
 }

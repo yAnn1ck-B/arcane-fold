@@ -5,6 +5,7 @@ import { migrateForgeDecks } from "@/services/decks";
 import {
   AlertCircle,
   ArrowRight,
+  CheckCircle2,
   LayoutDashboard,
   Library,
   LoaderCircle,
@@ -19,6 +20,7 @@ import Settings from "@/pages/Settings";
 import Collection from "@/pages/Collection";
 import DeckBuilder from "@/pages/DeckBuilder";
 import Boosters from "@/pages/Boosters";
+import UpdatePrompt from "@/components/UpdatePrompt";
 import { leagueStatus } from "@/services/progression";
 import {
   catalogStatus,
@@ -38,6 +40,7 @@ import type {
   CatalogCard,
   CatalogStatus,
   DashboardStats,
+  DeckAddRequest,
   ForgePaths,
   IntegrationReport,
   LeagueStatus,
@@ -46,6 +49,10 @@ import type {
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
+  const [deckAddRequest, setDeckAddRequest] = useState<DeckAddRequest | null>(
+    null,
+  );
+  const [cardAddedNotice, setCardAddedNotice] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [report, setReport] = useState<IntegrationReport | null>(null);
@@ -90,9 +97,9 @@ export default function App() {
   }, [desktop]);
   useEffect(() => {
     document.documentElement.dataset.theme =
-      settings?.appearance.theme ?? "forest";
+      settings?.appearance.theme ?? "light";
     document.documentElement.dataset.fontSize =
-      settings?.appearance.fontSize ?? "normal";
+      settings?.appearance.fontSize ?? "large";
   }, [settings?.appearance.theme, settings?.appearance.fontSize]);
 
   const initialize = useCallback(async () => {
@@ -107,9 +114,9 @@ export default function App() {
     try {
       const loaded = await loadSettings();
       setSettings(loaded);
-      setStats(await loadDashboardStats());
       setCatalog(await catalogStatus());
       setLeague(await leagueStatus());
+      setStats(await loadDashboardStats());
       try {
         const checked = await testForgeIntegration(loaded.forge);
         setReport(checked);
@@ -142,11 +149,12 @@ export default function App() {
 
   const handleDataChange = useCallback(() => {
     setRevision((value) => value + 1);
-    void loadDashboardStats()
-      .then(setStats)
-      .catch((err: unknown) => setError(String(err)));
     void leagueStatus()
-      .then(setLeague)
+      .then((next) => {
+        setLeague(next);
+        return loadDashboardStats();
+      })
+      .then(setStats)
       .catch((err: unknown) => setError(String(err)));
   }, []);
 
@@ -157,9 +165,9 @@ export default function App() {
     };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
-    const now = Date.now();
-    const startedAt = settings.league.startedAt * 1000;
     const week = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now() + (league.previewWeeks ?? 0) * week;
+    const startedAt = settings.league.startedAt * 1000;
     const nextBoundary =
       now < startedAt
         ? startedAt
@@ -181,13 +189,18 @@ export default function App() {
     league.nextRewardAt,
     league.canClaimWeekly,
     league.week,
+    league.previewWeeks,
     handleDataChange,
   ]);
 
   function navigate(next: Page) {
+    setCardAddedNotice(null);
     if (next === "collection" || next === "decks" || next === "boosters")
       setVisited((current) => ({ ...current, [next]: true }));
     setPage(next);
+    window.requestAnimationFrame(() =>
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+    );
   }
 
   async function prepareCatalog(paths: ForgePaths) {
@@ -297,7 +310,7 @@ export default function App() {
         <nav className="utility-nav" aria-label="App navigation">
           <button
             className={`nav-item ${page === "settings" ? "active" : ""}`}
-            onClick={() => setPage("settings")}
+            onClick={() => navigate("settings")}
             aria-current={page === "settings" ? "page" : undefined}
           >
             <Settings2 size={18} strokeWidth={1.7} />
@@ -323,6 +336,11 @@ export default function App() {
             </span>
             {appVersion && (
               <small className="app-version">App v{appVersion}</small>
+            )}
+            {!!league.previewWeeks && (
+              <small className="app-version">
+                Preview · +{league.previewWeeks} weeks
+              </small>
             )}
           </div>
         </div>
@@ -379,6 +397,19 @@ export default function App() {
               </Button>
             </div>
           )}
+          {cardAddedNotice && (
+            <div className="notice notice-success" role="status">
+              <CheckCircle2 size={18} />
+              <span>{cardAddedNotice}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCardAddedNotice(null)}
+              >
+                Dismiss
+              </Button>
+            </div>
+          )}
           {!desktop ? (
             <section className="panel desktop-message">
               <Monitor size={38} />
@@ -421,6 +452,14 @@ export default function App() {
                     league={league}
                     catalogCount={catalog.count}
                     onSettings={() => navigate("settings")}
+                    onAddToDeck={(card) => {
+                      setCardAddedNotice(null);
+                      setDeckAddRequest({
+                        requestId: crypto.randomUUID(),
+                        card,
+                      });
+                      setVisited((current) => ({ ...current, decks: true }));
+                    }}
                   />
                 </div>
               )}
@@ -431,6 +470,13 @@ export default function App() {
                     revision={revision}
                     onChange={handleDataChange}
                     league={league}
+                    addRequest={deckAddRequest}
+                    onAddComplete={setCardAddedNotice}
+                    onAddRequestHandled={(requestId) => {
+                      setDeckAddRequest((current) =>
+                        current?.requestId === requestId ? null : current,
+                      );
+                    }}
                   />
                 </div>
               )}
@@ -469,6 +515,7 @@ export default function App() {
           )}
         </div>
       </main>
+      <UpdatePrompt busy={loading || importBusy} />
     </div>
   );
 }

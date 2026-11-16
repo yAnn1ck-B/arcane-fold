@@ -1,0 +1,39 @@
+[metadata]
+Code=TST
+Code2=TS
+ScryfallCode=tst
+Name=Test Set
+
+[cards]
+227 C Llanowar Elves @Artist
+
+[full art]
+290 L Forest @Artist
+293   L   Plains @Artist
+
+[borderless]
+439 R Llanowar Elves @Artist
+
+[showcase]
+429 M Llanowar Elves @Artist
+440 X Invalid Rarity
+bad=id R Invalid Collector
+
+[precon product]
+600 U Another Creature @Artist
+
+[full art]
+290 L Forest @Artist
+
+[tokens]
+900 C Not A Card
+
+[other]
+901 R Not A Card Either
+
+[Common]
+Base=Common
+Replace=.5F Rare
+
+[custom sheet]
+999 C Not An Edition Printing

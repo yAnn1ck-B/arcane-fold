@@ -8,6 +8,10 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "sql:default",
-    "sql:allow-execute"
+    "sql:allow-execute",
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install",
+    "process:allow-restart"
   ]
 }

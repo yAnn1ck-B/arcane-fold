@@ -10,7 +10,7 @@ use sqlx::{
     Acquire, QueryBuilder, Row, Sqlite, SqliteConnection, SqlitePool,
 };
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt,
     fs::{self, File},
     io::{BufRead, BufReader, Read, Write},
@@ -23,6 +23,9 @@ use tauri::{AppHandle, Emitter, Manager};
 static POOL: tokio::sync::OnceCell<SqlitePool> = tokio::sync::OnceCell::const_new();
 static IMPORTING: AtomicBool = AtomicBool::new(false);
 static CATALOG_SETUP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static BROWSE_POLICY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static BANNER_MOXES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+const BROWSE_POLICY_VERSION: &str = "1";
 pub const USER_AGENT: &str = "EternalLeague/0.1 (Windows desktop MTG Forge companion)";
 
 pub(crate) fn database_mutation_guard() -> Result<tokio::sync::RwLockReadGuard<'static, ()>, String>
@@ -55,7 +58,7 @@ pub struct CatalogCard {
     pub forge_set_code: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CardQuery {
     pub search: String,
@@ -69,6 +72,13 @@ pub struct CardQuery {
     pub min_owned: i64,
     pub page: u32,
     pub page_size: u32,
+    pub colors: Vec<String>,
+    pub mana_values: Vec<i64>,
+    pub card_types: Vec<String>,
+    pub creature_type: String,
+    pub group_by_oracle: bool,
+    pub available_only: bool,
+    pub allocated: HashMap<String, i64>,
 }
 
 #[derive(Serialize)]
@@ -81,6 +91,16 @@ pub struct CatalogSet {
     pub code: String,
     pub name: String,
     pub count: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardFilterOptions {
+    pub colors: Vec<String>,
+    pub mana_values: Vec<i64>,
+    pub rarities: Vec<String>,
+    pub sets: Vec<CatalogSet>,
+    pub card_types: Vec<String>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -177,9 +197,68 @@ fn literal_search_pattern(term: &str) -> String {
     pattern
 }
 
-fn filters<'a>(prefix: &str, query: &'a CardQuery) -> QueryBuilder<'a, Sqlite> {
-    let mut sql = QueryBuilder::new(prefix.to_owned());
-    sql.push(" FROM cards c LEFT JOIN collection o ON o.card_id=c.id WHERE 1=1");
+fn push_sets(sql: &mut QueryBuilder<'_, Sqlite>, sets: &[String]) {
+    sql.push("c.set_code IN (");
+    if sets.is_empty() {
+        sql.push("NULL");
+    }
+    for (index, code) in sets.iter().enumerate() {
+        if index > 0 {
+            sql.push(",");
+        }
+        sql.push_bind(code.to_lowercase());
+    }
+    sql.push(")");
+}
+
+fn push_main_type(sql: &mut QueryBuilder<'_, Sqlite>, kind: &str) {
+    let kind = if kind.eq_ignore_ascii_case("Tribal") {
+        "Kindred"
+    } else {
+        kind
+    };
+    let Some(kind) = crate::card_policy::MAIN_TYPES
+        .iter()
+        .find(|value| value.eq_ignore_ascii_case(kind))
+    else {
+        sql.push("0");
+        return;
+    };
+    sql.push("EXISTS(SELECT 1 FROM json_each('[' || replace(json_quote(c.type_line),' // ','\",\"') || ']') type_face WHERE (instr(' ' || lower(substr(type_face.value,1,instr(type_face.value || '—','—')-1)) || ' ',")
+        .push_bind(format!(" {} ", kind.to_lowercase()))
+        .push(")>0");
+    if *kind == "Kindred" {
+        sql.push(" OR instr(' ' || lower(substr(type_face.value,1,instr(type_face.value || '—','—')-1)) || ' ',' tribal ')>0");
+    }
+    sql.push("))");
+}
+
+fn filters<'a>(
+    prefix: &str,
+    query: &'a CardQuery,
+    unlocked: &[String],
+) -> QueryBuilder<'a, Sqlite> {
+    append_filters(QueryBuilder::new(prefix.to_owned()), query, unlocked)
+}
+
+fn append_filters<'a>(
+    mut sql: QueryBuilder<'a, Sqlite>,
+    query: &'a CardQuery,
+    unlocked: &[String],
+) -> QueryBuilder<'a, Sqlite> {
+    sql.push(" FROM cards c LEFT JOIN collection o ON o.card_id=c.id WHERE ")
+        .push("c.league_eligible=1");
+    // Basic-land artwork is free only in globally unlocked expansions. The
+    // owned/deck views also select unlocked artwork for pooled card identities.
+    sql.push(" AND (NOT ")
+        .push(UNLIMITED_BASIC_SQL)
+        .push(" OR ");
+    push_sets(&mut sql, unlocked);
+    sql.push(")");
+    if query.owned_only || query.available_only {
+        sql.push(" AND ");
+        push_sets(&mut sql, unlocked);
+    }
     // Every term must appear in the name or rules text. Keeping terms separate
     // lets searches such as "gain life" find "gain 3 life" as well.
     for term in query.search.split_whitespace() {
@@ -191,33 +270,76 @@ fn filters<'a>(prefix: &str, query: &'a CardQuery) -> QueryBuilder<'a, Sqlite> {
             .push(" ESCAPE '\\')");
     }
     if query.owned_only {
-        sql.push(" AND (COALESCE(o.quantity,0)>0");
+        sql.push(" AND (").push(ORACLE_OWNED_SQL).push(">0");
         if query.include_basic_lands {
             sql.push(" OR ").push(UNLIMITED_BASIC_SQL);
         }
         sql.push(")");
     }
     if query.min_owned > 0 {
-        sql.push(" AND (COALESCE(o.quantity,0)>=")
+        sql.push(" AND (")
+            .push(ORACLE_OWNED_SQL)
+            .push(">=")
             .push_bind(query.min_owned);
         if query.include_basic_lands {
             sql.push(" OR ").push(UNLIMITED_BASIC_SQL);
         }
         sql.push(")");
     }
-    match query.color.to_uppercase().as_str() {
-        "C" => {
-            sql.push(" AND json_array_length(c.colors_json)=0");
+    if query.available_only {
+        sql.push(" AND (");
+        if query.include_basic_lands {
+            sql.push(UNLIMITED_BASIC_SQL).push(" OR ");
         }
-        "M" => {
-            sql.push(" AND json_array_length(c.colors_json)>1");
+        sql.push(ORACLE_OWNED_SQL).push(" > ");
+        if query.allocated.is_empty() {
+            sql.push("0");
+        } else {
+            sql.push("CASE c.oracle_id");
+            for (oracle, quantity) in &query.allocated {
+                sql.push(" WHEN ")
+                    .push_bind(oracle.clone())
+                    .push(" THEN ")
+                    .push_bind((*quantity).max(0));
+            }
+            sql.push(" ELSE 0 END");
         }
-        "W" | "U" | "B" | "R" | "G" => {
-            sql.push(" AND instr(c.colors_json,")
-                .push_bind(format!("\"{}\"", query.color.to_uppercase()))
-                .push(")>0");
+        sql.push(")");
+    }
+    let colors = if query.colors.is_empty() {
+        vec![query.color.clone()]
+    } else {
+        query.colors.clone()
+    };
+    let colors: Vec<_> = colors
+        .iter()
+        .map(|color| color.to_uppercase())
+        .filter(|color| ["W", "U", "B", "R", "G", "C", "M"].contains(&color.as_str()))
+        .collect();
+    if !colors.is_empty() {
+        sql.push(" AND (");
+    }
+    for (index, color) in colors.iter().enumerate() {
+        if index > 0 {
+            sql.push(" OR ");
         }
-        _ => (),
+        match color.as_str() {
+            "C" => {
+                sql.push("json_array_length(c.colors_json)=0");
+            }
+            "M" => {
+                sql.push("json_array_length(c.colors_json)>1");
+            }
+            "W" | "U" | "B" | "R" | "G" => {
+                sql.push("instr(c.colors_json,")
+                    .push_bind(format!("\"{color}\""))
+                    .push(")>0");
+            }
+            _ => (),
+        }
+    }
+    if !colors.is_empty() {
+        sql.push(")");
     }
     if !query.rarity.is_empty() && query.rarity != "all" {
         sql.push(" AND c.rarity=")
@@ -227,37 +349,136 @@ fn filters<'a>(prefix: &str, query: &'a CardQuery) -> QueryBuilder<'a, Sqlite> {
         sql.push(" AND c.set_code=")
             .push_bind(query.set_code.to_lowercase());
     }
-    if query.type_line.trim().eq_ignore_ascii_case("basic land") {
+    if !query.card_types.is_empty() {
+        sql.push(" AND (");
+        for (index, kind) in query.card_types.iter().enumerate() {
+            if index > 0 {
+                sql.push(" OR ");
+            }
+            push_main_type(&mut sql, kind);
+        }
+        sql.push(")");
+    } else if query.type_line.trim().eq_ignore_ascii_case("basic land") {
         sql.push(" AND ").push(UNLIMITED_BASIC_SQL);
     } else if !query.type_line.is_empty() && query.type_line != "all" {
         sql.push(" AND c.type_line LIKE ")
             .push_bind(format!("%{}%", query.type_line));
     }
-    if let Ok(value) = query.mana_value.parse::<f64>() {
+    if !query.creature_type.trim().is_empty() {
+        sql.push(" AND ");
+        push_main_type(&mut sql, "Creature");
+        sql.push(" AND instr(' ' || lower(c.type_line) || ' ',")
+            .push_bind(format!(" {} ", query.creature_type.trim().to_lowercase()))
+            .push(")>0");
+    }
+    let values: Vec<_> = query
+        .mana_values
+        .iter()
+        .copied()
+        .filter(|value| (0..=6).contains(value))
+        .collect();
+    if !values.is_empty() {
+        sql.push(" AND (");
+        for (index, value) in values.iter().enumerate() {
+            if index > 0 {
+                sql.push(" OR ");
+            }
+            if *value == 6 {
+                sql.push("c.cmc>=6");
+            } else {
+                sql.push("c.cmc=").push_bind(*value);
+            }
+        }
+        sql.push(")");
+    } else if let Ok(value) = query.mana_value.parse::<f64>() {
         sql.push(" AND c.cmc=").push_bind(value);
     }
     sql
 }
 
-pub async fn query_pool(pool: &SqlitePool, query: CardQuery) -> Result<CardPage, String> {
-    let total: i64 = filters("SELECT COUNT(*)", &query)
-        .build_query_scalar()
-        .fetch_one(pool)
+async fn ensure_browse_policy(pool: &SqlitePool) -> Result<(), String> {
+    let version: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key='catalog_browse_policy'")
+            .fetch_optional(pool)
+            .await
+            .map_err(|error| error.to_string())?;
+    if version.as_deref() == Some(BROWSE_POLICY_VERSION) {
+        return Ok(());
+    }
+    let _lock = BROWSE_POLICY.lock().await;
+    let version: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key='catalog_browse_policy'")
+            .fetch_optional(pool)
+            .await
+            .map_err(|error| error.to_string())?;
+    if version.as_deref() == Some(BROWSE_POLICY_VERSION) {
+        return Ok(());
+    }
+    let _operation = database_mutation_guard()?;
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?;
+    sqlx::query(&format!(
+        "UPDATE cards AS c SET league_eligible=CASE WHEN {} AND {} THEN 1 ELSE 0 END",
+        crate::card_policy::ELIGIBLE_SQL,
+        crate::card_policy::regular_type_sql()
+    ))
+    .execute(&mut *transaction)
+    .await
+    .map_err(|error| error.to_string())?;
+    sqlx::query("INSERT INTO settings(key,value) VALUES('catalog_browse_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(BROWSE_POLICY_VERSION).execute(&mut *transaction).await.map_err(|error|error.to_string())?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+pub async fn query_pool(pool: &SqlitePool, query: CardQuery) -> Result<CardPage, String> {
+    ensure_browse_policy(pool).await?;
+    let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
+    let unlocked = crate::progression::unlocked_sets_connection(&mut connection).await?;
+    drop(connection);
+    let total: i64 = filters(
+        if query.group_by_oracle {
+            "SELECT COUNT(DISTINCT c.oracle_id)"
+        } else {
+            "SELECT COUNT(*)"
+        },
+        &query,
+        &unlocked,
+    )
+    .build_query_scalar()
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
     let size = if query.page_size == 0 {
         30
     } else {
         query.page_size.clamp(1, 100)
     };
-    let mut sql = filters(
-        &format!("SELECT c.*, COALESCE(o.quantity,0) AS owned, {ORACLE_OWNED_SQL} AS oracle_owned"),
-        &query,
-    );
-    sql.push(" ORDER BY c.name COLLATE NOCASE,c.set_code,c.collector_number,c.id LIMIT ")
-        .push_bind(i64::from(size))
-        .push(" OFFSET ")
-        .push_bind(i64::from(query.page) * i64::from(size));
+    let prefix = if query.group_by_oracle {
+        let mut prefix = QueryBuilder::new("WITH matched AS (SELECT c.id,c.name,c.set_code,c.collector_number,ROW_NUMBER() OVER (PARTITION BY c.oracle_id ORDER BY CASE WHEN ".to_owned());
+        push_sets(&mut prefix, &unlocked);
+        prefix.push(" THEN 0 ELSE 1 END, CASE WHEN COALESCE(o.quantity,0)>0 THEN 0 ELSE 1 END,c.set_code,c.collector_number,c.id) AS representative_rank");
+        prefix
+    } else {
+        QueryBuilder::new(format!(
+            "SELECT c.*, COALESCE(o.quantity,0) AS owned, {ORACLE_OWNED_SQL} AS oracle_owned"
+        ))
+    };
+    let mut sql = append_filters(prefix, &query, &unlocked);
+    if query.group_by_oracle {
+        sql.push(") SELECT c.*,COALESCE(o.quantity,0) AS owned,").push(ORACLE_OWNED_SQL)
+            .push(" AS oracle_owned FROM cards c JOIN (SELECT id FROM matched WHERE representative_rank=1 ORDER BY name COLLATE NOCASE,set_code,collector_number,id LIMIT ")
+            .push_bind(i64::from(size)).push(" OFFSET ").push_bind(i64::from(query.page)*i64::from(size))
+            .push(") selected ON selected.id=c.id LEFT JOIN collection o ON o.card_id=c.id ORDER BY c.name COLLATE NOCASE,c.set_code,c.collector_number,c.id");
+    } else {
+        sql.push(" ORDER BY name COLLATE NOCASE,set_code,collector_number,id LIMIT ")
+            .push_bind(i64::from(size))
+            .push(" OFFSET ")
+            .push_bind(i64::from(query.page) * i64::from(size));
+    }
     let rows = sql
         .build()
         .fetch_all(pool)
@@ -270,6 +491,189 @@ pub async fn query_pool(pool: &SqlitePool, query: CardQuery) -> Result<CardPage,
 #[tauri::command]
 pub async fn query_cards(app: AppHandle, query: CardQuery) -> Result<CardPage, String> {
     query_pool(&open_pool(&app).await?, query).await
+}
+
+fn filter_scope(mut query: CardQuery) -> CardQuery {
+    query.colors.clear();
+    query.color.clear();
+    query.mana_values.clear();
+    query.mana_value.clear();
+    query.card_types.clear();
+    query.type_line.clear();
+    query.creature_type.clear();
+    query.rarity.clear();
+    query.set_code.clear();
+    query.page = 0;
+    query
+}
+
+pub async fn filter_options_pool(
+    pool: &SqlitePool,
+    query: CardQuery,
+) -> Result<CardFilterOptions, String> {
+    ensure_browse_policy(pool).await?;
+    let query = filter_scope(query);
+    let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
+    let unlocked = crate::progression::unlocked_sets_connection(&mut connection).await?;
+    drop(connection);
+    let rows = filters(
+        "SELECT c.oracle_id,c.colors_json,c.cmc,c.rarity,c.set_code,c.set_name,c.type_line",
+        &query,
+        &unlocked,
+    )
+    .build()
+    .fetch_all(pool)
+    .await
+    .map_err(|error| error.to_string())?;
+    let mut colors = HashSet::new();
+    let mut values = HashSet::new();
+    let mut rarities = HashSet::new();
+    let mut types = HashSet::new();
+    let mut sets = BTreeMap::<String, (String, HashSet<String>)>::new();
+    for row in rows {
+        let card_colors: Vec<String> =
+            serde_json::from_str(row.get("colors_json")).unwrap_or_default();
+        if card_colors.is_empty() {
+            colors.insert("C".to_owned());
+        }
+        if card_colors.len() > 1 {
+            colors.insert("M".to_owned());
+        }
+        colors.extend(card_colors);
+        let cmc: f64 = row.get("cmc");
+        values.insert((cmc as i64).min(6));
+        rarities.insert(row.get::<String, _>("rarity"));
+        types.extend(crate::card_policy::main_types(row.get("type_line")));
+        sets.entry(row.get("set_code"))
+            .or_insert_with(|| (row.get("set_name"), HashSet::new()))
+            .1
+            .insert(row.get("oracle_id"));
+    }
+    let colors = ["W", "U", "B", "R", "G", "C", "M"]
+        .into_iter()
+        .filter(|color| colors.contains(*color))
+        .map(str::to_owned)
+        .collect();
+    let mut mana_values: Vec<_> = values.into_iter().collect();
+    mana_values.sort();
+    let rarities = ["common", "uncommon", "rare", "mythic", "special", "bonus"]
+        .into_iter()
+        .filter(|rarity| rarities.contains(*rarity))
+        .map(str::to_owned)
+        .collect();
+    let card_types = crate::card_policy::MAIN_TYPES
+        .into_iter()
+        .filter(|kind| types.contains(*kind))
+        .map(str::to_owned)
+        .collect();
+    let mut sets: Vec<_> = sets
+        .into_iter()
+        .map(|(code, (name, oracles))| CatalogSet {
+            code,
+            name,
+            count: oracles.len() as i64,
+        })
+        .collect();
+    sets.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.code.cmp(&b.code))
+    });
+    Ok(CardFilterOptions {
+        colors,
+        mana_values,
+        rarities,
+        sets,
+        card_types,
+    })
+}
+
+#[tauri::command]
+pub async fn card_filter_options(
+    app: AppHandle,
+    query: CardQuery,
+) -> Result<CardFilterOptions, String> {
+    filter_options_pool(&open_pool(&app).await?, query).await
+}
+
+pub async fn creature_types_pool(
+    pool: &SqlitePool,
+    query: CardQuery,
+    search: &str,
+) -> Result<Vec<String>, String> {
+    let search = search.trim().to_lowercase();
+    if search.chars().count() < 2 {
+        return Ok(Vec::new());
+    }
+    ensure_browse_policy(pool).await?;
+    let mut query = query;
+    query.creature_type.clear();
+    let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
+    let unlocked = crate::progression::unlocked_sets_connection(&mut connection).await?;
+    drop(connection);
+    let mut sql = filters("SELECT DISTINCT c.type_line", &query, &unlocked);
+    sql.push(" AND ");
+    push_main_type(&mut sql, "Creature");
+    let rows = sql
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut values = HashSet::new();
+    for row in rows {
+        values.extend(
+            crate::card_policy::creature_types(row.get("type_line"))
+                .into_iter()
+                .filter(|kind| kind.to_lowercase().contains(&search)),
+        );
+    }
+    let mut values: Vec<_> = values.into_iter().collect();
+    values.sort_by_key(|kind| kind.to_lowercase());
+    values.truncate(30);
+    Ok(values)
+}
+
+#[tauri::command]
+pub async fn search_creature_types(
+    app: AppHandle,
+    query: CardQuery,
+    search: String,
+) -> Result<Vec<String>, String> {
+    creature_types_pool(&open_pool(&app).await?, query, &search).await
+}
+
+pub async fn printings_pool(
+    pool: &SqlitePool,
+    oracle_id: &str,
+) -> Result<Vec<CatalogCard>, String> {
+    ensure_browse_policy(pool).await?;
+    let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
+    let unlocked = crate::progression::unlocked_sets_connection(&mut connection).await?;
+    drop(connection);
+    let query = CardQuery::default();
+    let mut sql = filters(
+        &format!("SELECT c.*,COALESCE(o.quantity,0) AS owned,{ORACLE_OWNED_SQL} AS oracle_owned"),
+        &query,
+        &unlocked,
+    );
+    sql.push(" AND c.oracle_id=")
+        .push_bind(oracle_id.to_owned())
+        .push(" AND ");
+    push_sets(&mut sql, &unlocked);
+    sql.push(" ORDER BY CASE WHEN COALESCE(o.quantity,0)>0 THEN 0 ELSE 1 END,c.set_code,c.collector_number,c.id");
+    sql.build()
+        .fetch_all(pool)
+        .await
+        .map_err(|error| error.to_string())?
+        .iter()
+        .map(card_from_row)
+        .collect()
+}
+
+#[tauri::command]
+pub async fn card_printings(app: AppHandle, oracle_id: String) -> Result<Vec<CatalogCard>, String> {
+    printings_pool(&open_pool(&app).await?, &oracle_id).await
 }
 
 pub async fn get_card_pool(pool: &SqlitePool, card_id: &str) -> Result<CatalogCard, String> {
@@ -433,7 +837,7 @@ async fn append_values(pool: &SqlitePool, values: Vec<Value>) -> Result<u64, Str
     let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
     let mut added = 0;
     for batch in cards.chunks(500) {
-        let mut sql = QueryBuilder::new("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri) ");
+        let mut sql = QueryBuilder::new("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri,league_eligible) ");
         sql.push_values(batch, |mut builder, card| {
             let value = &card.card;
             builder
@@ -451,7 +855,8 @@ async fn append_values(pool: &SqlitePool, values: Vec<Value>) -> Result<u64, Str
                 .push_bind(&value.oracle_text)
                 .push_bind(serde_json::to_string(&value.colors).unwrap_or_default())
                 .push_bind(&value.image_uri)
-                .push_bind(&value.back_image_uri);
+                .push_bind(&value.back_image_uri)
+                .push_bind(i64::from(card.eligible));
         });
         sql.push(" ON CONFLICT(id) DO NOTHING");
         added += sql
@@ -527,6 +932,7 @@ pub async fn ensure_catalog(
         )
     });
     let pool = open_pool(&app).await?;
+    ensure_browse_policy(&pool).await?;
     let status = status_pool(&pool).await?;
     let previous = catalog_setting(&pool, "catalog_forge_version").await?;
     let pending: Vec<Value> = catalog_setting(&pool, "catalog_pending_printings")
@@ -667,6 +1073,74 @@ pub async fn get_banner_card(app: AppHandle) -> Result<CatalogCard, String> {
         .to_owned();
     append_values(&pool, vec![value]).await?;
     get_card_pool(&pool, &id).await
+}
+
+const BANNER_MOX_NAMES: [&str; 5] = [
+    "Mox Pearl",
+    "Mox Sapphire",
+    "Mox Jet",
+    "Mox Ruby",
+    "Mox Emerald",
+];
+
+async fn banner_moxes_pool(pool: &SqlitePool) -> Result<Vec<CatalogCard>, String> {
+    let mut cards = Vec::with_capacity(BANNER_MOX_NAMES.len());
+    for name in BANNER_MOX_NAMES {
+        // Decorative artwork can use Vintage Masters, which is deliberately
+        // excluded from the league's regular paper-card browser.
+        let id: Option<String> = sqlx::query_scalar("SELECT id FROM cards WHERE name=? ORDER BY CASE WHEN image_uri IS NULL THEN 1 ELSE 0 END,CASE lower(set_code) WHEN 'vma' THEN 0 WHEN '30a' THEN 1 WHEN 'prm' THEN 2 WHEN 'lea' THEN 3 WHEN 'leb' THEN 4 WHEN '2ed' THEN 5 ELSE 6 END,collector_number,id LIMIT 1")
+            .bind(name).fetch_optional(pool).await.map_err(|error| error.to_string())?;
+        if let Some(id) = id {
+            cards.push(get_card_pool(pool, &id).await?);
+        }
+    }
+    Ok(cards)
+}
+
+#[tauri::command]
+pub async fn get_banner_moxes(app: AppHandle) -> Result<Vec<CatalogCard>, String> {
+    let pool = open_pool(&app).await?;
+    if status_pool(&pool).await?.count == 0 {
+        return Err("The card catalog is still being prepared.".into());
+    }
+    let _banner = BANNER_MOXES.lock().await;
+    let cards = banner_moxes_pool(&pool).await?;
+    let missing: Vec<_> = BANNER_MOX_NAMES
+        .into_iter()
+        .filter(|name| !cards.iter().any(|card| card.name == *name))
+        .collect();
+    if missing.is_empty() {
+        return Ok(cards);
+    }
+    let _operation = database_mutation_guard()?;
+    let values = tauri::async_runtime::spawn_blocking(move || {
+        let client = http_client()?;
+        let mut values = Vec::new();
+        for (index, name) in missing.into_iter().enumerate() {
+            if index > 0 {
+                std::thread::sleep(Duration::from_millis(150));
+            }
+            // Existing local artwork remains available if a missing card cannot
+            // be fetched while offline. A later dashboard visit can retry it.
+            let response = client
+                .get("https://api.scryfall.com/cards/named")
+                .timeout(Duration::from_secs(15))
+                .query(&[("exact", name), ("set", "vma")])
+                .send();
+            if let Ok(response) = response.and_then(|response| response.error_for_status()) {
+                if let Ok(value) = response.json::<Value>() {
+                    values.push(value);
+                }
+            }
+        }
+        Ok::<_, String>(values)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    if !values.is_empty() {
+        append_values(&pool, values).await?;
+    }
+    banner_moxes_pool(&pool).await
 }
 
 #[tauri::command]
@@ -828,6 +1302,7 @@ fn download_bulk(app: &AppHandle) -> Result<PathBuf, String> {
 struct ImportCard {
     card: CatalogCard,
     metadata: String,
+    eligible: bool,
 }
 
 fn normalize(value: Value) -> Result<Option<ImportCard>, String> {
@@ -939,9 +1414,11 @@ fn normalize(value: Value) -> Result<Option<ImportCard>, String> {
         oracle_owned: 0,
         forge_set_code: None,
     };
+    let eligible = crate::card_policy::eligible(&value, &card);
     Ok(Some(ImportCard {
         card,
         metadata: serde_json::to_string(&value).map_err(|e| e.to_string())?,
+        eligible,
     }))
 }
 
@@ -989,7 +1466,7 @@ pub fn import_file(
         sqlx::query("DROP TABLE IF EXISTS temp.catalog_import_stage").execute(&mut *connection),
     )
     .map_err(|e| e.to_string())?;
-    tauri::async_runtime::block_on(sqlx::query("CREATE TEMP TABLE catalog_import_stage AS SELECT id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri FROM cards WHERE 0").execute(&mut *connection)).map_err(|e|e.to_string())?;
+    tauri::async_runtime::block_on(sqlx::query("CREATE TEMP TABLE catalog_import_stage AS SELECT id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri,league_eligible FROM cards WHERE 0").execute(&mut *connection)).map_err(|e|e.to_string())?;
     let mut count = 0u64;
     let mut batch = Vec::with_capacity(500);
     let mut consume = |value: Value| -> Result<(), String> {
@@ -1048,7 +1525,7 @@ pub fn import_file(
     flush(&mut connection, &batch)?;
     tauri::async_runtime::block_on(async {
         let mut transaction=connection.begin().await?;
-        sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri) SELECT id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri FROM catalog_import_stage WHERE 1 ON CONFLICT(id) DO UPDATE SET oracle_id=excluded.oracle_id,name=excluded.name,set_code=excluded.set_code,collector_number=excluded.collector_number,rarity=excluded.rarity,metadata_json=excluded.metadata_json,set_name=excluded.set_name,mana_cost=excluded.mana_cost,cmc=excluded.cmc,type_line=excluded.type_line,oracle_text=excluded.oracle_text,colors_json=excluded.colors_json,image_uri=excluded.image_uri,back_image_uri=excluded.back_image_uri").execute(&mut *transaction).await?;
+        sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri,league_eligible) SELECT id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri,league_eligible FROM catalog_import_stage WHERE 1 ON CONFLICT(id) DO UPDATE SET oracle_id=excluded.oracle_id,name=excluded.name,set_code=excluded.set_code,collector_number=excluded.collector_number,rarity=excluded.rarity,metadata_json=excluded.metadata_json,set_name=excluded.set_name,mana_cost=excluded.mana_cost,cmc=excluded.cmc,type_line=excluded.type_line,oracle_text=excluded.oracle_text,colors_json=excluded.colors_json,image_uri=excluded.image_uri,back_image_uri=excluded.back_image_uri,league_eligible=excluded.league_eligible").execute(&mut *transaction).await?;
         sqlx::query("INSERT INTO settings(key,value) VALUES('catalog_updated_at',strftime('%Y-%m-%dT%H:%M:%SZ','now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value").execute(&mut *transaction).await?;
         sqlx::query("DROP TABLE catalog_import_stage").execute(&mut *transaction).await?;
         transaction.commit().await
@@ -1061,7 +1538,7 @@ fn flush(connection: &mut SqliteConnection, cards: &[ImportCard]) -> Result<(), 
     if cards.is_empty() {
         return Ok(());
     }
-    let mut sql=QueryBuilder::new("INSERT INTO catalog_import_stage(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri) ");
+    let mut sql=QueryBuilder::new("INSERT INTO catalog_import_stage(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri,league_eligible) ");
     sql.push_values(cards, |mut b, c| {
         let x = &c.card;
         b.push_bind(&x.id)
@@ -1078,7 +1555,8 @@ fn flush(connection: &mut SqliteConnection, cards: &[ImportCard]) -> Result<(), 
             .push_bind(&x.oracle_text)
             .push_bind(serde_json::to_string(&x.colors).unwrap_or_else(|_| "[]".into()))
             .push_bind(&x.image_uri)
-            .push_bind(&x.back_image_uri);
+            .push_bind(&x.back_image_uri)
+            .push_bind(i64::from(c.eligible));
     });
     tauri::async_runtime::block_on(sql.build().execute(connection)).map_err(|e| e.to_string())?;
     Ok(())
@@ -1107,10 +1585,64 @@ mod tests {
             sqlx::raw_sql(include_str!("../migrations/002_catalog.sql")).execute(&pool),
         )
         .unwrap();
+        tauri::async_runtime::block_on(
+            sqlx::raw_sql(include_str!("../migrations/006_catalog_eligibility.sql")).execute(&pool),
+        )
+        .unwrap();
+        tauri::async_runtime::block_on(
+            sqlx::query("INSERT INTO settings(key,value) VALUES('test.unlocked-sets','[\"tst\"]')")
+                .execute(&pool),
+        )
+        .unwrap();
         (directory, pool)
     }
     fn fixture(id: &str, name: &str) -> Value {
-        serde_json::json!({"object":"card","id":id,"oracle_id":"oracle","name":name,"set":"tst","set_name":"Test","collector_number":"1","rarity":"common","mana_cost":"{G}","cmc":1,"type_line":"Creature","colors":["G"],"oracle_text":"A test card."})
+        serde_json::json!({"object":"card","id":id,"oracle_id":id,"name":name,"set":"tst","set_name":"Test","collector_number":"1","rarity":"common","mana_cost":"{G}","cmc":1,"type_line":"Creature","colors":["G"],"oracle_text":"A test card."})
+    }
+    #[test]
+    fn banner_selects_all_five_original_moxes_preferring_vma_without_acquiring_cards() {
+        let (_directory, pool) = pool();
+        tauri::async_runtime::block_on(async {
+            let mut values = Vec::new();
+            for (index, name) in BANNER_MOX_NAMES.into_iter().enumerate() {
+                let mut classic = fixture(&format!("classic-{index}"), name);
+                classic["set"] = "leb".into();
+                classic["image_uris"] = serde_json::json!({"normal": "https://cards.scryfall.io/normal/front/test.jpg"});
+                values.push(classic);
+                if name != "Mox Sapphire" {
+                    let mut modern = fixture(&format!("modern-{index}"), name);
+                    modern["set"] = "vma".into();
+                    modern["image_uris"] = serde_json::json!({"normal": "https://cards.scryfall.io/normal/front/test.jpg"});
+                    values.push(modern);
+                }
+            }
+            values.push(fixture("other-mox", "Mox Opal"));
+            append_values(&pool, values).await.unwrap();
+            let cards = banner_moxes_pool(&pool).await.unwrap();
+            assert_eq!(
+                cards
+                    .iter()
+                    .map(|card| card.name.as_str())
+                    .collect::<Vec<_>>(),
+                BANNER_MOX_NAMES
+            );
+            assert_eq!(cards[1].set_code, "leb");
+            assert!(cards
+                .iter()
+                .filter(|card| card.name != "Mox Sapphire")
+                .all(|card| card.set_code == "vma"));
+            assert!(cards
+                .iter()
+                .all(|card| card.owned == 0 && card.oracle_owned == 0));
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM collection")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                0
+            );
+            pool.close().await;
+        });
     }
     #[test]
     fn forge_extension_only_appends_and_preserves_saved_data() {
@@ -1163,6 +1695,591 @@ mod tests {
                     .as_deref(),
                 Some("2.0.14")
             );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn grouped_collection_budgets_printings_and_pagination_share_oracle_identity() {
+        let (_directory, pool) = pool();
+        let mut first = fixture("owned", "A Shared Elf");
+        first["oracle_id"] = "elf".into();
+        let mut alternate = fixture("alternate", "A Shared Elf");
+        alternate["oracle_id"] = "elf".into();
+        alternate["collector_number"] = "2".into();
+        let mut locked = fixture("locked", "A Shared Elf");
+        locked["oracle_id"] = "elf".into();
+        locked["set"] = "future".into();
+        let second = fixture("second", "B Another Creature");
+        let mut basic = fixture("basic", "Forest");
+        basic["type_line"] = "Basic Land — Forest".into();
+        let mut locked_basic = fixture("locked-basic", "Forest");
+        locked_basic["type_line"] = "Basic Land — Forest".into();
+        locked_basic["set"] = "future".into();
+        tauri::async_runtime::block_on(async {
+            append_values(
+                &pool,
+                vec![first, alternate, locked, second, basic, locked_basic],
+            )
+            .await
+            .unwrap();
+            change_quantity(&pool, "owned", 2).await.unwrap();
+            change_quantity(&pool, "locked", 2).await.unwrap();
+            change_quantity(&pool, "second", 1).await.unwrap();
+            let query = CardQuery {
+                owned_only: true,
+                group_by_oracle: true,
+                page_size: 1,
+                ..Default::default()
+            };
+            let page = query_pool(&pool, query.clone()).await.unwrap();
+            assert_eq!(page.total, 2);
+            assert_eq!(page.cards[0].id, "owned");
+            assert_eq!(page.cards[0].owned, 2);
+            assert_eq!(page.cards[0].oracle_owned, 4);
+            let page = query_pool(
+                &pool,
+                CardQuery {
+                    page: 1,
+                    ..query.clone()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(page.total, 2);
+            assert_eq!(page.cards[0].id, "second");
+            let prints = printings_pool(&pool, "elf").await.unwrap();
+            assert_eq!(prints.len(), 2);
+            assert!(prints
+                .iter()
+                .all(|card| card.set_code == "tst" && card.oracle_owned == 4));
+            assert!(prints
+                .iter()
+                .any(|card| card.id == "alternate" && card.owned == 0));
+            let available = query_pool(
+                &pool,
+                CardQuery {
+                    owned_only: true,
+                    include_basic_lands: true,
+                    group_by_oracle: true,
+                    available_only: true,
+                    allocated: HashMap::from([("elf".into(), 4), ("second".into(), 1)]),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(available.total, 1);
+            assert_eq!(available.cards[0].id, "basic");
+            let all = query_pool(&pool, CardQuery::default()).await.unwrap();
+            assert!(all.cards.iter().any(|card| card.id == "locked"));
+            assert!(!all.cards.iter().any(|card| card.id == "locked-basic"));
+            assert_eq!(
+                get_card_pool(&pool, "locked-basic").await.unwrap().set_code,
+                "future"
+            );
+            let grouped_all = query_pool(
+                &pool,
+                CardQuery {
+                    search: "Shared Elf".into(),
+                    group_by_oracle: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(grouped_all.total, 1);
+            assert_eq!(grouped_all.cards[0].id, "owned");
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn eligibility_cache_upgrades_existing_rows_and_stays_correct_after_catalog_writes() {
+        let (directory, pool) = pool();
+        tauri::async_runtime::block_on(async {
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,type_line) VALUES('old','old','Old creature','tst','1','common','{}','Creature')").execute(&pool).await.unwrap();
+            change_quantity(&pool, "old", 2).await.unwrap();
+            let initial = query_pool(
+                &pool,
+                CardQuery {
+                    owned_only: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(initial.total, 1);
+            assert_eq!(initial.cards[0].owned, 2);
+            append_values(&pool, vec![fixture("appended", "Appended creature")])
+                .await
+                .unwrap();
+            assert_eq!(
+                query_pool(&pool, CardQuery::default()).await.unwrap().total,
+                2
+            );
+        });
+        let mut changed = fixture("old", "Old creature");
+        changed["border_color"] = "gold".into();
+        let source = directory.path().join("changed.json");
+        fs::write(&source, serde_json::to_vec(&vec![changed]).unwrap()).unwrap();
+        import_file(&pool, &source, |_| {}).unwrap();
+        tauri::async_runtime::block_on(async {
+            assert_eq!(
+                query_pool(
+                    &pool,
+                    CardQuery {
+                        owned_only: true,
+                        ..Default::default()
+                    }
+                )
+                .await
+                .unwrap()
+                .total,
+                0
+            );
+            assert_eq!(get_card_pool(&pool, "old").await.unwrap().owned, 2);
+            assert_eq!(
+                query_pool(&pool, CardQuery::default()).await.unwrap().total,
+                1
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn printing_choices_use_global_unlocks_and_pooled_ownership_across_uncollected_expansions() {
+        let (_directory, pool) = pool();
+        let mut original = fixture("set-a-owned", "Shared Elf");
+        original["oracle_id"] = "elf".into();
+        original["type_line"] = "Creature — Elf Druid".into();
+        let mut alternate = fixture("set-a-variant", "Shared Elf");
+        alternate["oracle_id"] = "elf".into();
+        alternate["collector_number"] = "2".into();
+        alternate["type_line"] = "Creature — Elf Druid".into();
+        let mut next = fixture("set-b-first", "Shared Elf");
+        next["oracle_id"] = "elf".into();
+        next["set"] = "nxt".into();
+        next["set_name"] = "Next Set".into();
+        next["rarity"] = "rare".into();
+        next["type_line"] = "Creature — Elf Druid".into();
+        let mut next_variant = next.clone();
+        next_variant["id"] = "set-b-variant".into();
+        next_variant["collector_number"] = "2".into();
+        let mut locked = next.clone();
+        locked["id"] = "set-c-locked".into();
+        locked["set"] = "future".into();
+        locked["set_name"] = "Future Set".into();
+        locked["rarity"] = "mythic".into();
+        locked["type_line"] = "Creature — Elf Wizard".into();
+        let mut basic = fixture("next-basic", "Forest");
+        basic["set"] = "nxt".into();
+        basic["set_name"] = "Next Set".into();
+        basic["type_line"] = "Basic Land — Forest".into();
+        basic["oracle_id"] = "forest".into();
+        tauri::async_runtime::block_on(async {
+            sqlx::query(
+                "UPDATE settings SET value='[\"tst\",\"nxt\"]' WHERE key='test.unlocked-sets'",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            append_values(
+                &pool,
+                vec![original, alternate, next, next_variant, locked, basic],
+            )
+            .await
+            .unwrap();
+            change_quantity(&pool, "set-a-owned", 3).await.unwrap();
+            let prints = printings_pool(&pool, "elf").await.unwrap();
+            assert_eq!(prints.len(), 4);
+            assert!(prints
+                .iter()
+                .all(|card| ["tst", "nxt"].contains(&card.set_code.as_str())
+                    && card.oracle_owned == 3));
+            assert!(prints
+                .iter()
+                .any(|card| card.id == "set-a-variant" && card.owned == 0));
+            let scope = CardQuery {
+                owned_only: true,
+                group_by_oracle: true,
+                ..Default::default()
+            };
+            let before = query_pool(
+                &pool,
+                CardQuery {
+                    set_code: "nxt".into(),
+                    ..scope.clone()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(before.total, 1);
+            assert_eq!(before.cards[0].oracle_owned, 3);
+            assert_eq!(before.cards[0].owned, 0);
+            assert_eq!(
+                query_pool(
+                    &pool,
+                    CardQuery {
+                        set_code: "nxt".into(),
+                        available_only: true,
+                        allocated: HashMap::from([("elf".into(), 2)]),
+                        ..scope.clone()
+                    }
+                )
+                .await
+                .unwrap()
+                .total,
+                1
+            );
+            assert_eq!(
+                query_pool(
+                    &pool,
+                    CardQuery {
+                        set_code: "nxt".into(),
+                        available_only: true,
+                        allocated: HashMap::from([("elf".into(), 3)]),
+                        ..scope.clone()
+                    }
+                )
+                .await
+                .unwrap()
+                .total,
+                0
+            );
+            let facets = filter_options_pool(&pool, scope.clone()).await.unwrap();
+            assert_eq!(
+                facets
+                    .sets
+                    .iter()
+                    .map(|set| set.code.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["nxt", "tst"]
+            );
+            assert_eq!(facets.rarities, vec!["common", "rare"]);
+            let all = query_pool(
+                &pool,
+                CardQuery {
+                    set_code: "nxt".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert!(all.cards.iter().any(|card| card.id == "set-b-first"));
+            assert_eq!(
+                printings_pool(&pool, "forest").await.unwrap()[0].id,
+                "next-basic"
+            );
+            assert_eq!(
+                creature_types_pool(
+                    &pool,
+                    CardQuery {
+                        set_code: "nxt".into(),
+                        ..scope.clone()
+                    },
+                    "dr"
+                )
+                .await
+                .unwrap(),
+                vec!["Druid"]
+            );
+            assert!(creature_types_pool(&pool, scope.clone(), "wi")
+                .await
+                .unwrap()
+                .is_empty());
+            for scope in [
+                scope.clone(),
+                CardQuery {
+                    available_only: true,
+                    group_by_oracle: true,
+                    ..Default::default()
+                },
+            ] {
+                assert_eq!(
+                    query_pool(
+                        &pool,
+                        CardQuery {
+                            set_code: "future".into(),
+                            ..scope
+                        }
+                    )
+                    .await
+                    .unwrap()
+                    .total,
+                    0
+                );
+            }
+            // Locked regular cards remain visible in the all-cards preview.
+            assert_eq!(
+                query_pool(
+                    &pool,
+                    CardQuery {
+                        set_code: "future".into(),
+                        ..Default::default()
+                    }
+                )
+                .await
+                .unwrap()
+                .total,
+                1
+            );
+            change_quantity(&pool, "set-b-first", 1).await.unwrap();
+            let after = printings_pool(&pool, "elf").await.unwrap();
+            assert_eq!(after.len(), 4);
+            assert!(after.iter().all(|card| card.oracle_owned == 4));
+            assert!(after
+                .iter()
+                .any(|card| card.id == "set-b-variant" && card.owned == 0));
+            let page = query_pool(
+                &pool,
+                CardQuery {
+                    set_code: "nxt".into(),
+                    ..scope.clone()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(page.total, 1);
+            assert_eq!(page.cards[0].oracle_owned, 4);
+            assert_eq!(
+                creature_types_pool(
+                    &pool,
+                    CardQuery {
+                        set_code: "nxt".into(),
+                        ..scope.clone()
+                    },
+                    "dr"
+                )
+                .await
+                .unwrap(),
+                vec!["Druid"]
+            );
+            let facets = filter_options_pool(&pool, scope).await.unwrap();
+            assert_eq!(facets.sets.len(), 2);
+            assert_eq!(facets.rarities, vec!["common", "rare"]);
+            let exhausted = query_pool(
+                &pool,
+                CardQuery {
+                    owned_only: true,
+                    group_by_oracle: true,
+                    available_only: true,
+                    allocated: HashMap::from([("elf".into(), 4)]),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(exhausted.total, 0);
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT SUM(quantity) FROM collection")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                4
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn multi_select_facets_and_creature_suggestions_use_the_eligible_owned_scope() {
+        let (_directory, pool) = pool();
+        let specs = [
+            ("green", "Elf Scout", vec!["G"], 1, "Creature — Elf Scout"),
+            (
+                "blue",
+                "Doctor",
+                vec!["U"],
+                7,
+                "Legendary Creature — Time Lord Doctor",
+            ),
+            ("red", "Ember", vec!["R"], 6, "Instant"),
+            (
+                "multicolor",
+                "Marauder",
+                vec!["R", "G"],
+                2,
+                "Creature — Orc Warrior",
+            ),
+        ];
+        let cards = specs
+            .into_iter()
+            .map(|(id, name, colors, cmc, kind)| {
+                let mut card = fixture(id, name);
+                card["colors"] = serde_json::json!(colors);
+                card["cmc"] = cmc.into();
+                card["type_line"] = kind.into();
+                card
+            })
+            .collect();
+        tauri::async_runtime::block_on(async {
+            append_values(&pool, cards).await.unwrap();
+            for id in ["green", "blue", "multicolor"] {
+                change_quantity(&pool, id, 1).await.unwrap();
+            }
+            let scope = CardQuery {
+                owned_only: true,
+                group_by_oracle: true,
+                ..Default::default()
+            };
+            let facets = filter_options_pool(
+                &pool,
+                CardQuery {
+                    colors: vec!["G".into()],
+                    mana_values: vec![1],
+                    ..scope.clone()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(facets.colors, vec!["U", "R", "G", "M"]);
+            assert_eq!(facets.mana_values, vec![1, 2, 6]);
+            assert_eq!(facets.card_types, vec!["Creature"]);
+            assert_eq!(facets.sets.len(), 1);
+            assert_eq!(facets.sets[0].count, 3);
+            let selected = query_pool(
+                &pool,
+                CardQuery {
+                    colors: vec!["U".into(), "G".into()],
+                    mana_values: vec![1, 6],
+                    ..scope.clone()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(selected.total, 2);
+            assert!(selected.cards.iter().any(|card| card.id == "blue"));
+            assert!(selected.cards.iter().any(|card| card.id == "green"));
+            let instant = query_pool(
+                &pool,
+                CardQuery {
+                    card_types: vec!["Instant".into()],
+                    ..scope.clone()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(instant.total, 0);
+            assert!(creature_types_pool(&pool, scope.clone(), "e")
+                .await
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                creature_types_pool(&pool, scope.clone(), "el")
+                    .await
+                    .unwrap(),
+                vec!["Elf"]
+            );
+            assert_eq!(
+                creature_types_pool(&pool, scope.clone(), "time")
+                    .await
+                    .unwrap(),
+                vec!["Time Lord"]
+            );
+            let doctor = query_pool(
+                &pool,
+                CardQuery {
+                    creature_type: "Time Lord".into(),
+                    ..scope
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(doctor.total, 1);
+            assert_eq!(doctor.cards[0].id, "blue");
+            let extra: Vec<_> = (0..40)
+                .map(|index| {
+                    let mut value = fixture(&format!("extra-{index}"), "Extra creature");
+                    value["type_line"] = format!("Creature — Elf{index:02}").into();
+                    value
+                })
+                .collect();
+            append_values(&pool, extra).await.unwrap();
+            for index in 0..40 {
+                change_quantity(&pool, &format!("extra-{index}"), 1)
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(
+                creature_types_pool(
+                    &pool,
+                    CardQuery {
+                        owned_only: true,
+                        ..Default::default()
+                    },
+                    "el"
+                )
+                .await
+                .unwrap()
+                .len(),
+                30
+            );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn ineligible_metadata_is_hidden_consistently_without_deleting_owned_rows() {
+        let (_directory, pool) = pool();
+        let mut cards = vec![fixture("normal", "Normal Elf")];
+        for (id, key, value) in [
+            ("silver", "border_color", serde_json::json!("silver")),
+            ("gold", "border_color", serde_json::json!("gold")),
+            ("acorn", "security_stamp", serde_json::json!("acorn")),
+            ("heart", "security_stamp", serde_json::json!("heart")),
+            ("funny", "set_type", serde_json::json!("funny")),
+            ("token", "layout", serde_json::json!("token")),
+            ("digital", "digital", serde_json::json!(true)),
+            ("oversized", "oversized", serde_json::json!(true)),
+            ("fraction", "cmc", serde_json::json!(0.5)),
+            ("half-power", "power", serde_json::json!("½")),
+            ("decimal-power", "power", serde_json::json!("1.5")),
+            ("unset", "set", serde_json::json!("unf")),
+        ] {
+            let mut card = fixture(id, id);
+            card[key] = value;
+            cards.push(card);
+        }
+        tauri::async_runtime::block_on(async {
+            append_values(&pool, cards.clone()).await.unwrap();
+            for value in &cards {
+                change_quantity(&pool, value["id"].as_str().unwrap(), 1)
+                    .await
+                    .unwrap();
+            }
+            let page = query_pool(
+                &pool,
+                CardQuery {
+                    owned_only: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(page.total, 1);
+            assert_eq!(page.cards[0].id, "normal");
+            assert_eq!(
+                query_pool(&pool, CardQuery::default()).await.unwrap().total,
+                1
+            );
+            let facets = filter_options_pool(
+                &pool,
+                CardQuery {
+                    owned_only: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(facets.mana_values, vec![1]);
+            for value in cards {
+                let id = value["id"].as_str().unwrap();
+                let card = get_card_pool(&pool, id).await.unwrap();
+                assert_eq!(card.owned, 1);
+                assert_eq!(crate::card_policy::eligible(&value, &card), id == "normal");
+            }
+            assert_eq!(status_pool(&pool).await.unwrap().count, 13);
             pool.close().await;
         });
     }
@@ -1489,10 +2606,13 @@ mod tests {
     fn oracle_ownership_totals_all_printings_outside_browser_filters() {
         let (dir, pool) = pool();
         let source = dir.path().join("reprints.json");
-        let first = fixture("first", "Shared card");
+        let mut first = fixture("first", "Shared card");
+        first["oracle_id"] = "shared".into();
         let mut second = fixture("second", "Shared card");
+        second["oracle_id"] = "shared".into();
         second["set"] = serde_json::json!("old");
         let mut unowned = fixture("unowned", "Shared card");
+        unowned["oracle_id"] = "shared".into();
         unowned["collector_number"] = serde_json::json!("2");
         let mut unrelated = fixture("unrelated", "Other card");
         unrelated["oracle_id"] = serde_json::json!("other-oracle");

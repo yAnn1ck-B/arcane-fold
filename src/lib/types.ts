@@ -110,6 +110,26 @@ export interface CardQuery {
   page: number;
   pageSize: number;
   includeBasicLands?: boolean;
+  colors: string[];
+  manaValues: number[];
+  cardTypes: string[];
+  creatureType: string;
+  groupByOracle: boolean;
+  availableOnly: boolean;
+  allocated: Record<string, number>;
+}
+
+export interface CardFilterOptions {
+  colors: string[];
+  manaValues: number[];
+  rarities: string[];
+  sets: CatalogSet[];
+  cardTypes: string[];
+}
+
+export interface DeckAddRequest {
+  requestId: string;
+  card: CatalogCard;
 }
 
 export interface CatalogStatus {
@@ -173,6 +193,9 @@ export interface BoosterHistory {
   duplicateWildcards?: WildcardBalances;
 }
 export interface LeagueStatus {
+  openablePacks?: number;
+  previewWeeks?: number;
+  effectiveNow?: string;
   generalPacks?: number;
   setPacks?: Record<string, number>;
   claimableSetPacks?: Record<string, number>;
@@ -195,6 +218,7 @@ export interface LeagueStatus {
   history: BoosterHistory[];
 }
 export interface BoosterOpening {
+  perSetPacks?: Record<string, number>;
   id: string;
   packs: number;
   setCode: string;

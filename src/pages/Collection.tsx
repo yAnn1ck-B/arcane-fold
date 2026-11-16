@@ -1,25 +1,28 @@
 import { formatMana } from "@/lib/mana";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   Library,
   LoaderCircle,
-  Search,
-  SlidersHorizontal,
-  Sparkles,
+  Plus,
 } from "lucide-react";
 import CardImage from "@/components/CardImage";
 import CardDetails from "@/components/CardDetails";
 import { isUnlimitedBasic } from "@/lib/cards";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { defaultCardQuery, listSets, queryCards } from "@/services/cards";
+import CardFilters, { getCardFilterScope } from "@/components/CardFilters";
+import {
+  defaultCardQuery,
+  getCardFilterOptions,
+  queryCards,
+} from "@/services/cards";
+import "@/styles/card-browser.css";
 import type {
   AppSettings,
   CardQuery,
   CatalogCard,
-  CatalogSet,
+  CardFilterOptions,
   LeagueStatus,
 } from "@/lib/types";
 
@@ -30,6 +33,7 @@ interface CollectionProps {
   league: LeagueStatus;
   catalogCount: number;
   onSettings: () => void;
+  onAddToDeck?: (card: CatalogCard) => void;
 }
 
 export default function Collection({
@@ -39,31 +43,82 @@ export default function Collection({
   league,
   catalogCount,
   onSettings,
+  onAddToDeck,
 }: CollectionProps) {
   const [query, setQuery] = useState<CardQuery>({
     ...defaultCardQuery,
     ownedOnly: true,
+    groupByOracle: true,
+    includeBasicLands: true,
   });
   const [cards, setCards] = useState<CatalogCard[]>([]);
   const [total, setTotal] = useState(0);
-  const [sets, setSets] = useState<CatalogSet[]>([]);
+  const countsRequest = useRef<{
+    revision: number;
+    request: Promise<{ owned: number; all: number }>;
+  } | null>(null);
+  const [viewCounts, setViewCounts] = useState<{
+    owned: number | null;
+    all: number | null;
+  }>({ owned: null, all: null });
+  const [options, setOptions] = useState<CardFilterOptions>({
+    colors: [],
+    manaValues: [],
+    rarities: [],
+    sets: [],
+    cardTypes: [],
+  });
+  const [optionsLoading, setOptionsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<CatalogCard | null>(null);
 
   useEffect(() => {
     let active = true;
-    listSets()
-      .then((data) => {
-        if (active) setSets(data);
+    if (countsRequest.current?.revision !== revision) {
+      const scope = {
+        ...defaultCardQuery,
+        groupByOracle: true,
+        includeBasicLands: true,
+        pageSize: 1,
+      };
+      countsRequest.current = {
+        revision,
+        request: Promise.all([
+          queryCards({ ...scope, ownedOnly: true }),
+          queryCards({ ...scope, ownedOnly: false }),
+        ]).then(([owned, all]) => ({ owned: owned.total, all: all.total })),
+      };
+    }
+    void countsRequest.current.request
+      .then((counts) => {
+        if (active) setViewCounts(counts);
       })
-      .catch((err: unknown) => {
-        if (active) setError(String(err));
+      .catch((reason: unknown) => {
+        if (active) setError(String(reason));
       });
     return () => {
       active = false;
     };
   }, [revision]);
+
+  useEffect(() => {
+    let active = true;
+    setOptionsLoading(true);
+    getCardFilterOptions(getCardFilterScope(query))
+      .then((data) => {
+        if (active) setOptions(data);
+      })
+      .catch((err: unknown) => {
+        if (active) setError(String(err));
+      })
+      .finally(() => {
+        if (active) setOptionsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [revision, query.ownedOnly]);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -95,140 +150,76 @@ export default function Collection({
     };
   }, [query, revision]);
 
-  function filter<K extends keyof CardQuery>(key: K, value: CardQuery[K]) {
-    setQuery((current) => ({ ...current, [key]: value, page: 0 }));
+  function changeView(ownedOnly: boolean) {
+    setQuery({
+      ...defaultCardQuery,
+      ownedOnly,
+      groupByOracle: true,
+      includeBasicLands: true,
+    });
   }
   const pages = Math.max(1, Math.ceil(total / query.pageSize));
+  const hasActiveFilters = Boolean(
+    query.search ||
+    query.colors.length ||
+    query.manaValues.length ||
+    query.rarity ||
+    query.setCode ||
+    query.cardTypes.length ||
+    query.creatureType,
+  );
 
   return (
     <div className="collection-page">
-      <div className="collection-wildcards">
-        <span>
-          <Sparkles size={15} /> Wildcards
-        </span>
-        {(["common", "uncommon", "rare", "mythic"] as const).map((rarity) => (
-          <span key={rarity}>
-            <i className={`rarity-dot rarity-${rarity}`} />{" "}
-            {league.wildcards[rarity]} {rarity}
-          </span>
-        ))}
-        <small>
-          Spend one matching wildcard to add one card from an unlocked set, up
-          to four copies.
-        </small>
-      </div>
-      <div className="collection-toolbar">
+      <div className="collection-toolbar collection-summary panel">
         <div className="segmented-control" aria-label="Collection view">
           <button
             className={query.ownedOnly ? "active" : ""}
-            onClick={() => filter("ownedOnly", true)}
+            onClick={() => changeView(true)}
           >
-            Owned cards
+            Owned cards{" "}
+            <span className="collection-view-count">
+              {viewCounts.owned === null
+                ? "..."
+                : viewCounts.owned.toLocaleString()}
+            </span>
           </button>
           <button
             className={!query.ownedOnly ? "active" : ""}
-            onClick={() => filter("ownedOnly", false)}
+            onClick={() => changeView(false)}
           >
-            All cards
+            All cards{" "}
+            <span className="collection-view-count">
+              {viewCounts.all === null
+                ? "..."
+                : viewCounts.all.toLocaleString()}
+            </span>
           </button>
         </div>
-        <div className="search-field">
-          <Search size={16} />
-          <Input
-            aria-label="Search card names or abilities"
-            placeholder="Search names or abilities…"
-            value={query.search}
-            onChange={(event) => filter("search", event.target.value)}
-          />
+        <div
+          className="collection-toolbar-wildcards"
+          role="group"
+          aria-label="Wildcards"
+        >
+          {(["common", "uncommon", "rare", "mythic"] as const).map((rarity) => (
+            <span
+              className="collection-wildcard-balance"
+              key={rarity}
+              title={`${league.wildcards[rarity]} ${rarity} wildcards`}
+              aria-label={`${league.wildcards[rarity]} ${rarity} wildcards`}
+            >
+              <i className={`rarity-dot rarity-${rarity}`} aria-hidden="true" />
+              <strong>{league.wildcards[rarity]}</strong>
+            </span>
+          ))}
         </div>
-        <span className="result-count">{total.toLocaleString()} printings</span>
       </div>
-      <div className="collection-filters panel">
-        <SlidersHorizontal size={16} className="muted-icon" />
-        <select
-          aria-label="Filter by color"
-          value={query.color}
-          onChange={(e) => filter("color", e.target.value)}
-        >
-          <option value="">All colors</option>
-          {[
-            ["W", "White"],
-            ["U", "Blue"],
-            ["B", "Black"],
-            ["R", "Red"],
-            ["G", "Green"],
-            ["C", "Colorless"],
-            ["M", "Multicolor"],
-          ].map(([id, name]) => (
-            <option value={id} key={id}>
-              {name}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Filter by rarity"
-          value={query.rarity}
-          onChange={(e) => filter("rarity", e.target.value)}
-        >
-          <option value="">All rarities</option>
-          {["common", "uncommon", "rare", "mythic", "special", "bonus"].map(
-            (rarity) => (
-              <option key={rarity} value={rarity}>
-                {rarity[0].toUpperCase() + rarity.slice(1)}
-              </option>
-            ),
-          )}
-        </select>
-        <select
-          aria-label="Filter by expansion"
-          value={query.setCode}
-          onChange={(e) => filter("setCode", e.target.value)}
-        >
-          <option value="">All expansions</option>
-          {sets.map((set) => (
-            <option key={set.code} value={set.code}>
-              {set.name} ({set.code.toUpperCase()})
-            </option>
-          ))}
-        </select>
-        <Input
-          aria-label="Filter by card type"
-          placeholder="Type, e.g. Creature"
-          value={query.typeLine}
-          onChange={(e) => filter("typeLine", e.target.value)}
-        />
-        <Input
-          aria-label="Filter by mana value"
-          type="number"
-          min={0}
-          step={0.5}
-          placeholder="Mana value"
-          value={query.manaValue}
-          onChange={(e) => filter("manaValue", e.target.value)}
-        />
-        <select
-          aria-label="Filter by owned quantity"
-          value={query.minOwned}
-          onChange={(e) => filter("minOwned", Number(e.target.value))}
-        >
-          <option value={0}>Any quantity</option>
-          <option value={1}>1+ owned</option>
-          <option value={4}>4+ owned</option>
-        </select>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() =>
-            setQuery({ ...defaultCardQuery, ownedOnly: query.ownedOnly })
-          }
-        >
-          Clear filters
-        </Button>
-      </div>
-      <p className="collection-hint">
-        Open a card to view its details or craft a copy with a matching
-        wildcard.
-      </p>
+      <CardFilters
+        query={query}
+        onChange={setQuery}
+        options={options}
+        loading={optionsLoading}
+      />
       {error && (
         <div className="notice notice-error" role="alert">
           {error}
@@ -246,14 +237,14 @@ export default function Collection({
           <h2>
             {!catalogCount
               ? "Your catalog is waiting."
-              : query.ownedOnly
+              : query.ownedOnly && !hasActiveFilters
                 ? "Your collection is waiting."
                 : "No cards match these filters."}
           </h2>
           <p>
             {!catalogCount
               ? "Your card catalog is being prepared automatically. Check the Forge folders in Settings if setup cannot finish."
-              : query.ownedOnly
+              : query.ownedOnly && !hasActiveFilters
                 ? "Open booster packs or craft cards with wildcards to grow your collection."
                 : "Try another name or ability, color, expansion, or mana value."}
           </p>
@@ -263,12 +254,7 @@ export default function Collection({
             </Button>
           )}
           {query.ownedOnly && catalogCount > 0 && (
-            <Button
-              variant="outline"
-              onClick={() =>
-                setQuery({ ...defaultCardQuery, ownedOnly: false })
-              }
-            >
+            <Button variant="outline" onClick={() => changeView(false)}>
               Browse all cards
             </Button>
           )}
@@ -297,18 +283,36 @@ export default function Collection({
                 >
                   {card.name}
                 </button>
-                <div className="card-printing">
-                  <span className={`rarity-dot rarity-${card.rarity}`} />
-                  {card.setCode.toUpperCase()}{" "}
-                  <span>#{card.collectorNumber}</span>
+                <div className="collection-card-type">
+                  <span>{card.typeLine.split(/\s+[\u2014\u2013]\s+/)[0]}</span>
                   <span className="card-mana">{formatMana(card.manaCost)}</span>
                 </div>
-                <div className="quantity-control">
-                  <span>
-                    {isUnlimitedBasic(card)
+                <div className="collection-card-actions">
+                  <span className="collection-owned-count">
+                    {isUnlimitedBasic(card) &&
+                    league.enabledSets.some(
+                      (code) =>
+                        code.toLowerCase() === card.setCode.toLowerCase(),
+                    )
                       ? "Unlimited basic land"
-                      : `${card.owned} owned`}
+                      : `${card.oracleOwned ?? card.owned} owned`}
                   </span>
+                  {onAddToDeck &&
+                    ((card.oracleOwned ?? card.owned) > 0 ||
+                      (isUnlimitedBasic(card) &&
+                        league.enabledSets.some(
+                          (code) =>
+                            code.toLowerCase() === card.setCode.toLowerCase(),
+                        ))) && (
+                      <button
+                        type="button"
+                        className="collection-add-deck"
+                        onClick={() => onAddToDeck(card)}
+                        aria-label={`Add ${card.name} to a deck`}
+                      >
+                        <Plus size={13} /> Add to deck
+                      </button>
+                    )}
                 </div>
               </div>
             </article>
@@ -349,6 +353,14 @@ export default function Collection({
           onClose={() => setSelected(null)}
           league={league}
           onChange={onChange}
+          onAddToDeck={
+            onAddToDeck
+              ? (card) => {
+                  setSelected(null);
+                  onAddToDeck(card);
+                }
+              : undefined
+          }
         />
       )}
     </div>

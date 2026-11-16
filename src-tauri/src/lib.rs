@@ -1,7 +1,9 @@
+mod card_policy;
 mod catalog;
 mod decks;
 mod forge;
 mod images;
+mod league_clock;
 mod league_rules;
 mod maintenance;
 mod progression;
@@ -10,7 +12,12 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
@@ -47,6 +54,18 @@ pub fn run() {
                             sql: include_str!("../migrations/005_expansion_rewards.sql"),
                             kind: MigrationKind::Up,
                         },
+                        Migration {
+                            version: 6,
+                            description: "catalog_eligibility_cache",
+                            sql: include_str!("../migrations/006_catalog_eligibility.sql"),
+                            kind: MigrationKind::Up,
+                        },
+                        Migration {
+                            version: 7,
+                            description: "chronological_pack_queue",
+                            sql: include_str!("../migrations/007_pack_queue.sql"),
+                            kind: MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
@@ -59,8 +78,12 @@ pub fn run() {
             catalog::catalog_status,
             catalog::ensure_catalog,
             catalog::get_banner_card,
+            catalog::get_banner_moxes,
             catalog::get_card,
             catalog::query_cards,
+            catalog::card_filter_options,
+            catalog::search_creature_types,
+            catalog::card_printings,
             catalog::list_sets,
             catalog::import_catalog,
             images::resolve_card_image,
@@ -78,6 +101,7 @@ pub fn run() {
             progression::begin_league,
             progression::claim_weekly_reward,
             progression::open_boosters,
+            progression::open_next_boosters,
             progression::craft_card,
             maintenance::database_info,
             maintenance::save_app_settings,

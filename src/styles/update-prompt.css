@@ -1,0 +1,46 @@
+.update-prompt {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 120;
+  width: min(400px, calc(100vw - 40px));
+  padding: 16px 18px;
+  border-color: var(--tone-border-strong, #728563);
+  background: var(--tone-bg1, #1c281e);
+  color: var(--tone-text, #e5e7d2);
+  box-shadow: 0 10px 40px #0004;
+}
+.update-prompt-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.update-prompt-heading .ui-button { flex-shrink: 0; }
+.update-prompt p {
+  margin: 9px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.update-prompt-status { color: var(--tone-secondary, #a5b49b); }
+.update-prompt progress { width: 100%; accent-color: var(--tone-accent, #b6bb82); }
+.update-prompt .update-prompt-error { color: var(--tone-danger, #c55b4c); }
+.update-prompt-notes {
+  margin: 12px 0;
+  font-size: 12px;
+}
+.update-prompt-notes summary { cursor: pointer; }
+.update-prompt-notes p {
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.update-prompt-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}

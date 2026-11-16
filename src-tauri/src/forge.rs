@@ -44,26 +44,64 @@ pub struct ExportResult {
 /// Detect conventional Forge paths without creating or changing any Forge files.
 #[tauri::command]
 pub fn detect_forge_paths() -> ForgePaths {
-    let profile = env::var_os("USERPROFILE")
-        .or_else(|| env::var_os("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_default();
-    let roaming = env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| profile.join("AppData").join("Roaming"));
-    let local = env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| profile.join("AppData").join("Local"));
-    let data = roaming.join("Forge");
+    let profile = if cfg!(windows) {
+        env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"))
+    } else {
+        env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"))
+    }
+    .map(PathBuf::from)
+    .unwrap_or_default();
+    let (data, cache) = default_forge_directories(
+        env::consts::OS,
+        &profile,
+        env::var_os("APPDATA").map(PathBuf::from),
+        env::var_os("LOCALAPPDATA").map(PathBuf::from),
+    );
     let installation = detected_installation(None);
     ForgePaths {
         deck_dir: display_path(&data.join("decks").join("constructed")),
         data_dir: display_path(&data),
-        image_cache_dir: display_path(
-            &local.join("Forge").join("Cache").join("pics").join("cards"),
-        ),
+        image_cache_dir: display_path(&cache.join("pics").join("cards")),
         install_dir: installation.map(|(path, _)| display_path(&path)),
     }
+}
+
+fn default_forge_directories(
+    os: &str,
+    profile: &Path,
+    roaming: Option<PathBuf>,
+    local: Option<PathBuf>,
+) -> (PathBuf, PathBuf) {
+    match os {
+        "windows" => {
+            let roaming = roaming.unwrap_or_else(|| profile.join("AppData").join("Roaming"));
+            let local = local.unwrap_or_else(|| profile.join("AppData").join("Local"));
+            (roaming.join("Forge"), local.join("Forge").join("Cache"))
+        }
+        "macos" => (
+            profile
+                .join("Library")
+                .join("Application Support")
+                .join("Forge"),
+            profile.join("Library").join("Caches").join("Forge"),
+        ),
+        _ => (profile.join(".forge"), profile.join(".cache").join("forge")),
+    }
+}
+
+fn same_default_directory(selected: &str, standard: &str, windows: bool) -> bool {
+    let normalize = |value: &str| {
+        if windows {
+            value
+                .trim()
+                .trim_end_matches(['/', '\\'])
+                .replace('/', "\\")
+                .to_lowercase()
+        } else {
+            value.trim().trim_end_matches('/').to_owned()
+        }
+    };
+    normalize(selected) == normalize(standard)
 }
 
 #[tauri::command]
@@ -187,18 +225,11 @@ pub(crate) fn prepare_standard_directories(paths: &ForgePaths) -> Result<(), Str
 }
 
 fn prepare_default_directories(paths: &ForgePaths, defaults: &ForgePaths) -> Result<(), String> {
-    let normalize = |value: &str| {
-        value
-            .trim()
-            .trim_end_matches(['/', '\\'])
-            .replace('/', "\\")
-            .to_lowercase()
-    };
     for (selected, standard) in [
         (&paths.deck_dir, &defaults.deck_dir),
         (&paths.image_cache_dir, &defaults.image_cache_dir),
     ] {
-        if normalize(selected) == normalize(standard) {
+        if same_default_directory(selected, standard, cfg!(windows)) {
             fs::create_dir_all(selected.trim()).map_err(|error| {
                 format!("Cannot prepare Forge's standard folder {selected}: {error}")
             })?;
@@ -474,6 +505,42 @@ fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forge_defaults_follow_platform_paths_without_creating_data() {
+        let profile = Path::new("/example/home");
+        let (data, cache) = default_forge_directories(
+            "linux",
+            profile,
+            Some("ignored-roaming".into()),
+            Some("ignored-local".into()),
+        );
+        assert_eq!(data, profile.join(".forge"));
+        assert_eq!(cache, profile.join(".cache").join("forge"));
+        let (data, cache) = default_forge_directories(
+            "windows",
+            profile,
+            Some("roaming".into()),
+            Some("local".into()),
+        );
+        assert_eq!(data, PathBuf::from("roaming").join("Forge"));
+        assert_eq!(cache, PathBuf::from("local").join("Forge").join("Cache"));
+        assert!(!same_default_directory(
+            "/home/player/.forge",
+            "/home/player/.Forge",
+            false
+        ));
+        assert!(same_default_directory(
+            "/home/player/.forge/",
+            "/home/player/.forge",
+            false
+        ));
+        assert!(same_default_directory(
+            "C:/Players/Forge/",
+            "c:\\players\\forge",
+            true
+        ));
+    }
 
     #[test]
     fn test_deck_uses_forge_sections_and_basic_lands() {

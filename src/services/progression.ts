@@ -28,3 +28,7 @@ export function craftCard(cardId: string, requestId: string) {
     { cardId, requestId },
   );
 }
+
+export function openNextBoosters(count: number, requestId: string) {
+  return invoke<BoosterOpening>("open_next_boosters", { count, requestId });
+}
