@@ -14,7 +14,7 @@ Eternal League is a local Tauri 2 / React / SQLite companion to MTG Forge. Read 
 
 ## Every publish requires a new version
 
-The user intends to release through Codex. Every new publish must use a new, higher SemVer version. Never reuse a published version, move/delete an existing release tag, or replace published assets to conceal a change. Fixes after tagging need a new version and tag; an unchanged failed workflow can be rerun without moving its tag.
+The user intends to release through Codex. Every new publish must use a new, higher SemVer version. Never reuse a published version, move/delete an existing release tag, or replace published assets to conceal a change. Changes that alter the application, embedded configuration, or installer bytes after tagging require a new version and tag. Documentation-only and release-verification-tool-only fixes may be committed on main and used to verify an unchanged tagged candidate; they must not move its tag, rebuild/replace its artifacts, or reuse a published version. Every published release version remains unique and new. An unchanged failed workflow can be rerun without moving its tag.
 
 Use the repository helpers:
 

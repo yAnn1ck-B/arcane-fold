@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateRelease, validateUnsignedRelease, decodePublicKey, decodeSignature } from './verify-release.mjs';
+import { createServer } from 'node:http';
+import { validateRelease, validateUnsignedRelease, decodePublicKey, decodeSignature, createReleaseRequest, downloadInstaller } from './verify-release.mjs';
 
 function fixture() {
   const release = { tag_name: 'v0.2.0', draft: true, prerelease: false };
@@ -8,7 +9,7 @@ function fixture() {
     ['Eternal.League_0.2.0_x64-setup.exe', 1], ['Eternal.League_0.2.0_x64-setup.exe.sig', 2],
     ['Eternal.League_0.2.0_amd64.AppImage', 3], ['Eternal.League_0.2.0_amd64.AppImage.sig', 4], ['latest.json', 5],
   ].map(([name,id]) => ({ name, id, size: 100, url: `https://api.github.com/repos/owner/repo/releases/assets/${id}`, browser_download_url: `https://github.com/owner/repo/releases/download/v0.2.0/${name}` }));
-  const manifest = { version: '0.2.0', platforms: { 'windows-x86_64': { url: assets[0].url, signature: 'signed-windows' }, 'linux-x86_64': { url: assets[2].url, signature: 'signed-linux' } } };
+  const manifest = { version: '0.2.0', platforms: { 'windows-x86_64': { url: assets[0].browser_download_url, signature: 'signed-windows' }, 'linux-x86_64': { url: assets[2].browser_download_url, signature: 'signed-linux' } } };
   return { release, assets, manifest };
 }
 
@@ -61,4 +62,124 @@ test('signed updater versions must be present in the authenticated TAB-separated
   assert.throws(() => decodeSignature(encode('timestamp:1\tfile:installer.exe'), '0.2.0'), /version/);
   assert.throws(() => decodeSignature(encode('timestamp:1\tfile:installer.exe\tversion:0.1.0'), '0.2.0'), /version/);
   assert.throws(() => decodeSignature(encode('timestamp:1\tversion:0.2.0\tversion:0.2.0'), '0.2.0'), /version/);
+});
+
+async function serve(t, handler) {
+  const server = createServer(handler);
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+test("draft installers download through authenticated asset API and follow binary redirects", async (t) => {
+  const bytes = Buffer.from("MZ-private-installer");
+  const apiRequests = [],
+    redirectedRequests = [];
+  const storage = await serve(t, (request, response) => {
+    redirectedRequests.push({
+      url: request.url,
+      authorization: request.headers.authorization,
+    });
+    response.end(bytes);
+  });
+  const api = await serve(t, (request, response) => {
+    apiRequests.push({
+      url: request.url,
+      authorization: request.headers.authorization,
+      accept: request.headers.accept,
+    });
+    if (request.url !== "/assets/1") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    if (
+      request.headers.authorization !== "Bearer fixture-token" ||
+      request.headers.accept !== "application/octet-stream"
+    ) {
+      response.writeHead(403);
+      response.end();
+      return;
+    }
+    response.writeHead(302, { Location: `${storage}/signed-payload` });
+    response.end();
+  });
+  const result = await downloadInstaller(
+    { url: `${api}/assets/1` },
+    { url: `${api}/browser/installer.exe` },
+    false,
+    createReleaseRequest(false, "fixture-token"),
+  );
+  assert.deepEqual(result, bytes);
+  assert.deepEqual(apiRequests, [
+    {
+      url: "/assets/1",
+      authorization: "Bearer fixture-token",
+      accept: "application/octet-stream",
+    },
+  ]);
+  assert.deepEqual(redirectedRequests, [
+    { url: "/signed-payload", authorization: undefined },
+  ]);
+});
+
+test("published installer verification uses public manifest URL without authentication", async (t) => {
+  const bytes = Buffer.from([0x7f, 0x45, 0x4c, 0x46, 1]);
+  const requests = [];
+  const host = await serve(t, (request, response) => {
+    requests.push({
+      url: request.url,
+      authorization: request.headers.authorization,
+      accept: request.headers.accept,
+    });
+    if (
+      request.url !== "/public/installer.AppImage" ||
+      request.headers.authorization !== undefined
+    ) {
+      response.writeHead(403);
+      response.end();
+      return;
+    }
+    response.end(bytes);
+  });
+  const result = await downloadInstaller(
+    { url: `${host}/assets/1` },
+    { url: `${host}/public/installer.AppImage` },
+    true,
+    createReleaseRequest(true, "fixture-token"),
+  );
+  assert.deepEqual(result, bytes);
+  assert.deepEqual(requests, [
+    {
+      url: "/public/installer.AppImage",
+      authorization: undefined,
+      accept: "application/octet-stream",
+    },
+  ]);
+});
+
+test("updater manifest must use matching public browser URL rather than authenticated asset API", () => {
+  const { release, assets, manifest } = fixture();
+  manifest.platforms["windows-x86_64"].url = assets[0].url;
+  assert.throws(
+    () => validateRelease(release, assets, manifest, "v0.2.0"),
+    /windows/,
+  );
+  assert.throws(
+    () =>
+      validateRelease(
+        { ...release, draft: false },
+        assets,
+        manifest,
+        "v0.2.0",
+        true,
+      ),
+    /windows/,
+  );
 });

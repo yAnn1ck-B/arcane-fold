@@ -20,7 +20,7 @@ export function validateRelease(release, assets, manifest, tag, published = fals
   const allowed = new Set(['latest.json']);
   const plan = targets.map(([platform, extension]) => {
     const entry = manifest.platforms?.[platform];
-    const payload = assets.find((asset) => asset.url === entry?.url || asset.browser_download_url === entry?.url);
+    const payload = assets.find((asset) => asset.browser_download_url === entry?.url);
     if (!payload || !payload.name.endsWith(extension) || payload.size < 1 || !payload.name.includes(tag.slice(1))) throw new Error(`Missing versioned installer for ${platform}.`);
     if (/[\\/\0]/.test(payload.name)) throw new Error('Installer filenames cannot contain path separators.');
     const signature = assets.find((asset) => asset.name === `${payload.name}.sig` && asset.size > 0);
@@ -64,23 +64,31 @@ export function decodeSignature(encoded, expectedVersion) {
   return text;
 }
 
+export function createReleaseRequest(published, token, fetchImpl = fetch) {
+  return async function request(url, kind = 'json', allowMissing = false) {
+    const headers = { Accept: kind === 'json' ? 'application/vnd.github+json' : 'application/octet-stream', 'X-GitHub-Api-Version': '2022-11-28' };
+    // Published verification deliberately uses no authorization, including downloads.
+    if (!published && token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetchImpl(url, { headers, signal: AbortSignal.timeout(kind === 'bytes' ? 300_000 : 60_000) });
+    if (allowMissing && response.status === 404) return null;
+    if (!response.ok) throw new Error(`Release verification failed: HTTP ${response.status}.`);
+    if (kind === 'bytes') return Buffer.from(await response.arrayBuffer());
+    if (kind === 'text') return response.text();
+    return response.json();
+  };
+}
+
+export function downloadInstaller(payload, entry, published, request) {
+  return request(published ? entry.url : payload.url, 'bytes');
+}
+
 async function verifyRelease(tag, published, unsigned = false) {
   const repository = process.env.GITHUB_REPOSITORY ?? defaultRepository;
   if (!repository || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error('GITHUB_REPOSITORY must identify the release repository.');
   const apiBase = `${process.env.GITHUB_API_URL ?? 'https://api.github.com'}/repos/${repository}`;
   const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
   if (!published && !token) throw new Error('GH_TOKEN or GITHUB_TOKEN is required to verify draft releases.');
-  async function request(url, kind = 'json', allowMissing = false) {
-    const headers = { Accept: kind === 'json' ? 'application/vnd.github+json' : 'application/octet-stream', 'X-GitHub-Api-Version': '2022-11-28' };
-    // Published verification deliberately uses no authorization, including downloads.
-    if (!published && token) headers.Authorization = `Bearer ${token}`;
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(kind === 'bytes' ? 300_000 : 60_000) });
-    if (allowMissing && response.status === 404) return null;
-    if (!response.ok) throw new Error(`Release verification failed: HTTP ${response.status}.`);
-    if (kind === 'bytes') return Buffer.from(await response.arrayBuffer());
-    if (kind === 'text') return response.text();
-    return response.json();
-  }
+  const request = createReleaseRequest(published, token);
   let release = await request(`${apiBase}/releases/tags/${encodeURIComponent(tag)}`, 'json', true);
   if (!release) {
     const releases = await request(`${apiBase}/releases?per_page=100`);
@@ -115,7 +123,7 @@ async function verifyRelease(tag, published, unsigned = false) {
       if (signed.trim() !== entry.signature.trim()) throw new Error(`Manifest and uploaded signature differ for ${platform}.`);
       const payloadFile = path.join(directory, platform);
       const signatureFile = `${payloadFile}.minisig`;
-      const bytes = await request(entry.url, 'bytes');
+      const bytes = await downloadInstaller(payload, entry, published, request);
       if (bytes.length !== payload.size) throw new Error(`Installer download size differs for ${platform}.`);
       const magic = bytes.subarray(0, platform.startsWith('windows') ? 2 : 4);
       if (platform.startsWith('windows') ? magic.toString('ascii') !== 'MZ' : !magic.equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) throw new Error(`Installer is not a native executable for ${platform}.`);
