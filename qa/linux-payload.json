@@ -1,0 +1,10 @@
+{
+  "version": "0.2.0",
+  "artifactRun": "43914055166",
+  "artifactName": "unsigned-linux-x86_64",
+  "filename": "Eternal League_0.2.0_amd64.AppImage",
+  "bytes": 86862328,
+  "sha256": "ab7cd0bb18e1236d2dc30728f75e43a6e083f02bd52236a51768fb57fdde16e5",
+  "sourceCommit": "32404c205218ba6d6ce1948441cc69200380cbe1",
+  "purpose": "QA-only signed updater payload; not an asset of the immutable tagged release"
+}

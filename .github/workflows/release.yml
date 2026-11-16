@@ -1,213 +1,75 @@
-name: Draft desktop release
+name: Isolated Linux signed upgrade QA
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: linux-signed-upgrade-qa
   cancel-in-progress: false
 
 jobs:
-  preflight:
-    name: Validate tag and signing readiness
+  signed-upgrade:
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    outputs:
-      signingMode: ${{ steps.signing.outputs.mode }}
-    steps:
-      - name: Check out tagged source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: '24'
-      - name: Validate exact release tag and synchronized versions
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_REF_TYPE: ${{ github.ref_type }}
-        run: |
-          test "$RELEASE_REF_TYPE" = tag || { echo 'Release builds require an existing vX.Y.Z tag.' >&2; exit 1; }
-          node scripts/check-version.mjs --tag "$RELEASE_TAG"
-      - name: Select release signing mode
-        id: signing
-        env:
-          REQUESTED_SIGNING_MODE: ${{ vars.RELEASE_SIGNING_MODE || 'local' }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync } from 'node:fs';
-          const mode = process.env.REQUESTED_SIGNING_MODE;
-          if (!['local', 'actions'].includes(mode)) throw new Error('RELEASE_SIGNING_MODE must be local or actions.');
-          appendFileSync(process.env.GITHUB_OUTPUT, `mode=${mode}\n`);
-          console.log(mode === 'local' ? 'Installers will be signed locally; no private key is sent to GitHub Actions.' : 'Using configured Actions signing secrets.');
-          NODE
-      - name: Require public updater configuration
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-          if (config.bundle?.createUpdaterArtifacts !== true) throw new Error('Signed updater artifacts must be enabled in the release configuration.');
-          if (!config.plugins?.updater?.pubkey?.trim()) throw new Error('The updater public key is missing.');
-          if (!config.plugins?.updater?.endpoints?.length) throw new Error('The updater endpoint is missing.');
-          NODE
-      - name: Require Actions signing secrets only when explicitly enabled
-        if: steps.signing.outputs.mode == 'actions'
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          node --input-type=module <<'NODE'
-          for (const name of ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD']) {
-            if (!process.env[name]?.trim()) throw new Error(`Missing required release secret: ${name}`);
-          }
-          NODE
-
-  package:
-    name: Build draft (${{ matrix.platform }})
-    needs: preflight
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 70
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      # tauri-action merges latest.json; serialize uploads to avoid lost platforms.
-      max-parallel: 1
-      matrix:
-        include:
-          - platform: windows-x86_64
-            runner: windows-2022
-            bundle: nsis
-          - platform: linux-x86_64
-            runner: ubuntu-22.04
-            bundle: appimage
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
     env:
-      CARGO_TERM_COLOR: always
       APPIMAGE_EXTRACT_AND_RUN: '1'
+      CARGO_TERM_COLOR: always
     steps:
-      - name: Check out tagged source
+      - name: Check out isolated QA branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Confirm production sources still match the immutable tag
+        run: git diff --exit-code v0.2.0 -- src src-tauri package.json package-lock.json scripts
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24'
           cache: npm
-      - name: Install Linux build libraries
-        if: runner.os == 'Linux'
+      - name: Install Linux dependencies and public signature verifier
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb minisign
       - name: Install Rust 1.90
         run: |
-          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+          rustup toolchain install 1.90.0 --profile minimal
           rustup default 1.90.0
+      - name: Set isolated QA paths
+        run: |
+          echo "LINUX_QA_PAYLOAD_DIR=$RUNNER_TEMP/linux-upgrade-payload" >> "$GITHUB_ENV"
+          echo "LINUX_QA_OLD_CONFIG=$RUNNER_TEMP/linux-upgrade-old.json" >> "$GITHUB_ENV"
+          echo "LINUX_QA_REPORT=$RUNNER_TEMP/linux-signed-upgrade.json" >> "$GITHUB_ENV"
+      - name: Download existing unsigned CI AppImage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 43914055166 --repo "$GITHUB_REPOSITORY" --name unsigned-linux-x86_64 --dir "$LINUX_QA_PAYLOAD_DIR"
+      - name: Verify public signature and prepare old QA configuration
+        run: python3 qa/linux-upgrade-qa.py prepare
       - name: Install locked frontend dependencies
         run: npm ci
-      - name: Test updater and release verification
-        run: node --test scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs
-      - name: Validate tagged versions
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/check-version.mjs --tag "$RELEASE_TAG"
-      - name: Test native code (Windows)
-        if: runner.os == 'Windows'
-        run: npm test -- --locked
-      - name: Test native code (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a npm test -- --locked
-      - name: Build and upload signed draft assets
-        if: needs.preflight.outputs.signingMode == 'actions'
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tauriScript: node scripts/tauri.mjs
-          tagName: ${{ github.ref_name }}
-          releaseName: Eternal League v__VERSION__
-          releaseBody: Windows NSIS and Linux AppImage installers. League data is stored outside the installation and preserved on upgrades.
-          releaseDraft: true
-          prerelease: false
-          uploadUpdaterJson: true
-          updaterJsonPreferNsis: true
-          uploadUpdaterSignatures: true
-          args: --ci --bundles ${{ matrix.bundle }} -- --locked
-      - name: Build draft installers for local signing
-        if: needs.preflight.outputs.signingMode == 'local'
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tauriScript: node scripts/tauri.mjs
-          tagName: ${{ github.ref_name }}
-          releaseName: Eternal League v__VERSION__
-          releaseBody: Windows NSIS and Linux AppImage installers. Local updater signing and verification are required before publication.
-          releaseDraft: true
-          prerelease: false
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: false
-          args: --ci --bundles ${{ matrix.bundle }} --config '{"bundle":{"createUpdaterArtifacts":false}}' -- --locked
-      - name: Smoke-test Linux installation and data preservation
-        if: runner.os == 'Linux'
-        timeout-minutes: 3
-        env:
-          SMOKE_REPORT: ${{ runner.temp }}/linux-install-smoke.json
+      - name: Build genuine old 0.1.9 QA AppImage without signing keys
+        run: npm run tauri -- build --ci --bundles appimage --config "$LINUX_QA_OLD_CONFIG" -- --locked
+      - name: Compile native updater probe
         run: |
-          appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
-          test "${#appimages[@]}" -eq 1 || { echo 'Expected one built AppImage.' >&2; exit 1; }
-          xvfb-run -a python3 scripts/linux-install-smoke.py "${appimages[0]}"
-      - name: Save Linux installation smoke evidence
-        if: always() && runner.os == 'Linux'
+          mkdir -p src-tauri/examples
+          cp qa/linux-updater-probe.rs src-tauri/examples/linux_updater_probe.rs
+          cargo build --manifest-path src-tauri/Cargo.toml --release --example linux_updater_probe --features tauri/test --locked
+      - name: Execute signed native upgrade and data preservation checks
+        timeout-minutes: 4
+        run: xvfb-run -a python3 qa/linux-upgrade-qa.py exercise
+      - name: Save non-secret upgrade evidence
+        if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: linux-install-smoke-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/linux-install-smoke.json
+          name: linux-signed-upgrade-qa-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/linux-signed-upgrade.json
           if-no-files-found: warn
           retention-days: 14
-
-  verify-draft:
-    name: Verify draft artifacts
-    needs: [preflight, package]
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out verification scripts
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: '24'
-      - name: Install minisign verifier
-        if: needs.preflight.outputs.signingMode == 'actions'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y minisign
-      - name: Verify both installers and matching updater signatures
-        if: needs.preflight.outputs.signingMode == 'actions'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/verify-release.mjs --tag "$RELEASE_TAG"
-      - name: Verify complete unsigned draft for local signing
-        if: needs.preflight.outputs.signingMode == 'local'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          node scripts/verify-release.mjs --tag "$RELEASE_TAG" --unsigned
-          echo '## Local signing required' >> "$GITHUB_STEP_SUMMARY"
-          echo 'The draft contains both installers. Sign them locally, upload public .sig files and latest.json, and run full verification before publishing. The private signing key stays on the maintainer computer.' >> "$GITHUB_STEP_SUMMARY"
