@@ -19,7 +19,7 @@ The app detects and checks Forge automatically. **Settings → Forge folders** h
 
 The catalog loads automatically during first setup. Later detected Forge-version changes extend it with missing printings. Existing catalog rows, collection quantities, decks, wildcard balances, and downloaded artwork are preserved. There are no manual catalog refresh/import, backup/restore, image-cache cleanup, integration-test, or test-export controls, and no Application settings section.
 
-Existing Forge artwork is preferred. Missing images download on demand and are cached locally; known exact Forge filenames may also receive a new image without overwriting existing artwork. The dashboard banner always uses **Black Lotus**, and unlocked expansions are displayed by their full names. The dashboard also shows the next expansion and its unlock date/bonus, or an alert when no future expansion remains on the shared calendar.
+Existing Forge artwork is preferred. Missing images download on demand and are cached locally; known exact Forge filenames may also receive a new image without overwriting existing artwork. The dashboard banner prefers the modern **Vintage Masters Black Lotus**, displayed upright with its full proportions preserved. Unlocked expansions are displayed by their full names. The dashboard also shows the next expansion and its unlock date/bonus, or an alert when no future expansion remains on the shared calendar.
 
 SQLite data lives in `%APPDATA%\com.eternalleague.app\eternal-league.db`, outside the source/build directories. Keep the application identifier and migration history stable when updating the app. Local browsing, card rules, deck editing, and progression work offline after setup; uncached artwork and missing catalog data require a connection.
 
@@ -77,6 +77,8 @@ The permanent collection is capped at four copies per Oracle ID across sets and 
 
 Displayed mana uses `1R` rather than `{1}{R}`. Fractional mana values remain searchable because cards such as Little Girl have half mana values; half symbols display as `½W` or `½R`. A separator divides wildcard balances from the collection browser.
 
+Collection and deck searches match card names and rules text. Each word must match either field, so `gain life` can find `gain 3 life`; searches also support abilities such as `flying` and `deathtouch`. Existing ownership, color, expansion, and other filters still apply.
+
 ## Verification
 
 ```powershell
@@ -84,7 +86,7 @@ npm run build
 npm test
 ```
 
-See [Phase 2 and 3 verification](docs/phase-2-and-3-verification.md) and [finishing verification](docs/phase-4-verification.md). Earlier reports describe the interface at the time those checks ran; superseded test and maintenance controls are no longer in the app. The production frontend build and all 72 native tests pass. Desktop checks cover native resizing/maximizing, responsive deck tiles, saved themes/text size, automatic Forge saves and deletion, and exact-printing compatibility with the installed Forge parser. Cold first-run/offline and normal-data preservation checks also passed; see the finishing notes for details.
+See [Phase 2 and 3 verification](docs/phase-2-and-3-verification.md) and [finishing verification](docs/phase-4-verification.md). Earlier reports describe the interface at the time those checks ran; superseded test and maintenance controls are no longer in the app. The production frontend build and all 75 native tests pass. Desktop checks cover ability searches, Daylight notice contrast, native resizing/maximizing, responsive deck tiles, saved themes/text size, automatic Forge saves and deletion, and exact-printing compatibility with the installed Forge parser. Cold first-run/offline and normal-data preservation checks also passed; see the finishing notes for details.
 
 The optional developer integration script uses the actual installed Forge parser and card scripts:
 

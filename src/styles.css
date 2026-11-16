@@ -1011,13 +1011,14 @@ h1 {
   flex: 1;
 }
 .notice-success {
-  border-color: #48623e;
-  background: #253b26;
+  border-color: var(--notice-success-border, #48623e);
+  background: var(--notice-success-background, #253b26);
+  color: var(--notice-success-text, #d5ead0);
 }
 .notice-error {
-  border-color: #754d3f;
-  background: #3d2b24;
-  color: #e9ba9c;
+  border-color: var(--notice-error-border, #754d3f);
+  background: var(--notice-error-background, #3d2b24);
+  color: var(--notice-error-text, #e9ba9c);
 }
 .notice-info {
   border-color: var(--tone-border, #42513e);
@@ -3478,7 +3479,7 @@ input.deck-entry-quantity::-webkit-inner-spin-button {
 .hero-banner-card .card-image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 .league-status-strip .expansion-names {
   white-space: normal;
@@ -3765,6 +3766,12 @@ input.deck-entry-quantity::-webkit-inner-spin-button {
 }
 :root[data-theme="light"] {
   color-scheme: light;
+  --notice-success-border: #b6cbb0;
+  --notice-success-background: #e5efdf;
+  --notice-success-text: #244323;
+  --notice-error-border: #d7b5a6;
+  --notice-error-background: #f8e8e1;
+  --notice-error-text: #793c24;
   --tone-bg0: #f2f1eb;
   --tone-bg1: #fbfaf5;
   --tone-bg2: #eeede4;
@@ -3948,4 +3955,44 @@ body,
   .theme-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* Keep the overview card upright and show its full printed face. */
+.hero-art-upright {
+  perspective: none;
+}
+.hero-art-upright .hero-banner-card {
+  width: clamp(150px, 12vw, 190px);
+  height: auto;
+  aspect-ratio: 488 / 680;
+  transform: none;
+  border: 0;
+  overflow: hidden;
+  box-shadow: 0 10px 24px
+    color-mix(in srgb, var(--tone-bg0, #000000) 30%, transparent);
+}
+.hero-art-upright .hero-banner-card .card-image {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 488 / 680;
+}
+.hero-art-upright .hero-banner-card .card-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: auto;
+}
+.hero-art-upright .card-shadow {
+  width: clamp(150px, 12vw, 190px);
+  height: auto;
+  aspect-ratio: 488 / 680;
+}
+.hero-art-upright .card-shadow-back {
+  transform: translate(-12px, 8px);
+  opacity: 0.22;
+}
+.hero-art-upright .card-shadow-front {
+  transform: translate(-6px, 4px);
+  opacity: 0.35;
 }

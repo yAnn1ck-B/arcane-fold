@@ -135,8 +135,8 @@ export default function Collection({
         <div className="search-field">
           <Search size={16} />
           <Input
-            aria-label="Search cards by name"
-            placeholder="Search card names…"
+            aria-label="Search card names or abilities"
+            placeholder="Search names or abilities…"
             value={query.search}
             onChange={(event) => filter("search", event.target.value)}
           />
@@ -255,7 +255,7 @@ export default function Collection({
               ? "Your card catalog is being prepared automatically. Check the Forge folders in Settings if setup cannot finish."
               : query.ownedOnly
                 ? "Open booster packs or craft cards with wildcards to grow your collection."
-                : "Try another name, color, expansion, or mana value."}
+                : "Try another name or ability, color, expansion, or mana value."}
           </p>
           {!catalogCount && (
             <Button variant="outline" onClick={onSettings}>

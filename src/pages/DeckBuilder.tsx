@@ -991,7 +991,7 @@ export default function DeckBuilder({
                 setSearch(event.target.value);
                 setPage(0);
               }}
-              placeholder="Search card names…"
+              placeholder="Search names or abilities…"
             />
             <div className="deck-picker-toggles">
               <button

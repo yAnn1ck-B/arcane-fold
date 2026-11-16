@@ -116,13 +116,16 @@ export default function Dashboard({
             </Button>
           </div>
         </div>
-        <div className="hero-art" aria-label="Black Lotus banner artwork">
+        <div
+          className="hero-art hero-art-upright"
+          aria-label="Black Lotus banner artwork"
+        >
           <div className="orbit orbit-one" />
           <div className="orbit orbit-two" />
           <span className="art-spark art-spark-one">✧</span>
           <span className="art-spark art-spark-two">✧</span>
-          <div className="card-shadow card-shadow-back" />
-          <div className="card-shadow card-shadow-front" />
+          <div className="card-shadow card-shadow-back" aria-hidden="true" />
+          <div className="card-shadow card-shadow-front" aria-hidden="true" />
           <div className="hero-card hero-banner-card">
             {bannerCard ? (
               <CardImage

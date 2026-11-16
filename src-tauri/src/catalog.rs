@@ -164,12 +164,31 @@ const UNLIMITED_BASIC_SQL: &str = "(instr(' ' || lower(substr(c.type_line,1,inst
 /// across every printing, independently of the current browser filters.
 pub const ORACLE_OWNED_SQL: &str = "(SELECT COALESCE(SUM(oq.quantity),0) FROM cards oc JOIN collection oq ON oq.card_id=oc.id WHERE oc.oracle_id=c.oracle_id)";
 
+fn literal_search_pattern(term: &str) -> String {
+    let mut pattern = String::with_capacity(term.len() + 2);
+    pattern.push('%');
+    for character in term.chars() {
+        if matches!(character, '\\' | '%' | '_') {
+            pattern.push('\\');
+        }
+        pattern.push(character);
+    }
+    pattern.push('%');
+    pattern
+}
+
 fn filters<'a>(prefix: &str, query: &'a CardQuery) -> QueryBuilder<'a, Sqlite> {
     let mut sql = QueryBuilder::new(prefix.to_owned());
     sql.push(" FROM cards c LEFT JOIN collection o ON o.card_id=c.id WHERE 1=1");
-    if !query.search.trim().is_empty() {
-        sql.push(" AND c.name LIKE ")
-            .push_bind(format!("%{}%", query.search.trim()));
+    // Every term must appear in the name or rules text. Keeping terms separate
+    // lets searches such as "gain life" find "gain 3 life" as well.
+    for term in query.search.split_whitespace() {
+        let pattern = literal_search_pattern(term);
+        sql.push(" AND (c.name LIKE ")
+            .push_bind(pattern.clone())
+            .push(" ESCAPE '\\' OR c.oracle_text LIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\')");
     }
     if query.owned_only {
         sql.push(" AND (COALESCE(o.quantity,0)>0");
@@ -622,7 +641,7 @@ pub async fn get_banner_card(app: AppHandle) -> Result<CatalogCard, String> {
     if status_pool(&pool).await?.count == 0 {
         return Err("The card catalog is still being prepared.".into());
     }
-    let id: Option<String> = sqlx::query_scalar("SELECT id FROM cards WHERE name='Black Lotus' ORDER BY CASE lower(set_code) WHEN 'lea' THEN 0 WHEN 'leb' THEN 1 WHEN '2ed' THEN 2 ELSE 3 END,collector_number,id LIMIT 1")
+    let id: Option<String> = sqlx::query_scalar("SELECT id FROM cards WHERE name='Black Lotus' ORDER BY CASE lower(set_code) WHEN 'vma' THEN 0 WHEN 'ydmu' THEN 1 WHEN '30a' THEN 2 WHEN 'prm' THEN 3 WHEN 'lea' THEN 4 WHEN 'leb' THEN 5 WHEN '2ed' THEN 6 ELSE 7 END,collector_number,id LIMIT 1")
         .fetch_optional(&pool).await.map_err(|error| error.to_string())?;
     if let Some(id) = id {
         return get_card_pool(&pool, &id).await;
@@ -632,7 +651,7 @@ pub async fn get_banner_card(app: AppHandle) -> Result<CatalogCard, String> {
         http_client()?
             .get("https://api.scryfall.com/cards/named")
             .timeout(Duration::from_secs(30))
-            .query(&[("exact", "Black Lotus"), ("set", "lea")])
+            .query(&[("exact", "Black Lotus"), ("set", "vma")])
             .send()
             .and_then(|response| response.error_for_status())
             .map_err(|error| format!("Black Lotus artwork metadata is unavailable: {error}"))?
@@ -1295,6 +1314,173 @@ mod tests {
                 .total,
                 0
             );
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn search_finds_names_and_card_abilities() {
+        let (_directory, pool) = pool();
+        let cards = [
+            (
+                "draw",
+                "Deepwood Ranger",
+                "When this creature enters, draw a card.",
+            ),
+            ("flying", "Sky Scout", "Flying"),
+            ("destroy", "Final Verdict", "Destroy target creature."),
+            ("life", "Dawn Healer", "You gain 3 life."),
+            ("deathtouch", "Night Predator", "Deathtouch"),
+            ("other", "Ordinary Creature", "Vigilance"),
+        ]
+        .map(|(id, name, rules)| {
+            let mut card = fixture(id, name);
+            card["oracle_text"] = rules.into();
+            card
+        });
+        tauri::async_runtime::block_on(async {
+            append_values(&pool, cards.into()).await.unwrap();
+            for (search, expected) in [
+                ("draw a card", "draw"),
+                ("flying", "flying"),
+                ("destroy target creature", "destroy"),
+                ("gain life", "life"),
+                ("deathtouch", "deathtouch"),
+                ("  DAWN\tHEALER  ", "life"),
+            ] {
+                let result = query_pool(
+                    &pool,
+                    CardQuery {
+                        search: search.into(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+                assert_eq!(result.total, 1, "search: {search}");
+                assert_eq!(result.cards[0].id, expected, "search: {search}");
+            }
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn search_terms_share_filters_and_page_counts() {
+        let (_directory, pool) = pool();
+        let mut first = fixture("first", "A Healer");
+        first["oracle_text"] = "You gain 3 life.".into();
+        let mut second = fixture("second", "B Healer");
+        second["oracle_text"] = "Whenever you gain life, put a counter on this creature.".into();
+        let mut third = fixture("third", "Gain Guardian");
+        third["oracle_text"] = "Your life total can't change.".into();
+        third["colors"] = serde_json::json!(["W"]);
+        let mut missing_term = fixture("missing-term", "D Healer");
+        missing_term["oracle_text"] = "You gain 3 energy counters.".into();
+        let mut double_faced = fixture("double-faced", "Front // Back");
+        double_faced["oracle_text"] = "".into();
+        double_faced["card_faces"] = serde_json::json!([
+            {"name":"Front","oracle_text":"Vigilance"},
+            {"name":"Back","oracle_text":"When this creature transforms, draw a card."}
+        ]);
+        tauri::async_runtime::block_on(async {
+            append_values(
+                &pool,
+                vec![first, second, third, missing_term, double_faced],
+            )
+            .await
+            .unwrap();
+            let mut seen = Vec::new();
+            for page in 0..4 {
+                let result = query_pool(
+                    &pool,
+                    CardQuery {
+                        search: "gain life".into(),
+                        page,
+                        page_size: 1,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+                assert_eq!(result.total, 3);
+                seen.extend(result.cards.into_iter().map(|card| card.id));
+            }
+            assert_eq!(seen, ["first", "second", "third"]);
+            change_quantity(&pool, "first", 2).await.unwrap();
+            let filtered = query_pool(
+                &pool,
+                CardQuery {
+                    search: "gain life".into(),
+                    owned_only: true,
+                    min_owned: 2,
+                    color: "G".into(),
+                    rarity: "common".into(),
+                    set_code: "tst".into(),
+                    type_line: "Creature".into(),
+                    mana_value: "1".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(filtered.total, 1);
+            assert_eq!(filtered.cards[0].id, "first");
+            let back_rules = query_pool(
+                &pool,
+                CardQuery {
+                    search: "draw card".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(back_rules.total, 1);
+            assert_eq!(back_rules.cards[0].id, "double-faced");
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn search_treats_like_metacharacters_and_quotes_literally() {
+        let (_directory, pool) = pool();
+        let cards = [
+            ("percent", "Percent% Scout"),
+            ("underscore", "Under_score Mage"),
+            ("backslash", "Path\\finder"),
+            ("quote", "Cleric's Gift"),
+            ("ordinary", "Ordinary Scout"),
+        ]
+        .map(|(id, name)| fixture(id, name));
+        tauri::async_runtime::block_on(async {
+            append_values(&pool, cards.into()).await.unwrap();
+            for (search, expected) in [
+                ("%", "percent"),
+                ("_", "underscore"),
+                ("\\", "backslash"),
+                ("Cleric's", "quote"),
+            ] {
+                let result = query_pool(
+                    &pool,
+                    CardQuery {
+                        search: search.into(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+                assert_eq!(result.total, 1, "search: {search}");
+                assert_eq!(result.cards[0].id, expected, "search: {search}");
+            }
+            let injection = query_pool(
+                &pool,
+                CardQuery {
+                    search: "' OR 1=1 --".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(injection.total, 0);
             pool.close().await;
         });
     }

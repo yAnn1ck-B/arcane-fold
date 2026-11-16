@@ -10,7 +10,7 @@ The same configuration supplies the week-0 Foundations pool and 13 later expansi
 
 Current behavior:
 
-- The banner card is Black Lotus. The dashboard has no League settings button or unique-printings statistic.
+- The banner prefers Vintage Masters Black Lotus (#4). It displays the full face upright without perspective or stretching. The dashboard has no League settings button or unique-printings statistic.
 - Settings contains the three required Forge paths, read-only league rules, and Appearance preferences. Forest, Midnight, Slate, and Daylight themes and Standard/Larger text are saved locally. The app version appears subtly beneath Forge's connection status. Application maintenance, manual catalog, backup/restore/cache, integration-test, cached-artwork-test, and test-export controls are removed.
 - Catalog setup runs automatically; detected Forge-version changes append only missing printings while preserving existing rows, progression, decks, and artwork caches.
 - Save deck and Copy deck synchronize stable managed Forge files automatically, including owned incomplete drafts. The files live under the configured Constructed folder's `Eternal League` subfolder. Startup migrates tracked files without re-exporting invalid drafts; distinct superseded versions are archived with non-`.dck` extensions. Delete removes tracked active/archived/previous-folder files. There is no manual export button or export preference.
@@ -19,7 +19,10 @@ Current behavior:
 
 ### Completed checks
 
-- The latest frontend build and **72 native tests passed**. The added coverage checks wildcard cadence, missed claims/late joins, tracked-file migration, deletion, collisions, SQL failure rollback, recovery-path reporting, and rejection of stale folder settings.
+- The modern VMA #4 banner loaded its actual 488×680 artwork. At 980, 1440, and 1920 pixels, its transform and perspective were `none`, image fit was `contain`, and the card stayed within the banner without horizontal overflow. Daylight with larger text also fit at 980×700. The frontend build and all 75 native tests passed; isolated fixture data and preferences were restored afterward.
+- The collection-search update passed the frontend build and **75 native tests**. All five requested examples (`draw a card`, `flying`, `destroy target creature`, `gain life`, `deathtouch`) returned rules-text matches in the actual desktop UI. Regression tests also cover names, whitespace/case, multi-face rules, filter combinations, pagination totals, and literal search punctuation. Searches do not modify catalog or collection data.
+- Daylight success notices now use a light green surface with dark green text; measured text/background contrast was 9.33. Error notices also use a light-theme palette (measured contrast 7.09). The real Appearance save notice and invalid-folder error were visually checked, then isolated preferences were restored.
+- The deck-management revision passed the frontend build and **72 native tests**. Its added coverage checks wildcard cadence, missed claims/late joins, tracked-file migration, deletion, collisions, SQL failure rollback, recovery-path reporting, and rejection of stale folder settings.
 - Actual native window sizes of 980×700, 1440×940, 1920×1080, and 2560×1440 matched the WebView viewport without horizontal overflow. The content width has no fixed cap. Deck tiles used three columns at 1920 pixels and four at 2560 pixels. A maximized native window and WebView both measured 1920×1009.
 - Theme changes and Larger text persisted after a reload. Larger text increased a 26-pixel heading to 30.68 pixels. The Daylight layout fit the 980-pixel minimum width; its shared card-details modal fit within 980×700 and displayed the complete rules and ownership information.
 - Live Copy deck created a distinct Forge file in the app subfolder. Deleting that copy removed the file and its ownership mapping, preserving collection and wildcard totals. Repeated saves reused one path. Forge 2.0.13 parsed the subfolder's 60/15 deck and verified all 75 exact-printing copies. The isolated database was restored after the checks.
