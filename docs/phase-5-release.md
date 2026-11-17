@@ -2,13 +2,28 @@
 
 This document defines the release procedure and records implementation/verification as Phase 5 proceeds. The complete delivery scope remains in [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md). The current working preview and legacy development progress must remain intact.
 
-## Unreleased policy: mandatory online verification
+## Current release: 0.3.1
 
-The next production version must verify online that it is current before normal league use. Only updater state `current` unlocks it. Recheck at startup, focus, reconnect, and every five minutes; idle/checking/check-failed states remain blocking. A known update cannot be dismissed or rechecked away. Offline/check failures and download, signature, installation, or restart failures stay blocked with explicit retry actions. Keep download, verified installation, and restart as separate explicit steps. Limited current-deck/Forge-folder repair is available only to finish pending autosaves; other league actions remain blocked. Development/preview builds bypass this production gate.
+[Eternal League v0.3.1](https://github.com/yAnn1ck-B/eternal-league/releases/tag/v0.3.1), release **448500359**, was published unchanged at **2026-11-17T11:31:04Z** (18:31:04 Bangkok), from immutable tag/commit **`98ea670a7b2708a4ff5d8050e65f78714b6ea202`**. [Release workflow 44069450628](https://github.com/yAnn1ck-B/eternal-league/actions/runs/44069450628) and [main CI 44069443369](https://github.com/yAnn1ck-B/eternal-league/actions/runs/44069443369) passed. All **138 native checks** (134 unit, one migration guard, three cold-configuration tests) and **59 Node checks** passed. Both signed installers and canonical `latest.json` passed full draft verification; anonymous public installer/signature/updater verification also passed.
 
-This user-requested policy supersedes the previous optional-update instruction **for the next version**. Published 0.3.0 retains its shipped optional updater and needs one ordinary upgrade; its behavior cannot be changed retroactively. Client-side startup/focus/reconnect/periodic checks do not provide a central-server lockstep guarantee. The following published-release evidence is unchanged; no new version/tag/publication or installed mandatory-update test is claimed here.
+- **Windows:** the exact official updater-signed NSIS installer upgraded **0.3.0 to 0.3.1**. QA verified the mandatory online gate before normal status/reward calls. Normal startup then applied the entitlement adjustment once: three queued packs became **11** and seven common wildcards became **17 common / 5 uncommon / 2 rare / 1 mythic**. Two owned copies, one deck, one history row, and one receipt were unchanged. Uninstall/reinstall preserved the result without another grant. Production gate UI and read-only rules checks passed. Cleanup removed only owned fixtures/registrations and seven QA metadata rows; no cache wipe occurred.
+- **Linux:** actual official 0.2.1 and 0.3.1 AppImages launched under Xvfb. The real native updater through MockRuntime rejected tampered bytes, installed the exact signed candidate, preserved permissions and the two-card/one-deck/seven-common-wildcard/three-pack fixture, and left the uploaded payload unchanged. **Current reward entitlements were pre-recorded: this probe did not exercise compensation, normal-use online verification, or Linux GUI interaction.** Package smoke separately passed empty first launch, relaunch, and AppImage-file-replacement preservation.
+- **Active preview:** the formal upgrade audit passed with only the authorized **+16 packs**, initial **10 common / 5 uncommon / 2 rare / 1 mythic** grant, and built-in rule refresh. Existing cards, collection, decks, history, receipts, schema/migration metadata, and separate Forge exports were unchanged. No old play checkpoint was restored.
 
-## Current release: 0.3.0
+| Exact published installer | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `Eternal.League_0.3.1_x64-setup.exe` | 5,735,676 | `C7388F749ED139CE7191649C4C545FD68920FF7A6997F6E9FF15753353926F9F` |
+| `Eternal.League_0.3.1_amd64.AppImage` | 86,944,248 | `2F7E88B1D88018944844CF70B81ADB296A8100A9F2A5A9A227B22E3BD3F26CBE` |
+
+Ignored evidence is under `.verification/releases/v0.3.1/`, including `published.json`, `windows-verification.json`, `draft-verification.log`, `published-verification.log`, `linux-install/linux-install-smoke.json`, and `linux-upgrade/linux-signed-upgrade.json`. The formal preview PASS is `.verification/release031-preview-audit/upgraded-1794915019857473000.json`. The shared league anchor, signing identity, production identifier, and schema-7 migration bytes remain unchanged. Earlier releases below retain their original verification scope.
+
+## Mandatory online verification (shipped in 0.3.1)
+
+Production 0.3.1 must verify online that it is current before normal league use. Only updater state `current` unlocks it. Recheck at startup, focus, reconnect, and every five minutes; idle/checking/check-failed states remain blocking. A known update cannot be dismissed or rechecked away. Offline/check failures and download, signature, installation, or restart failures stay blocked with explicit retry actions. Keep download, verified installation, and restart as separate explicit steps. Limited current-deck/Forge-folder repair is available only to finish pending autosaves; other league actions remain blocked. Development/preview builds bypass this production gate.
+
+This user-requested policy shipped in 0.3.1 and supersedes the earlier optional-update instruction. Published 0.3.0 retains its shipped optional updater and needs one ordinary upgrade; its behavior cannot be changed retroactively. Client-side startup/focus/reconnect/periodic checks do not provide a central-server lockstep guarantee. The current release evidence below records the installed Windows gate checks; earlier release evidence remains historical.
+
+## Historical release: 0.3.0
 
 [Eternal League v0.3.0](https://github.com/yAnn1ck-B/eternal-league/releases/tag/v0.3.0), release **448393920**, was published unchanged at **2026-11-17T10:06:54Z** (17:06:54 Bangkok). The immutable tag points to **`1b22f49f534f1047d9b0026a5d16b2d39fd60b9d`**. The shared league anchor and schema-7 migration bytes remain unchanged.
 
@@ -50,7 +65,7 @@ Release artifacts exclude the preview identifier/configuration, cloned databases
 
 ## Version and publish contract
 
-Every new publish receives a new, higher SemVer version. Development began at `0.1.0`. The unpublished `0.2.0` candidate was rejected after the official Windows build exposed SQL migration line-ending inconsistency; it must never be published. The first public release was `0.2.1`, published unchanged on 2026-11-17 and recorded in the initial release policy. The current public release is `0.3.0`, documented above. Never reuse a published version or move an existing tag.
+Every new publish receives a new, higher SemVer version. Development began at `0.1.0`. The unpublished `0.2.0` candidate was rejected after the official Windows build exposed SQL migration line-ending inconsistency; it must never be published. The first public release was `0.2.1`, published unchanged on 2026-11-17 and recorded in the initial release policy. The current public release is `0.3.1`, documented above. Never reuse a published version or move an existing tag.
 
 The version helper synchronizes five files:
 
@@ -119,7 +134,7 @@ Automatic approval review initially rejected credential export and public-releas
 
 Local authenticated operations use `scripts/github.mjs`, which obtains credentials in memory and passes a child-only `GH_TOKEN`. Do not print credentials or persist temporary tokens. Keep the signing identity stable between releases so installed clients continue to verify updates.
 
-Published 0.3.0 and the earlier releases check for updates at startup and every four hours, offering **Install update** and **Later**. Their optional-update behavior is historical shipped behavior; the unreleased policy above requires online verification and removes Later. Development/preview builds continue to bypass the production updater gate. Updates and reinstalls must retain the database, collection, decks, rewards, settings, and downloaded artwork. Actual Windows silent uninstall/reinstall and signed-upgrade preservation passed with the fixture described below. The Linux native signed-upgrade probe below also passed. Final 0.2.1 private artifact gates are complete; the precise UI/native test scopes are recorded below.
+Published 0.3.0 and the earlier releases check for updates at startup and every four hours, offering **Install update** and **Later**. Their optional-update behavior is historical shipped behavior; the policy shipped in 0.3.1 above requires online verification and removes Later. Development/preview builds continue to bypass the production updater gate. Updates and reinstalls must retain the database, collection, decks, rewards, settings, and downloaded artwork. Actual Windows silent uninstall/reinstall and signed-upgrade preservation passed with the fixture described below. The Linux native signed-upgrade probe below also passed. Final 0.2.1 private artifact gates are complete; the precise UI/native test scopes are recorded below.
 
 ## Historical 0.2.x verification record
 
