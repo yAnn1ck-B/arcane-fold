@@ -16,10 +16,10 @@ export function loadDeck(id: string) {
 export function saveDeck(deck: DeckDraft) {
   return invoke<DeckDetail>("save_deck", { deck });
 }
-export function saveDeckToForge(deck: DeckDraft) {
+export function saveDeckToForge(deck: DeckDraft, createRequestId?: string) {
   return invoke<{ deck: DeckDetail; export: ExportResult }>(
     "save_deck_to_forge",
-    { deck },
+    { deck, createRequestId },
   );
 }
 export function duplicateDeck(id: string) {

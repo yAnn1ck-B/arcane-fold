@@ -1,7 +1,7 @@
 {
   "name": "eternal-league",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,7 @@
     "release:tag": "node scripts/release-tag.mjs",
     "test:release": "node --test scripts/release-version.test.mjs scripts/verify-release.test.mjs scripts/migration-policy.test.mjs",
     "test:updater": "node --test scripts/updater.test.mjs",
+    "test:decks": "node --test scripts/deck-autosave.test.mjs",
     "release:sign": "node scripts/release-sign.mjs",
     "release:attach": "node scripts/release-attach.mjs",
     "release:verify": "node scripts/verify-release.mjs"

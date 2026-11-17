@@ -2,7 +2,25 @@
 
 This document records verification history from Windows on 16 November 2026 with the actual Tauri WebView2 application and installed Forge 2.0.13. The completed grouped-browser, shared-policy, automatic-sync, expansion-calendar, cold-start, and production-preservation checks are described first. Older checks below apply to the builds described, including features later removed from the interface.
 
-## Current revision
+## Unreleased pack review — 17 November 2026
+
+All expansions now use the same 15-slot league recipe: 10 common, 4 uncommon, and 1 rare/mythic with a 12.5% mythic roll. Basic lands never enter packs. Only common nonbasic lands have half selection weight; uncommon, rare, and mythic lands use full identity weight. All nonbasic lands share a preferred limit of one per pack. Rarity rolls resolve first, then selection runs mythic → rare → uncommon → common, giving higher-rarity lands first opportunity. Display and history order remain common → uncommon → rare/mythic. The land preference relaxes only when no under-four nonland identity of the rolled rarity remains. After that preference, selection favors identities not already in the pack; small or nearly completed pools can repeat cards, always within the pooled four-copy cap. Matching wildcards appear only after the entire rolled rarity is complete. Extra artwork never increases an identity's odds, and spell-front modal double-faced cards are not classified as lands.
+
+This is a deliberate shared league format. Wizards' [Foundations breakdown](https://magic.wizards.com/en/news/feature/collecting-foundations) places common dual lands in a separate land slot with a 50% chance, while its [Play Booster design guidance](https://magic.wizards.com/en/news/making-magic/nuts-and-bolts-16-play-boosters) explains that slots, fixing, and set design interact. The league borrows the principle of controlling fixing separately from rare land rewards; the half-weight rule is our balance choice and does not claim to reproduce each paper product.
+
+Read-only catalog research compared all 13 populated scheduled expansions using exact fresh-pool calculations and 50,000 synthetic packs per expansion (650,000 total, fixed seed 20261117). Simulated all-land means agreed with exact calculations within 0.0034 lands per pack. Every populated set had fewer lands than the original unrestricted rarity draws; Secrets of Strixhaven had no eligible local pool and was not simulated. These fresh-pool figures exclude collection caps and crafting:
+
+| Expansion | Previous nonbasic lands/pack | New nonbasic lands/pack |
+| --- | ---: | ---: |
+| Foundations | 1.316 | 0.555 |
+| Aetherdrift | 1.646 | 0.673 |
+| Edge of Eternities | 0.242 | 0.175 |
+
+Foundations' ten gain duals specifically fall from 1.111 to 0.421 per fresh pack. The actual Rust generator's separate seeded 2,000-pack synthetic test measured 0.4580 common lands per pack with nonland higher-rarity slots; that isolates common weighting rather than claiming the full Foundations distribution. All 122 native library tests passed, including weight, priority, alias compatibility, and shared-limit regressions plus existing atomicity, retry receipt, queue, batch-cap, and concurrency checks. The frontend build and 45 Node checks passed. Desktop checks of the preceding rule verified 15 slots, no basics, and retry safety; the common-only weighting and higher-rarity priority are covered directly by native tests. Historical openings and live progress are not rewritten by these changes.
+
+After those tests, the debug application was rebuilt through the explicit four-week preview configuration and its effective `com.eternalleague.preview` identity and new embedded recipe were checked. A consistent SQLite backup and before/after fingerprints verified all ten progression/deck/collection tables, the catalog count, and managed Forge export contents unchanged; the database integrity check passed. The previous deck selection and Booster packs page were restored, and the window was left minimized. No production profile, installer, release version, tag, or published asset was changed.
+
+## Earlier revision
 
 The canonical rules are [src-tauri/league-rules.json](../src-tauri/league-rules.json). The latest implementation uses 12 starting packs, four weekly packs, four common and two uncommon wildcards weekly, one rare every two weeks, one mythic every four weeks, and 15 pack slots of 10 common / 4 uncommon / 1 rare-or-mythic / 0 basic lands. The shared start is Unix time `1794801597`. Joining later grants all elapsed scheduled rewards; existing players receive due periods automatically, once each. Cadence grants count shared calendar boundaries, so a week-1 claim followed by a week-2 claim awards the first rare correctly.
 

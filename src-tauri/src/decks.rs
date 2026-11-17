@@ -342,9 +342,14 @@ pub async fn save_deck(app: AppHandle, deck: DeckDraft) -> Result<DeckDetail, St
 }
 
 #[tauri::command]
-pub async fn save_deck_to_forge(app: AppHandle, deck: DeckDraft) -> Result<SavedDeck, String> {
+pub async fn save_deck_to_forge(
+    app: AppHandle,
+    deck: DeckDraft,
+    create_request_id: Option<String>,
+) -> Result<SavedDeck, String> {
     let _operation = database_mutation_guard()?;
-    save_synced(&open_pool(&app).await?, deck).await
+    save_synced_with_create_request(&open_pool(&app).await?, deck, create_request_id.as_deref())
+        .await
 }
 
 #[tauri::command]
@@ -404,7 +409,7 @@ fn forge_paths_from_json(value: &str) -> Result<crate::forge::ForgePaths, String
         .as_deref()
         .is_none_or(|path| path.trim().is_empty())
     {
-        paths.install_dir = crate::forge::detect_forge_paths().install_dir;
+        paths.install_dir = crate::forge::detected_forge_paths().install_dir;
     }
     let install = paths
         .install_dir
@@ -442,13 +447,32 @@ async fn check_saved_forge_paths(
 }
 
 async fn save_synced(pool: &SqlitePool, deck: DeckDraft) -> Result<SavedDeck, String> {
+    save_synced_with_create_request(pool, deck, None).await
+}
+
+async fn save_synced_with_create_request(
+    pool: &SqlitePool,
+    deck: DeckDraft,
+    create_request_id: Option<&str>,
+) -> Result<SavedDeck, String> {
+    if let Some(request_id) = create_request_id {
+        validate_create_request_id(request_id)?;
+    }
     let paths = saved_forge_paths(pool).await?;
     let install = paths.install_dir.clone();
     let index = tauri::async_runtime::spawn_blocking(move || forge_index(install.as_deref()))
         .await
         .map_err(|error| error.to_string())?
         .ok_or("Forge card resources could not be loaded.")?;
-    save_synced_checked(pool, deck, &paths.deck_dir, &index, Some(&paths)).await
+    save_synced_checked(
+        pool,
+        deck,
+        &paths.deck_dir,
+        &index,
+        Some(&paths),
+        create_request_id,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -458,15 +482,87 @@ async fn save_synced_with_index(
     directory: &str,
     index: &ForgeIndex,
 ) -> Result<SavedDeck, String> {
-    save_synced_checked(pool, deck, directory, index, None).await
+    save_synced_checked(pool, deck, directory, index, None, None).await
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DeckCreateMapping {
+    kind: String,
+    deck_id: String,
+}
+
+fn validate_create_request_id(request_id: &str) -> Result<(), String> {
+    if !valid_deck_identifier(request_id) {
+        return Err("Use a deck creation identifier containing 1 to 128 letters, numbers, hyphens, or underscores.".into());
+    }
+    Ok(())
+}
+
+/// Resolve creation retries before any rows or files are changed. A deleted
+/// target keeps its mapping as a tombstone so an old retry cannot resurrect it.
+async fn bind_create_request(
+    connection: &mut SqliteConnection,
+    deck: &mut DeckDraft,
+    request_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(request_id) = request_id else {
+        return Ok(None);
+    };
+    validate_create_request_id(request_id)?;
+    let conflict: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM progression_operations WHERE id=?)")
+            .bind(request_id)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(|error| error.to_string())?;
+    if conflict {
+        return Err("This deck creation identifier was already used for another action. Start a new deck instead.".into());
+    }
+    let key = format!("deck_create:{request_id}");
+    let saved: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key=?")
+        .bind(&key)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(saved) = saved {
+        let mapping: DeckCreateMapping = serde_json::from_str(&saved).map_err(|_| {
+            "This deck creation identifier has an invalid saved mapping.".to_owned()
+        })?;
+        if mapping.kind != "deck-create" || !valid_deck_identifier(&mapping.deck_id) {
+            return Err(
+                "This deck creation identifier was already used for another action.".into(),
+            );
+        }
+        if deck.id.as_deref().is_some_and(|id| id != mapping.deck_id) {
+            return Err("This deck creation identifier belongs to a different deck.".into());
+        }
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM decks WHERE id=?)")
+            .bind(&mapping.deck_id)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(|error| error.to_string())?;
+        if !exists {
+            return Err(
+                "This deck was deleted. Start a new deck instead of retrying its creation.".into(),
+            );
+        }
+        deck.id = Some(mapping.deck_id);
+        Ok(None)
+    } else if deck.id.is_some() {
+        Err("This deck creation identifier has not created a deck. Save the existing deck without a creation identifier.".into())
+    } else {
+        Ok(Some(key))
+    }
 }
 
 async fn save_synced_checked(
     pool: &SqlitePool,
-    deck: DeckDraft,
+    mut deck: DeckDraft,
     directory: &str,
     index: &ForgeIndex,
     expected: Option<&crate::forge::ForgePaths>,
+    create_request_id: Option<&str>,
 ) -> Result<SavedDeck, String> {
     let name = validated_name(&deck.name)?;
     let cards = normalize_entries(&deck.cards)?;
@@ -475,6 +571,7 @@ async fn save_synced_checked(
         .await
         .map_err(|error| error.to_string())?;
     check_saved_forge_paths(&mut transaction, expected).await?;
+    let creation_key = bind_create_request(&mut transaction, &mut deck, create_request_id).await?;
     let entries = draft_entries(&mut transaction, &deck).await?;
     let errors = ownership_warnings(&entries);
     if !errors.is_empty() {
@@ -516,6 +613,12 @@ async fn save_synced_checked(
         paths.push(path.clone());
     }
     let result = async {
+        if let Some(key) = creation_key {
+            let mapping = DeckCreateMapping { kind: "deck-create".into(), deck_id: id.clone() };
+            sqlx::query("INSERT INTO settings(key,value) VALUES(?,?)")
+                .bind(key).bind(serde_json::to_string(&mapping).map_err(|error| error.to_string())?)
+                .execute(&mut *transaction).await.map_err(|error| error.to_string())?;
+        }
         sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
             .bind(key).bind(serde_json::to_string(&paths).map_err(|error| error.to_string())?)
             .execute(&mut *transaction).await.map_err(|error| error.to_string())?;
@@ -1791,6 +1894,12 @@ pub(crate) fn resource_candidates(hint: Option<&str>) -> Vec<PathBuf> {
             candidates.extend(forge_installations_under(&root));
         }
     }
+    if !candidates
+        .iter()
+        .any(|root| root.join("editions").is_dir() && root.join("cardsfolder").is_dir())
+    {
+        candidates.extend(crate::forge_discovery::fallback_resource_candidates());
+    }
     candidates
 }
 
@@ -2561,6 +2670,320 @@ mod tests {
         assert_eq!(fs::read_dir(folder.path()).unwrap().count(), 1);
     }
 
+    async fn create_request_fixture() -> SqlitePool {
+        let pool = managed_file_fixture().await;
+        sqlx::raw_sql(include_str!("../migrations/003_progression.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM deck_cards")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM decks")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool
+    }
+
+    fn create_request_draft(id: Option<String>, name: &str, quantity: i64) -> DeckDraft {
+        DeckDraft {
+            id,
+            name: name.into(),
+            cards: vec![DraftCard {
+                card_id: "elf".into(),
+                section: "main".into(),
+                quantity,
+            }],
+        }
+    }
+
+    async fn save_with_create_request(
+        pool: &SqlitePool,
+        directory: &Path,
+        token: &str,
+        name: &str,
+        quantity: i64,
+    ) -> Result<SavedDeck, String> {
+        save_synced_checked(
+            pool,
+            create_request_draft(None, name, quantity),
+            directory.to_str().unwrap(),
+            &test_index(),
+            None,
+            Some(token),
+        )
+        .await
+    }
+
+    async fn create_request_count(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE key LIKE 'deck_create:%'")
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    fn active_deck_files(directory: &Path) -> usize {
+        fs::read_dir(directory.join(APP_DECK_FOLDER))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "dck")
+            })
+            .count()
+    }
+
+    #[test]
+    fn deck_create_retry_reuses_id_and_one_file_while_applying_newest_draft() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_request_fixture().await;
+            let directory = tempfile::tempdir().unwrap();
+            let first = save_with_create_request(
+                &pool,
+                directory.path(),
+                "create-session-one",
+                "First edit",
+                1,
+            )
+            .await
+            .unwrap();
+            // Pretend the first successful reply was lost: retry still has id:null.
+            let latest = save_with_create_request(
+                &pool,
+                directory.path(),
+                "create-session-one",
+                "Newest edit",
+                2,
+            )
+            .await
+            .unwrap();
+            assert_eq!(latest.deck.id, first.deck.id);
+            assert_eq!(latest.export.path, first.export.path);
+            assert_eq!(latest.deck.name, "Newest edit");
+            assert_eq!(latest.deck.cards[0].quantity, 2);
+            let content = fs::read_to_string(&latest.export.path).unwrap();
+            assert!(content.contains("Name=Newest edit") && content.contains("2 Elf|TST|[1]"));
+            assert_eq!(list_pool(&pool).await.unwrap().len(), 1);
+            assert_eq!(active_deck_files(directory.path()), 1);
+            assert_eq!(create_request_count(&pool).await, 1);
+            let assigned = save_synced_checked(
+                &pool,
+                create_request_draft(Some(first.deck.id.clone()), "Assigned ID", 1),
+                directory.path().to_str().unwrap(),
+                &test_index(),
+                None,
+                Some("create-session-one"),
+            )
+            .await
+            .unwrap();
+            assert_eq!(assigned.deck.id, first.deck.id);
+            let independent = save_with_create_request(
+                &pool,
+                directory.path(),
+                "create-session-two",
+                "Independent",
+                1,
+            )
+            .await
+            .unwrap();
+            assert_ne!(independent.deck.id, first.deck.id);
+            assert_eq!(list_pool(&pool).await.unwrap().len(), 2);
+            assert_eq!(active_deck_files(directory.path()), 2);
+        });
+    }
+
+    #[test]
+    fn deck_create_tokens_reject_unknown_ids_conflicting_actions_and_other_decks() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_request_fixture().await;
+            let directory = tempfile::tempdir().unwrap();
+            assert!(save_synced_with_index(
+                &pool,
+                create_request_draft(Some("unknown".into()), "Unknown", 1),
+                directory.path().to_str().unwrap(),
+                &test_index()
+            )
+            .await
+            .unwrap_err()
+            .contains("no longer exists"));
+            for token in ["", "../invalid", "contains spaces"] {
+                assert!(save_with_create_request(
+                    &pool,
+                    directory.path(),
+                    token,
+                    "Invalid token",
+                    1
+                )
+                .await
+                .unwrap_err()
+                .contains("creation identifier"));
+            }
+            sqlx::query("INSERT INTO progression_operations(id,kind,request_json,result_json,created_at) VALUES('used-for-craft','craft','{}','{}','2026-11-17T00:00:00Z')").execute(&pool).await.unwrap();
+            assert!(save_with_create_request(
+                &pool,
+                directory.path(),
+                "used-for-craft",
+                "Wrong action",
+                1
+            )
+            .await
+            .unwrap_err()
+            .contains("another action"));
+            sqlx::query("INSERT INTO settings(key,value) VALUES('deck_create:wrong-kind','{\"kind\":\"craft\",\"deckId\":\"unknown\"}')").execute(&pool).await.unwrap();
+            assert!(save_with_create_request(
+                &pool,
+                directory.path(),
+                "wrong-kind",
+                "Wrong mapping",
+                1
+            )
+            .await
+            .unwrap_err()
+            .contains("another action"));
+            let first =
+                save_with_create_request(&pool, directory.path(), "first-token", "First", 1)
+                    .await
+                    .unwrap();
+            let other =
+                save_with_create_request(&pool, directory.path(), "other-token", "Other", 1)
+                    .await
+                    .unwrap();
+            assert!(save_synced_checked(
+                &pool,
+                create_request_draft(Some(other.deck.id.clone()), "Wrong identity", 1),
+                directory.path().to_str().unwrap(),
+                &test_index(),
+                None,
+                Some("first-token")
+            )
+            .await
+            .unwrap_err()
+            .contains("different deck"));
+            assert!(save_synced_checked(
+                &pool,
+                create_request_draft(Some(first.deck.id), "Unexpected new token", 1),
+                directory.path().to_str().unwrap(),
+                &test_index(),
+                None,
+                Some("unbound-token")
+            )
+            .await
+            .is_err());
+            assert_eq!(list_pool(&pool).await.unwrap().len(), 2);
+            assert_eq!(active_deck_files(directory.path()), 2);
+        });
+    }
+
+    #[test]
+    fn deck_create_deleted_token_remains_a_tombstone() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_request_fixture().await;
+            let directory = tempfile::tempdir().unwrap();
+            let first = save_with_create_request(
+                &pool,
+                directory.path(),
+                "deleted-session",
+                "Delete me",
+                1,
+            )
+            .await
+            .unwrap();
+            delete_pool(&pool, &first.deck.id).await.unwrap();
+            assert!(save_with_create_request(
+                &pool,
+                directory.path(),
+                "deleted-session",
+                "Must not return",
+                2
+            )
+            .await
+            .unwrap_err()
+            .contains("was deleted"));
+            assert_eq!(create_request_count(&pool).await, 1);
+            assert!(list_pool(&pool).await.unwrap().is_empty());
+            assert_eq!(active_deck_files(directory.path()), 0);
+            let fresh =
+                save_with_create_request(&pool, directory.path(), "fresh-session", "Fresh", 1)
+                    .await
+                    .unwrap();
+            assert_ne!(fresh.deck.id, first.deck.id);
+        });
+    }
+
+    #[test]
+    fn deck_create_database_and_file_failures_roll_back_token_and_preserve_contents() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_request_fixture().await;
+            let directory = tempfile::tempdir().unwrap();
+            let first =
+                save_with_create_request(&pool, directory.path(), "stable-session", "Original", 1)
+                    .await
+                    .unwrap();
+            let original = fs::read_to_string(&first.export.path).unwrap();
+            let missing = directory.path().join("missing");
+            assert!(save_with_create_request(
+                &pool,
+                &missing,
+                "failed-file-session",
+                "Missing folder",
+                1
+            )
+            .await
+            .is_err());
+            assert_eq!(create_request_count(&pool).await, 1);
+            sqlx::raw_sql("CREATE TRIGGER fail_create_token BEFORE INSERT ON settings WHEN NEW.key LIKE 'deck_create:%' BEGIN SELECT RAISE(ABORT,'test create token failure'); END;").execute(&pool).await.unwrap();
+            assert!(save_with_create_request(
+                &pool,
+                directory.path(),
+                "failed-db-session",
+                "Database failure",
+                1
+            )
+            .await
+            .is_err());
+            assert_eq!(create_request_count(&pool).await, 1);
+            assert_eq!(list_pool(&pool).await.unwrap().len(), 1);
+            assert_eq!(active_deck_files(directory.path()), 1);
+            assert_eq!(fs::read_to_string(&first.export.path).unwrap(), original);
+            sqlx::raw_sql("DROP TRIGGER fail_create_token; CREATE TRIGGER fail_replay_export BEFORE UPDATE ON settings WHEN NEW.key LIKE 'forge_export:%' BEGIN SELECT RAISE(ABORT,'test replay export failure'); END;").execute(&pool).await.unwrap();
+            assert!(save_with_create_request(
+                &pool,
+                directory.path(),
+                "stable-session",
+                "Must roll back",
+                2
+            )
+            .await
+            .is_err());
+            assert_eq!(
+                load_pool(&pool, &first.deck.id).await.unwrap().name,
+                "Original"
+            );
+            assert_eq!(fs::read_to_string(&first.export.path).unwrap(), original);
+            assert_eq!(create_request_count(&pool).await, 1);
+            assert_eq!(active_deck_files(directory.path()), 1);
+            sqlx::raw_sql("DROP TRIGGER fail_replay_export")
+                .execute(&pool)
+                .await
+                .unwrap();
+            let retry = save_with_create_request(
+                &pool,
+                directory.path(),
+                "failed-db-session",
+                "Retry after repair",
+                1,
+            )
+            .await
+            .unwrap();
+            assert_ne!(retry.deck.id, first.deck.id);
+            assert_eq!(create_request_count(&pool).await, 2);
+        });
+    }
+
     async fn managed_file_fixture() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -3239,7 +3662,8 @@ mod tests {
                 draft,
                 &expected.deck_dir,
                 &test_index(),
-                Some(&expected)
+                Some(&expected),
+                None,
             )
             .await
             .unwrap_err()

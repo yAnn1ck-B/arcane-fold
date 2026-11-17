@@ -243,6 +243,20 @@ fn validate_config(config: &LeagueConfig) -> Result<(), String> {
     {
         return Err("Mythic and wildcard probabilities must be between 0% and 100%.".into());
     }
+    if config.booster.basic_lands != 0 {
+        return Err(
+            "Basic lands are freely available in decks and must not occupy booster slots.".into(),
+        );
+    }
+    if !config.booster.common_land_weight.is_finite()
+        || config.booster.common_land_weight <= 0.0
+        || config.booster.common_land_weight > 1.0
+    {
+        return Err("The common land weight must be greater than zero and at most one.".into());
+    }
+    if !(0..=100).contains(&config.booster.preferred_land_limit) {
+        return Err("The preferred nonbasic land limit must be between 0 and 100.".into());
+    }
     timestamp(config.started_at)?;
     let slots = [
         config.booster.commons,
@@ -1051,7 +1065,6 @@ struct BoosterPools {
     uncommon: Vec<CatalogCard>,
     rare: Vec<CatalogCard>,
     mythic: Vec<CatalogCard>,
-    basic: Vec<CatalogCard>,
 }
 
 async fn booster_pools(
@@ -1078,7 +1091,6 @@ async fn booster_pools(
             continue;
         }
         if is_unlimited_basic(&card) {
-            pools.basic.push(card);
             continue;
         }
         match card.rarity.as_str() {
@@ -1097,11 +1109,15 @@ fn validate_pools(
     slots: &BoosterConfig,
     set_code: &str,
 ) -> Result<(), String> {
+    if slots.basic_lands != 0 {
+        return Err(
+            "Basic lands are freely available in decks and must not occupy booster slots.".into(),
+        );
+    }
     for (count, size, label) in [
         (slots.commons, pools.common.len(), "common cards"),
         (slots.uncommons, pools.uncommon.len(), "uncommon cards"),
         (slots.rare_slots, pools.rare.len(), "rare cards"),
-        (slots.basic_lands, pools.basic.len(), "basic lands"),
     ] {
         if count > 0 && size == 0 {
             return Err(format!("{} has no eligible {label} in the local catalog. Wait for automatic card-catalog setup to finish and check the Forge installation.", set_code.to_uppercase()));
@@ -1119,31 +1135,77 @@ async fn owned_totals(connection: &mut SqliteConnection) -> Result<HashMap<Strin
         .collect())
 }
 
+fn is_nonbasic_booster_land(card: &CatalogCard) -> bool {
+    !is_unlimited_basic(card)
+        && card
+            .type_line
+            .split(" // ")
+            .next()
+            .unwrap_or_default()
+            .split('—')
+            .next()
+            .unwrap_or_default()
+            .split_whitespace()
+            .any(|kind| kind.eq_ignore_ascii_case("Land"))
+}
+
 fn draw_protected_card<R: Rng + ?Sized>(
     pool: &[CatalogCard],
     rarity: &str,
+    slots: &BoosterConfig,
     owned: &mut HashMap<String, i64>,
     pack: &mut PackContents,
     rng: &mut R,
 ) {
-    // Select a card identity uniformly, then a printing, so artwork variants
-    // neither bypass the collection cap nor skew duplicate protection.
+    // Weight identities, then choose artwork, so variants cannot skew the recipe.
     let mut seen = HashSet::new();
-    let available: Vec<_> = pool
+    let mut available: Vec<_> = pool
         .iter()
         .filter(|card| {
-            owned.get(&card.oracle_id).copied().unwrap_or(0) < COLLECTION_COPY_LIMIT
+            !is_unlimited_basic(card)
+                && owned.get(&card.oracle_id).copied().unwrap_or(0) < COLLECTION_COPY_LIMIT
                 && seen.insert(card.oracle_id.as_str())
         })
-        .map(|card| card.oracle_id.as_str())
         .collect();
-    let Some(oracle_id) = available.choose(rng) else {
+    if available.is_empty() {
         pack.duplicate_wildcards.add_rarity(rarity);
         return;
-    };
+    }
+    let lands = pack
+        .cards
+        .iter()
+        .filter(|card| is_nonbasic_booster_land(card))
+        .count();
+    // Both restrictions are preferences, never reasons to mint an early wildcard.
+    if lands >= slots.preferred_land_limit as usize
+        && available.iter().any(|card| !is_nonbasic_booster_land(card))
+    {
+        available.retain(|card| !is_nonbasic_booster_land(card));
+    }
+    let in_pack: HashSet<_> = pack
+        .cards
+        .iter()
+        .map(|card| card.oracle_id.as_str())
+        .collect();
+    if available
+        .iter()
+        .any(|card| !in_pack.contains(card.oracle_id.as_str()))
+    {
+        available.retain(|card| !in_pack.contains(card.oracle_id.as_str()));
+    }
+    let selected = available
+        .choose_weighted(rng, |card| {
+            if rarity == "common" && is_nonbasic_booster_land(card) {
+                slots.common_land_weight
+            } else {
+                1.0
+            }
+        })
+        .expect("validated booster weights and a nonempty eligible pool");
+    let oracle_id = selected.oracle_id.as_str();
     let printings: Vec<_> = pool
         .iter()
-        .filter(|card| card.oracle_id.as_str() == *oracle_id)
+        .filter(|card| card.oracle_id.as_str() == oracle_id)
         .collect();
     let card = (*printings.choose(rng).unwrap()).clone();
     *owned.entry(card.oracle_id.clone()).or_default() += 1;
@@ -1157,26 +1219,54 @@ fn generate_pack<R: Rng + ?Sized>(
     rng: &mut R,
 ) -> PackContents {
     let mut pack = PackContents::default();
-    for _ in 0..config.booster.commons {
-        draw_protected_card(&pools.common, "common", owned, &mut pack, rng);
+    // Choose higher-rarity lands first without forcing a land hit or changing
+    // the rarity roll. Multiple custom rare slots prioritize rolled mythics.
+    let mut rare_slots: Vec<_> = (0..config.booster.rare_slots)
+        .map(|_| !pools.mythic.is_empty() && rng.gen_bool(config.mythic_probability))
+        .collect();
+    rare_slots.sort_by_key(|mythic| !*mythic);
+    for mythic in rare_slots {
+        if mythic {
+            draw_protected_card(
+                &pools.mythic,
+                "mythic",
+                &config.booster,
+                owned,
+                &mut pack,
+                rng,
+            );
+        } else {
+            draw_protected_card(&pools.rare, "rare", &config.booster, owned, &mut pack, rng);
+        }
     }
     for _ in 0..config.booster.uncommons {
-        draw_protected_card(&pools.uncommon, "uncommon", owned, &mut pack, rng);
+        draw_protected_card(
+            &pools.uncommon,
+            "uncommon",
+            &config.booster,
+            owned,
+            &mut pack,
+            rng,
+        );
     }
-    for _ in 0..config.booster.rare_slots {
-        if !pools.mythic.is_empty() && rng.gen_bool(config.mythic_probability) {
-            draw_protected_card(&pools.mythic, "mythic", owned, &mut pack, rng);
-        } else {
-            draw_protected_card(&pools.rare, "rare", owned, &mut pack, rng);
-        }
+    for _ in 0..config.booster.commons {
+        draw_protected_card(
+            &pools.common,
+            "common",
+            &config.booster,
+            owned,
+            &mut pack,
+            rng,
+        );
     }
-    for _ in 0..config.booster.basic_lands {
-        if let Some(card) = pools.basic.choose(rng) {
-            // Custom land slots may display artwork, but basics are freely
-            // available for decks and never add collected quantities.
-            pack.cards.push(card.clone());
-        }
-    }
+    // Selection priority is independent of the familiar display/history order.
+    pack.cards.sort_by_key(|card| match card.rarity.as_str() {
+        "common" => 0,
+        "uncommon" => 1,
+        "rare" => 2,
+        "mythic" => 3,
+        _ => 4,
+    });
     pack
 }
 
@@ -1513,6 +1603,55 @@ pub async fn open_next_pool_boosters(
     Ok(result)
 }
 
+/// Reconcile a pending opening without granting rewards or creating an opening.
+/// The immediate transaction waits for any active writer before inspecting its receipt.
+pub async fn resolve_pool_booster_opening(
+    pool: &SqlitePool,
+    request_id: &str,
+    count: i64,
+    set_code: Option<&str>,
+) -> Result<Option<BoosterOpening>, String> {
+    valid_request_id(request_id)?;
+    let request = if let Some(set_code) = set_code {
+        if !(1..=100).contains(&count) {
+            return Err("Open between 1 and 100 booster packs at a time.".into());
+        }
+        serde_json::json!({ "setCode": set_code.trim().to_lowercase(), "count": count }).to_string()
+    } else {
+        if !(0..=10_000).contains(&count) {
+            return Err("Open between one and 10,000 packs, or use Open all.".into());
+        }
+        serde_json::json!({ "count": count }).to_string()
+    };
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|error| error.to_string())?;
+    let result = receipt(&mut transaction, request_id, "open", &request).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn resolve_booster_opening(
+    app: AppHandle,
+    request_id: String,
+    count: i64,
+    set_code: Option<String>,
+) -> Result<Option<BoosterOpening>, String> {
+    let _operation = database_mutation_guard()?;
+    resolve_pool_booster_opening(
+        &open_pool(&app).await?,
+        &request_id,
+        count,
+        set_code.as_deref(),
+    )
+    .await
+}
+
 #[tauri::command]
 pub async fn open_next_boosters(
     app: AppHandle,
@@ -1814,6 +1953,193 @@ mod tests {
         });
     }
 
+    async fn reconciliation_snapshot(pool: &SqlitePool) -> Vec<(String, Vec<String>)> {
+        let mut snapshot = Vec::new();
+        for table in [
+            "settings",
+            "cards",
+            "collection",
+            "decks",
+            "deck_cards",
+            "wildcards",
+            "booster_history",
+            "league_state",
+            "progression_operations",
+            "booster_pack_queue",
+            "set_booster_balances",
+            "expansion_reward_claims",
+        ] {
+            let columns = sqlx::query(&format!("PRAGMA table_info({table})"))
+                .fetch_all(pool)
+                .await
+                .unwrap()
+                .iter()
+                .map(|row| format!("quote(\"{}\")", row.get::<String, _>("name")))
+                .collect::<Vec<_>>()
+                .join(" || '|' || ");
+            let rows = sqlx::query_scalar::<_, String>(&format!(
+                "SELECT {columns} FROM {table} ORDER BY 1"
+            ))
+            .fetch_all(pool)
+            .await
+            .unwrap();
+            snapshot.push((table.to_owned(), rows));
+        }
+        snapshot
+    }
+
+    #[test]
+    fn resolve_opening_replays_committed_open_all_without_new_week_accrual() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            let opened = open_next_pool_boosters(&db.pool, 0, "resolve-all", NOW)
+                .await
+                .unwrap();
+            let future = status_pool(&db.pool, NOW + WEEK_SECONDS).await.unwrap();
+            assert!(future.can_claim_weekly);
+            assert_eq!(future.available_packs, 0);
+            let before = reconciliation_snapshot(&db.pool).await;
+            let result = resolve_pool_booster_opening(&db.pool, "resolve-all", 0, None)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(result).unwrap(),
+                serde_json::to_value(opened).unwrap()
+            );
+            assert_eq!(reconciliation_snapshot(&db.pool).await, before);
+            let after = status_pool(&db.pool, NOW + WEEK_SECONDS).await.unwrap();
+            assert_eq!(after.available_packs, 0);
+            assert_eq!(after.wildcards, future.wildcards);
+            assert!(after.can_claim_weekly);
+        });
+    }
+
+    #[test]
+    fn resolve_opening_matches_legacy_request_and_preserves_plain_mismatch_errors() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            begin_pool(&db.pool, NOW).await.unwrap();
+            let opened = open_pool_boosters(&db.pool, "TST", 1, "resolve-legacy", NOW)
+                .await
+                .unwrap();
+            let before = reconciliation_snapshot(&db.pool).await;
+            let result = resolve_pool_booster_opening(&db.pool, "resolve-legacy", 1, Some(" TST "))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(result).unwrap(),
+                serde_json::to_value(opened).unwrap()
+            );
+            assert!(
+                resolve_pool_booster_opening(&db.pool, "resolve-legacy", 1, None)
+                    .await
+                    .unwrap_err()
+                    .contains("different request")
+            );
+            assert!(
+                resolve_pool_booster_opening(&db.pool, "resolve-legacy", 2, Some("tst"))
+                    .await
+                    .unwrap_err()
+                    .contains("different request")
+            );
+            assert_eq!(reconciliation_snapshot(&db.pool).await, before);
+        });
+    }
+
+    #[test]
+    fn resolve_opening_missing_receipt_never_starts_league_or_grants_packs() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            let before = reconciliation_snapshot(&db.pool).await;
+            assert!(
+                resolve_pool_booster_opening(&db.pool, "resolve-missing", 0, None)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(resolve_pool_booster_opening(
+                &db.pool,
+                "resolve-missing-legacy",
+                1,
+                Some("TST")
+            )
+            .await
+            .unwrap()
+            .is_none());
+            assert_eq!(reconciliation_snapshot(&db.pool).await, before);
+        });
+    }
+
+    #[test]
+    fn resolve_opening_waits_for_inflight_commit_or_rollback() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        tauri::async_runtime::block_on(async {
+            for commit in [false, true] {
+                let db = fixture().await;
+                let before = reconciliation_snapshot(&db.pool).await;
+                let request_id = "resolve-inflight";
+                let saved = BoosterOpening {
+                    id: request_id.into(),
+                    packs: 1,
+                    per_set_packs: BTreeMap::new(),
+                    set_code: "tst".into(),
+                    cards: Vec::new(),
+                    wildcards: WildcardBalances::default(),
+                    duplicate_wildcards: WildcardBalances::default(),
+                };
+                let mut transaction = db.pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+                save_receipt(
+                    &mut transaction,
+                    request_id,
+                    "open",
+                    &serde_json::json!({"count": 1}).to_string(),
+                    &saved,
+                    NOW,
+                )
+                .await
+                .unwrap();
+                let pool = db.pool.clone();
+                let finished = Arc::new(AtomicBool::new(false));
+                let finished_task = finished.clone();
+                let (started, ready) = tokio::sync::oneshot::channel();
+                let task = tauri::async_runtime::spawn(async move {
+                    started.send(()).unwrap();
+                    let result = resolve_pool_booster_opening(&pool, request_id, 1, None).await;
+                    finished_task.store(true, Ordering::SeqCst);
+                    result
+                });
+                ready.await.unwrap();
+                std::thread::sleep(Duration::from_millis(80));
+                assert!(
+                    !finished.load(Ordering::SeqCst),
+                    "reconciliation must wait for the writer"
+                );
+                if commit {
+                    transaction.commit().await.unwrap();
+                } else {
+                    transaction.rollback().await.unwrap();
+                }
+                let settled = reconciliation_snapshot(&db.pool).await;
+                let result = task.await.unwrap().unwrap();
+                if commit {
+                    assert_eq!(
+                        serde_json::to_value(result.unwrap()).unwrap(),
+                        serde_json::to_value(saved).unwrap()
+                    );
+                } else {
+                    assert!(result.is_none());
+                    assert_eq!(settled, before);
+                }
+                assert_eq!(reconciliation_snapshot(&db.pool).await, settled);
+            }
+        });
+    }
+
     #[test]
     fn chronological_open_all_over_one_hundred_is_atomic_and_receipt_replays_mode() {
         tauri::async_runtime::block_on(async {
@@ -2046,12 +2372,11 @@ mod tests {
                     .count(),
                 1
             );
-            pools.basic.clear();
             assert!(validate_pools(&pools, &config.booster, "tst").is_ok());
             config.booster.basic_lands = 1;
             assert!(validate_pools(&pools, &config.booster, "tst")
                 .unwrap_err()
-                .contains("basic lands"));
+                .contains("freely available"));
             config.booster.basic_lands = 0;
             assert!(validate_pools(&pools, &config.booster, "tst").is_ok());
         });
@@ -2396,7 +2721,7 @@ mod tests {
     }
 
     #[test]
-    fn exhausted_mythics_keep_their_rolled_rarity_and_free_lands_do_not_increment() {
+    fn exhausted_mythics_keep_their_rarity_and_basic_slots_are_rejected_without_spending() {
         tauri::async_runtime::block_on(async {
             let db = fixture().await;
             let mut connection = db.pool.acquire().await.unwrap();
@@ -2407,6 +2732,7 @@ mod tests {
                 uncommons: 0,
                 rare_slots: 1,
                 basic_lands: 0,
+                ..BoosterConfig::default()
             };
             config.mythic_probability = 1.0;
             let mut owned = HashMap::from([("m".into(), 4)]);
@@ -2415,13 +2741,26 @@ mod tests {
             assert_eq!(pack.duplicate_wildcards.mythic, 1);
             assert_eq!(pack.duplicate_wildcards.rare, 0);
             drop(connection);
-            sqlx::query("UPDATE settings SET value=json_set(value,'$.league.booster.commons',0,'$.league.booster.uncommons',0,'$.league.booster.rareSlots',0,'$.league.booster.basicLands',5) WHERE key='app'").execute(&db.pool).await.unwrap();
             begin_pool(&db.pool, NOW).await.unwrap();
-            let basics = open_pool_boosters(&db.pool, "tst", 1, "free-land-slots", NOW)
+            sqlx::query("UPDATE settings SET value=json_set(value,'$.league.booster.commons',0,'$.league.booster.uncommons',0,'$.league.booster.rareSlots',0,'$.league.booster.basicLands',5) WHERE key='app'").execute(&db.pool).await.unwrap();
+            let error = open_pool_boosters(&db.pool, "tst", 1, "free-land-slots", NOW)
                 .await
-                .unwrap();
-            assert_eq!(basics.cards.len(), 5);
-            assert!(basics.cards.iter().all(is_unlimited_basic));
+                .unwrap_err();
+            assert!(error.contains("freely available"));
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT available_packs FROM league_state WHERE id=1")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                2
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM booster_history")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                0
+            );
             assert_eq!(
                 sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM collection")
                     .fetch_one(&db.pool)
@@ -2430,6 +2769,435 @@ mod tests {
                 0
             );
         });
+    }
+
+    fn recipe_card(id: &str, rarity: &str, kind: &str) -> CatalogCard {
+        CatalogCard {
+            id: id.into(),
+            oracle_id: id.into(),
+            name: id.into(),
+            set_code: "tst".into(),
+            set_name: "Test".into(),
+            collector_number: id.into(),
+            rarity: rarity.into(),
+            mana_cost: String::new(),
+            cmc: 0.0,
+            type_line: kind.into(),
+            oracle_text: String::new(),
+            colors: Vec::new(),
+            image_uri: None,
+            back_image_uri: None,
+            owned: 0,
+            oracle_owned: 0,
+            forge_set_code: None,
+        }
+    }
+
+    fn recipe_config(commons: i64, uncommons: i64, rare_slots: i64) -> LeagueConfig {
+        LeagueConfig {
+            booster: BoosterConfig {
+                commons,
+                uncommons,
+                rare_slots,
+                ..BoosterConfig::default()
+            },
+            ..LeagueConfig::default()
+        }
+    }
+
+    #[test]
+    fn booster_land_weight_and_limits_validate_without_allowing_basic_slots() {
+        let mut config = recipe_config(10, 4, 1);
+        for weight in [f64::NAN, f64::INFINITY, 0.0, -0.5, 1.01] {
+            config.booster.common_land_weight = weight;
+            assert!(validate_config(&config).is_err());
+        }
+        for weight in [0.5, 1.0] {
+            config.booster.common_land_weight = weight;
+            assert!(validate_config(&config).is_ok());
+        }
+        for limit in [-1, 101] {
+            config.booster.preferred_land_limit = limit;
+            assert!(validate_config(&config).is_err());
+        }
+        for limit in [0, 1, 100] {
+            config.booster.preferred_land_limit = limit;
+            assert!(validate_config(&config).is_ok());
+        }
+        config.booster.basic_lands = 1;
+        assert!(validate_config(&config)
+            .unwrap_err()
+            .contains("freely available"));
+    }
+
+    #[test]
+    fn booster_land_classification_uses_front_card_type_and_keeps_typed_nonbasics() {
+        for kind in [
+            "Land — Island Swamp",
+            "Legendary Snow Land",
+            "Artifact Land",
+            "Land Creature — Dryad",
+        ] {
+            assert!(
+                is_nonbasic_booster_land(&recipe_card("land", "common", kind)),
+                "{kind}"
+            );
+        }
+        for kind in [
+            "Basic Land — Forest",
+            "Basic Snow Land — Island",
+            "Sorcery // Land",
+            "Creature — Human",
+        ] {
+            assert!(
+                !is_nonbasic_booster_land(&recipe_card("spell", "common", kind)),
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn weighted_land_identities_ignore_artwork_variant_counts() {
+        let common = vec![
+            recipe_card("spell", "common", "Creature"),
+            recipe_card("land", "common", "Land"),
+        ];
+        let mut variants = common.clone();
+        for index in 0..40 {
+            let mut variant = common[1].clone();
+            variant.id = format!("land-art-{index}");
+            variants.push(variant);
+        }
+        let pools = BoosterPools {
+            common,
+            ..BoosterPools::default()
+        };
+        let variants = BoosterPools {
+            common: variants,
+            ..BoosterPools::default()
+        };
+        let config = recipe_config(1, 0, 0);
+        let mut lands = 0;
+        for seed in 0..3000 {
+            let first = generate_pack(
+                &pools,
+                &config,
+                &mut HashMap::new(),
+                &mut StdRng::seed_from_u64(seed),
+            );
+            let artwork = generate_pack(
+                &variants,
+                &config,
+                &mut HashMap::new(),
+                &mut StdRng::seed_from_u64(seed),
+            );
+            assert_eq!(first.cards[0].oracle_id, artwork.cards[0].oracle_id);
+            lands += usize::from(is_nonbasic_booster_land(&first.cards[0]));
+        }
+        assert!(
+            (800..1200).contains(&lands),
+            "half weight should select a land about one-third of one-slot packs: {lands}"
+        );
+    }
+
+    #[test]
+    fn global_recipe_keeps_fifteen_slots_and_reduces_foundations_shaped_land_pool() {
+        let mut pools = BoosterPools::default();
+        for index in 0..80 {
+            pools
+                .common
+                .push(recipe_card(&format!("c-{index}"), "common", "Creature"));
+        }
+        for index in 0..10 {
+            pools
+                .common
+                .push(recipe_card(&format!("land-{index}"), "common", "Land"));
+        }
+        for index in 0..20 {
+            pools
+                .uncommon
+                .push(recipe_card(&format!("u-{index}"), "uncommon", "Creature"));
+        }
+        pools
+            .rare
+            .push(recipe_card("rare-spell", "rare", "Creature"));
+        pools
+            .mythic
+            .push(recipe_card("mythic-spell", "mythic", "Creature"));
+        let config = recipe_config(10, 4, 1);
+        let mut common_lands = 0;
+        let mut mythics = 0;
+        for seed in 0..2000 {
+            let pack = generate_pack(
+                &pools,
+                &config,
+                &mut HashMap::new(),
+                &mut StdRng::seed_from_u64(seed),
+            );
+            assert_eq!(pack.cards.len(), 15);
+            assert_eq!(pack.duplicate_wildcards, WildcardBalances::default());
+            assert_eq!(
+                pack.cards
+                    .iter()
+                    .map(|card| &card.oracle_id)
+                    .collect::<HashSet<_>>()
+                    .len(),
+                15
+            );
+            let lands = pack
+                .cards
+                .iter()
+                .filter(|card| card.rarity == "common" && is_nonbasic_booster_land(card))
+                .count();
+            assert!(lands <= 1);
+            common_lands += lands;
+            assert_eq!(
+                pack.cards
+                    .iter()
+                    .filter(|card| matches!(card.rarity.as_str(), "rare" | "mythic"))
+                    .count(),
+                1
+            );
+            mythics += usize::from(pack.cards.iter().any(|card| card.rarity == "mythic"));
+        }
+        let mean = common_lands as f64 / 2000.0;
+        assert!(
+            (0.40..0.55).contains(&mean),
+            "common lands per pack: {mean}"
+        );
+        assert!(
+            (190..310).contains(&mythics),
+            "mythic rarity roll must stay near 12.5%: {mythics}"
+        );
+        eprintln!("seeded 2000-pack Foundations-shaped pool: {mean:.4} common lands/pack, {mythics} mythics");
+    }
+
+    #[test]
+    fn nonbasic_land_preference_is_shared_by_commons_and_uncommons() {
+        let mut pools = BoosterPools::default();
+        for rarity in ["common", "uncommon"] {
+            for index in 0..20 {
+                let pool = if rarity == "common" {
+                    &mut pools.common
+                } else {
+                    &mut pools.uncommon
+                };
+                pool.push(recipe_card(
+                    &format!("{rarity}-{index}"),
+                    rarity,
+                    if index < 5 { "Land" } else { "Creature" },
+                ));
+            }
+        }
+        for limit in [0, 1] {
+            let mut config = recipe_config(4, 4, 0);
+            config.booster.preferred_land_limit = limit;
+            for seed in 0..200 {
+                let pack = generate_pack(
+                    &pools,
+                    &config,
+                    &mut HashMap::new(),
+                    &mut StdRng::seed_from_u64(seed),
+                );
+                assert_eq!(pack.cards.len(), 8);
+                assert!(
+                    pack.cards
+                        .iter()
+                        .filter(|card| is_nonbasic_booster_land(card))
+                        .count()
+                        <= limit as usize
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn land_and_pack_diversity_preferences_never_award_wildcards_before_rarity_completion() {
+        let pools = BoosterPools {
+            common: vec![
+                recipe_card("land", "common", "Land"),
+                recipe_card("spell", "common", "Creature"),
+            ],
+            ..BoosterPools::default()
+        };
+        let config = recipe_config(10, 0, 0);
+        let mut owned = HashMap::from([("spell".into(), 4)]);
+        let pack = generate_pack(&pools, &config, &mut owned, &mut StdRng::seed_from_u64(4));
+        assert_eq!(pack.cards.len(), 4);
+        assert!(pack.cards.iter().all(is_nonbasic_booster_land));
+        assert_eq!(pack.duplicate_wildcards.common, 6);
+        assert_eq!(owned["land"], 4);
+        let mut owned = HashMap::new();
+        let pack = generate_pack(&pools, &config, &mut owned, &mut StdRng::seed_from_u64(5));
+        assert_eq!(pack.cards.len(), 8);
+        assert_eq!(pack.duplicate_wildcards.common, 2);
+        assert!(owned.values().all(|quantity| *quantity == 4));
+    }
+
+    #[test]
+    fn uncommon_land_identity_odds_remain_normal_while_commons_are_half_weighted() {
+        let pools = BoosterPools {
+            common: vec![
+                recipe_card("c-land", "common", "Land"),
+                recipe_card("c-spell", "common", "Creature"),
+            ],
+            uncommon: vec![
+                recipe_card("u-land", "uncommon", "Land"),
+                recipe_card("u-spell", "uncommon", "Creature"),
+            ],
+            ..BoosterPools::default()
+        };
+        let mut common_lands = 0;
+        let mut uncommon_lands = 0;
+        for seed in 0..3000 {
+            for (config, lands) in [
+                (recipe_config(1, 0, 0), &mut common_lands),
+                (recipe_config(0, 1, 0), &mut uncommon_lands),
+            ] {
+                let pack = generate_pack(
+                    &pools,
+                    &config,
+                    &mut HashMap::new(),
+                    &mut StdRng::seed_from_u64(seed),
+                );
+                *lands += usize::from(is_nonbasic_booster_land(&pack.cards[0]));
+            }
+        }
+        assert!(
+            (800..1200).contains(&common_lands),
+            "common land hits: {common_lands}"
+        );
+        assert!(
+            (1350..1650).contains(&uncommon_lands),
+            "uncommon land hits: {uncommon_lands}"
+        );
+    }
+
+    #[test]
+    fn rare_and_mythic_lands_get_the_shared_land_preference_before_lower_rarities() {
+        let mut pools = BoosterPools::default();
+        for (rarity, count) in [("common", 20), ("uncommon", 10)] {
+            for index in 0..count {
+                let card = recipe_card(
+                    &format!("{rarity}-{index}"),
+                    rarity,
+                    if index < 5 { "Land" } else { "Creature" },
+                );
+                if rarity == "common" {
+                    pools.common.push(card);
+                } else {
+                    pools.uncommon.push(card);
+                }
+            }
+        }
+        pools.rare.push(recipe_card("rare-land", "rare", "Land"));
+        pools
+            .mythic
+            .push(recipe_card("mythic-land", "mythic", "Land"));
+        for probability in [0.0, 1.0] {
+            let mut config = recipe_config(10, 4, 1);
+            config.mythic_probability = probability;
+            for seed in 0..100 {
+                let pack = generate_pack(
+                    &pools,
+                    &config,
+                    &mut HashMap::new(),
+                    &mut StdRng::seed_from_u64(seed),
+                );
+                assert_eq!(pack.cards.len(), 15);
+                let lands: Vec<_> = pack
+                    .cards
+                    .iter()
+                    .filter(|card| is_nonbasic_booster_land(card))
+                    .collect();
+                assert_eq!(lands.len(), 1);
+                assert_eq!(
+                    lands[0].rarity,
+                    if probability == 1.0 { "mythic" } else { "rare" }
+                );
+                let ranks: Vec<_> = pack
+                    .cards
+                    .iter()
+                    .map(|card| match card.rarity.as_str() {
+                        "common" => 0,
+                        "uncommon" => 1,
+                        "rare" => 2,
+                        _ => 3,
+                    })
+                    .collect();
+                assert!(ranks.windows(2).all(|pair| pair[0] <= pair[1]));
+            }
+        }
+    }
+
+    #[test]
+    fn uncommon_land_gets_priority_over_common_lands_without_weight_reduction() {
+        let mut pools = BoosterPools {
+            uncommon: vec![recipe_card("uncommon-land", "uncommon", "Land")],
+            ..BoosterPools::default()
+        };
+        for index in 0..10 {
+            pools
+                .common
+                .push(recipe_card(&format!("spell-{index}"), "common", "Creature"));
+            pools
+                .common
+                .push(recipe_card(&format!("land-{index}"), "common", "Land"));
+        }
+        for seed in 0..100 {
+            let pack = generate_pack(
+                &pools,
+                &recipe_config(3, 1, 0),
+                &mut HashMap::new(),
+                &mut StdRng::seed_from_u64(seed),
+            );
+            assert_eq!(pack.cards.len(), 4);
+            assert_eq!(
+                pack.cards
+                    .iter()
+                    .filter(|card| is_nonbasic_booster_land(card))
+                    .count(),
+                1
+            );
+            assert_eq!(pack.cards.last().unwrap().id, "uncommon-land");
+        }
+    }
+
+    #[test]
+    fn multiple_rare_slots_prioritize_rolled_mythic_lands_before_rare_lands() {
+        let pools = BoosterPools {
+            rare: vec![
+                recipe_card("rare-land", "rare", "Land"),
+                recipe_card("rare-spell", "rare", "Creature"),
+            ],
+            mythic: vec![recipe_card("mythic-land", "mythic", "Land")],
+            ..BoosterPools::default()
+        };
+        let mut config = recipe_config(0, 0, 2);
+        config.mythic_probability = 0.5;
+        let mut mixed = 0;
+        for seed in 0..400 {
+            let pack = generate_pack(
+                &pools,
+                &config,
+                &mut HashMap::new(),
+                &mut StdRng::seed_from_u64(seed),
+            );
+            assert_eq!(pack.cards.len(), 2);
+            assert_eq!(pack.duplicate_wildcards, WildcardBalances::default());
+            if pack
+                .cards
+                .iter()
+                .filter(|card| card.rarity == "mythic")
+                .count()
+                == 1
+            {
+                mixed += 1;
+                assert_eq!(pack.cards[0].id, "rare-spell");
+                assert_eq!(pack.cards[1].id, "mythic-land");
+            }
+        }
+        assert!(mixed > 150, "mixed rare/mythic packs sampled: {mixed}");
     }
 
     #[test]

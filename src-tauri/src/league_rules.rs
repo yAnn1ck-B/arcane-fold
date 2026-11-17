@@ -8,6 +8,10 @@ pub struct BoosterConfig {
     pub uncommons: i64,
     pub rare_slots: i64,
     pub basic_lands: i64,
+    #[serde(alias = "lowRarityLandWeight")]
+    pub common_land_weight: f64,
+    #[serde(alias = "preferredLowRarityLandLimit")]
+    pub preferred_land_limit: i64,
 }
 
 impl Default for BoosterConfig {
@@ -17,6 +21,8 @@ impl Default for BoosterConfig {
             uncommons: 3,
             rare_slots: 1,
             basic_lands: 0,
+            common_land_weight: 0.5,
+            preferred_land_limit: 1,
         }
     }
 }
@@ -133,4 +139,25 @@ pub fn builtin_rules() -> Result<LeagueRules, String> {
 #[tauri::command]
 pub fn league_rules() -> Result<LeagueRules, String> {
     builtin_rules()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BoosterConfig;
+
+    #[test]
+    fn older_land_rule_keys_load_but_serialize_with_current_names() {
+        let slots: BoosterConfig = serde_json::from_value(serde_json::json!({
+            "lowRarityLandWeight": 0.25,
+            "preferredLowRarityLandLimit": 2
+        }))
+        .unwrap();
+        assert_eq!(slots.common_land_weight, 0.25);
+        assert_eq!(slots.preferred_land_limit, 2);
+        let current = serde_json::to_value(slots).unwrap();
+        assert_eq!(current["commonLandWeight"], 0.25);
+        assert_eq!(current["preferredLandLimit"], 2);
+        assert!(current.get("lowRarityLandWeight").is_none());
+        assert!(current.get("preferredLowRarityLandLimit").is_none());
+    }
 }

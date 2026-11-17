@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -6,17 +6,19 @@ import {
   Layers3,
   Loader2,
   Package,
-  RefreshCw,
   Sparkles,
   X,
 } from "lucide-react";
 import CardImage from "@/components/CardImage";
 import CardDetails from "@/components/CardDetails";
+import WildcardCounters from "@/components/WildcardCounters";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ToastProvider";
 import {
   leagueStatus,
   openBoosters,
   openNextBoosters,
+  resolveBoosterOpening,
 } from "@/services/progression";
 import "@/styles/booster-page.css";
 import type {
@@ -33,13 +35,18 @@ interface BoostersProps {
   revision: number;
   onChange: () => void;
   league: LeagueStatus;
+  active?: boolean;
 }
 interface OpeningAttempt {
   requestId: string;
   count: number;
   setCode?: string;
 }
-type Notice = { kind: "success" | "error" | "info"; message: string };
+type Notice = {
+  kind: "error" | "info";
+  message: string;
+  source: "status" | "opening";
+};
 const attemptKey = "eternal-league.pending-booster-opening";
 const rarities = ["common", "uncommon", "rare", "mythic"] as const;
 function loadAttempt(): OpeningAttempt | null {
@@ -88,12 +95,35 @@ function openingSummary(
   const replacements = wildcardTotal(duplicateWildcards);
   return `${cards.length} ${cards.length === 1 ? "card" : "cards"}${replacements ? ` · ${replacements} ${replacements === 1 ? "wildcard" : "wildcards"}` : ""}`;
 }
+function expansionName(
+  code: string,
+  cards: CatalogCard[],
+  schedule: AppSettings["league"]["expansionSchedule"],
+) {
+  const normalized = code.trim().toLowerCase();
+  return (
+    schedule
+      .find((set) => set.code.trim().toLowerCase() === normalized)
+      ?.name.trim() ||
+    cards
+      .find(
+        (card) =>
+          card.setCode.trim().toLowerCase() === normalized &&
+          card.setName.trim(),
+      )
+      ?.setName.trim() ||
+    code.trim().toUpperCase()
+  );
+}
+
 export default function Boosters({
   settings,
   revision,
   onChange,
   league,
+  active = true,
 }: BoostersProps) {
+  const toast = useToast();
   const [status, setStatus] = useState<LeagueStatus | null>(league);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -103,7 +133,19 @@ export default function Boosters({
   const [shownCards, setShownCards] = useState(60);
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
   const actionRunning = useRef(false);
-  const openingPanel = useRef<HTMLElement>(null);
+  const resumedAttempt = useRef<string | null>(null);
+  const activePage = useRef(active);
+  const contentsVisit = useRef(0);
+  activePage.current = active;
+  useEffect(() => {
+    if (!active) {
+      contentsVisit.current += 1;
+      setOpening(null);
+      setSelectedCard(null);
+      setExpandedHistory(null);
+      setShownCards(60);
+    }
+  }, [active]);
   useEffect(() => {
     setStatus(league);
   }, [league]);
@@ -111,69 +153,154 @@ export default function Boosters({
     let active = true;
     leagueStatus()
       .then((next) => {
-        if (active) setStatus(next);
+        if (active) {
+          setStatus(next);
+          setNotice((current) =>
+            current?.source === "status" ? null : current,
+          );
+        }
       })
       .catch((error) => {
-        if (active) setNotice({ kind: "error", message: message(error) });
+        if (active)
+          setNotice({
+            kind: "error",
+            message: message(error),
+            source: "status",
+          });
       });
     return () => {
       active = false;
     };
   }, [revision]);
-  useEffect(() => {
-    if (opening)
-      openingPanel.current?.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? "instant"
-          : "smooth",
-        block: "start",
-      });
-  }, [opening?.id]);
-  async function performOpening(next: OpeningAttempt) {
-    if (actionRunning.current || opening) return;
-    actionRunning.current = true;
-    setBusy(true);
-    setNotice(null);
-    setAttempt(next);
-    storeAttempt(next);
-    try {
-      const result = next.setCode
-        ? await openBoosters(next.setCode, next.count, next.requestId)
-        : await openNextBoosters(next.count, next.requestId);
-      setOpening(result);
-      setShownCards(60);
-      setAttempt(null);
-      storeAttempt(null);
-      onChange();
+  const performOpening = useCallback(
+    async (
+      next: OpeningAttempt,
+      resolveOnly = false,
+      fallbackCount?: number,
+    ) => {
+      if (actionRunning.current) return;
+      const currentVisit = contentsVisit.current;
+      actionRunning.current = true;
+      setBusy(true);
+      setNotice(null);
+      setSelectedCard(null);
+      setAttempt(next);
+      storeAttempt(next);
       try {
-        setStatus(await leagueStatus());
+        let request = next;
+        let result = resolveOnly
+          ? await resolveBoosterOpening(
+              next.requestId,
+              next.count,
+              next.setCode,
+            )
+          : null;
+        if (resolveOnly && !result) {
+          setAttempt(null);
+          storeAttempt(null);
+          // Reloading an old Open all must not spend packs earned since then.
+          // Only a fresh click can start another opening after settlement.
+          if (fallbackCount === undefined) return;
+          request = { count: fallbackCount, requestId: crypto.randomUUID() };
+          setAttempt(request);
+          storeAttempt(request);
+        }
+        if (!result) {
+          const open = () =>
+            request.setCode
+              ? openBoosters(request.setCode, request.count, request.requestId)
+              : openNextBoosters(request.count, request.requestId);
+          try {
+            result = await open();
+          } catch {
+            // A lost reply can follow a successful commit. Reuse the exact request
+            // so the native receipt returns its result without spending more packs.
+            try {
+              result = await open();
+            } catch (error) {
+              try {
+                result = await resolveBoosterOpening(
+                  request.requestId,
+                  request.count,
+                  request.setCode,
+                );
+                if (!result) {
+                  setAttempt(null);
+                  storeAttempt(null);
+                }
+              } catch {
+                /* Preserve the request while its saved outcome is unknown. */
+              }
+              if (!result) throw error;
+            }
+          }
+        }
+        // A finished opening replaces the previous contents. Results from a
+        // visit the user has left remain available in history instead.
+        if (activePage.current && contentsVisit.current === currentVisit) {
+          setOpening(result);
+        }
+        setShownCards(60);
+        setAttempt(null);
+        storeAttempt(null);
+        toast(
+          result.packs === 1
+            ? "Opened one pack."
+            : `Opened ${result.packs.toLocaleString()} packs.`,
+        );
+        onChange();
+        try {
+          setStatus(await leagueStatus());
+        } catch (error) {
+          setNotice({
+            kind: "info",
+            message: `Cards saved. Progress could not refresh: ${message(error)}`,
+            source: "status",
+          });
+        }
       } catch (error) {
         setNotice({
-          kind: "info",
-          message: `Cards saved. Progress could not refresh: ${message(error)}`,
+          kind: "error",
+          message: message(error),
+          source: "opening",
         });
+        try {
+          setStatus(await leagueStatus());
+          onChange();
+        } catch {
+          /* Retain the same receipt for retry. */
+        }
+      } finally {
+        actionRunning.current = false;
+        setBusy(false);
       }
-    } catch (error) {
-      setNotice({ kind: "error", message: message(error) });
-      try {
-        setStatus(await leagueStatus());
-        onChange();
-      } catch {
-        /* Retain the same receipt for retry. */
-      }
-    } finally {
-      actionRunning.current = false;
-      setBusy(false);
+    },
+    [onChange, toast],
+  );
+  useEffect(() => {
+    if (!active) {
+      resumedAttempt.current = null;
+      return;
     }
-  }
+    if (
+      !attempt ||
+      actionRunning.current ||
+      resumedAttempt.current === attempt.requestId
+    )
+      return;
+    resumedAttempt.current = attempt.requestId;
+    void performOpening(attempt, true);
+  }, [active, attempt, performOpening]);
   const available =
     status?.openablePacks ??
     (status?.started
       ? status.availablePacks
       : (status?.joinPacks ?? settings.league.startingPacks));
-  const canOpen = !!status && available > 0 && !busy && !attempt && !opening;
+  const canOpen = !!status && !busy && (!!attempt || available > 0);
   function startOpening(count: number) {
-    if (canOpen) void performOpening({ count, requestId: crypto.randomUUID() });
+    if (!canOpen) return;
+    if (attempt) void performOpening(attempt, true, count);
+    else void performOpening({ count, requestId: crypto.randomUUID() });
   }
   return (
     <div className="booster-page">
@@ -191,22 +318,6 @@ export default function Boosters({
             <X size={15} />
           </button>
         </div>
-      )}
-      {attempt && (
-        <section
-          className="notice booster-recovery"
-          aria-label="Recover booster opening"
-        >
-          <span>Opening interrupted.</span>
-          <Button
-            size="sm"
-            onClick={() => void performOpening(attempt)}
-            disabled={busy || !!opening}
-          >
-            <RefreshCw size={14} />
-            Retry opening
-          </Button>
-        </section>
       )}
       {status && (
         <section className="panel booster-summary" aria-label="Booster packs">
@@ -234,17 +345,10 @@ export default function Boosters({
               <Layers3 size={16} /> Open all
             </Button>
           </div>
-          <div className="booster-summary-wildcards" aria-label="Wildcards">
-            {rarities.map((rarity) => (
-              <span
-                key={rarity}
-                title={`${status.wildcards[rarity]} ${rarity} wildcards`}
-              >
-                <i className={`rarity-dot rarity-${rarity}`} />
-                <strong>{status.wildcards[rarity]}</strong> {rarity}
-              </span>
-            ))}
-          </div>
+          <WildcardCounters
+            balances={status.wildcards}
+            className="booster-summary-wildcards"
+          />
         </section>
       )}
       {status && (
@@ -252,27 +356,27 @@ export default function Boosters({
           {opening && (
             <section
               className="panel booster-opening"
-              ref={openingPanel}
-              aria-label="Booster opening results"
+              aria-label="Pack contents"
             >
               <div className="panel-header">
-                <div>
-                  <h2 className="section-title">
-                    {opening.packs === 1
-                      ? "Pack contents"
-                      : `${opening.packs} opened packs`}
-                  </h2>
-                  <p className="field-hint">
-                    {openingSummary(opening.cards, opening.duplicateWildcards)}
-                  </p>
+                <div className="booster-opening-heading">
+                  <span className="booster-contents-icon" aria-hidden="true">
+                    <Sparkles size={22} />
+                  </span>
+                  <div>
+                    <h2 className="section-title">Pack contents</h2>
+                    <p className="field-hint">
+                      {opening.packs === 1
+                        ? "One pack"
+                        : `${opening.packs.toLocaleString()} packs`}
+                      {" · "}
+                      {openingSummary(
+                        opening.cards,
+                        opening.duplicateWildcards,
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setOpening(null)}
-                >
-                  <X size={14} /> Done
-                </Button>
               </div>
               <RewardWildcards
                 values={opening.duplicateWildcards}
@@ -284,6 +388,11 @@ export default function Boosters({
                     <RevealedCard
                       key={`${card.id}-${index}`}
                       card={card}
+                      expansion={expansionName(
+                        card.setCode,
+                        [card],
+                        settings.league.expansionSchedule,
+                      )}
                       imageCacheDir={settings.forge.imageCacheDir}
                       onSelect={() => setSelectedCard(card)}
                     />
@@ -315,6 +424,11 @@ export default function Boosters({
                   <HistoryRow
                     key={item.id}
                     item={item}
+                    expansion={expansionName(
+                      item.setCode,
+                      item.cards,
+                      settings.league.expansionSchedule,
+                    )}
                     expanded={expandedHistory === item.id}
                     onToggle={() =>
                       setExpandedHistory((current) =>
@@ -366,10 +480,12 @@ function RewardWildcards({
 
 function RevealedCard({
   card,
+  expansion,
   imageCacheDir,
   onSelect,
 }: {
   card: CatalogCard;
+  expansion: string;
   imageCacheDir: string;
   onSelect: () => void;
 }) {
@@ -387,8 +503,8 @@ function RevealedCard({
       <button type="button" className="booster-card-name" onClick={onSelect}>
         {card.name}
       </button>
-      <span>
-        {card.setCode.toUpperCase()} #{card.collectorNumber} · {card.rarity}
+      <span title={`${expansion} #${card.collectorNumber} - ${card.rarity}`}>
+        {expansion} #{card.collectorNumber} · {card.rarity}
       </span>
     </article>
   );
@@ -396,12 +512,14 @@ function RevealedCard({
 
 function HistoryRow({
   item,
+  expansion,
   expanded,
   onToggle,
   imageCacheDir,
   onSelectCard,
 }: {
   item: BoosterHistory;
+  expansion: string;
   expanded: boolean;
   onToggle: () => void;
   imageCacheDir: string;
@@ -418,7 +536,7 @@ function HistoryRow({
       >
         <Package size={18} />
         <span>
-          <strong>{item.setCode.toUpperCase()}</strong>
+          <strong title={expansion}>{expansion}</strong>
           <small>{formatDate(item.openedAt)}</small>
         </span>
         <span>{openingSummary(item.cards, item.duplicateWildcards)}</span>
@@ -436,6 +554,12 @@ function HistoryRow({
                 <RevealedCard
                   key={`${card.id}-${index}`}
                   card={card}
+                  expansion={
+                    card.setCode.trim().toLowerCase() ===
+                    item.setCode.trim().toLowerCase()
+                      ? expansion
+                      : card.setName.trim() || card.setCode.toUpperCase()
+                  }
                   imageCacheDir={imageCacheDir}
                   onSelect={() => onSelectCard(card)}
                 />

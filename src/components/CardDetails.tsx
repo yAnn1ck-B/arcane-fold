@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import CardImage from "@/components/CardImage";
 import PrintingPicker from "@/components/PrintingPicker";
+import { useToast } from "@/components/ToastProvider";
 import "@/styles/card-browser.css";
 import { Button } from "@/components/ui/button";
 import { getCard, getCardPrintings } from "@/services/cards";
@@ -54,7 +55,7 @@ export default function CardDetails({
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const toast = useToast();
   const running = useRef(false);
   const craftRequests = useRef(new Map<string, string>());
 
@@ -77,7 +78,6 @@ export default function CardDetails({
     setLoading(true);
     setLoadError(false);
     setError(null);
-    setNotice(null);
     getCard(requested.id)
       .then((fresh) => {
         if (active) {
@@ -133,17 +133,20 @@ export default function CardDetails({
     running.current = true;
     setBusy(true);
     setError(null);
-    setNotice(null);
     try {
       const requestId =
         craftRequests.current.get(current.id) ?? crypto.randomUUID();
       craftRequests.current.set(current.id, requestId);
-      await craftCard(current.id, requestId);
+      const result = await craftCard(current.id, requestId);
       craftRequests.current.delete(current.id);
+      setCurrent(result.card);
       onChange();
-      const fresh = await getCard(current.id);
-      setCurrent(fresh);
-      setNotice(`Crafted one ${fresh.name}.`);
+      toast(`Crafted one ${result.card.name}.`);
+      try {
+        setCurrent(await getCard(current.id));
+      } catch (reason) {
+        setError(`The card was crafted, but its details could not refresh: ${String(reason)}`);
+      }
     } catch (reason) {
       setError(String(reason));
       try {
@@ -238,11 +241,6 @@ export default function CardDetails({
             <div className="notice notice-error" role="alert">
               {error}
             </div>
-          )}
-          {notice && (
-            <p className="collection-notice" role="status">
-              {notice}
-            </p>
           )}
           {unlimited ? (
             <div className="craft-panel">

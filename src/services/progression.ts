@@ -32,3 +32,7 @@ export function craftCard(cardId: string, requestId: string) {
 export function openNextBoosters(count: number, requestId: string) {
   return invoke<BoosterOpening>("open_next_boosters", { count, requestId });
 }
+
+export function resolveBoosterOpening(requestId: string, count: number, setCode?: string) {
+  return invoke<BoosterOpening | null>("resolve_booster_opening", { requestId, count, setCode });
+}

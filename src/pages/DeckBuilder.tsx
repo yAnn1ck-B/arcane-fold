@@ -1,7 +1,15 @@
 import "@/styles/deck-browser.css";
 import { formatMana } from "@/lib/mana";
+import { appLifecycle } from "@/lib/app-lifecycle";
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,9 +21,8 @@ import {
   Minus,
   PanelRightClose,
   PanelRightOpen,
+  Pencil,
   Plus,
-  Save,
-  Swords,
   Trash2,
   X,
 } from "lucide-react";
@@ -24,8 +31,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import CardImage from "@/components/CardImage";
 import CardDetails from "@/components/CardDetails";
+import { useToast } from "@/components/ToastProvider";
 import CardFilters, { getCardFilterScope } from "@/components/CardFilters";
 import { isUnlimitedBasic } from "@/lib/cards";
+import {
+  CollectionAddBases,
+  DeckAutosave,
+  type DeckSaveAcknowledgement,
+  type DeckSaveState,
+} from "@/lib/deck-autosave";
 import {
   catalogStatus,
   defaultCardQuery,
@@ -36,7 +50,6 @@ import {
 } from "@/services/cards";
 import {
   deleteDeck,
-  duplicateDeck,
   listDecks,
   loadDeck,
   saveDeckToForge,
@@ -63,19 +76,25 @@ interface DeckBuilderProps {
   league: LeagueStatus;
   addRequest?: DeckAddRequest | null;
   onAddRequestHandled?: (requestId: string) => void;
-  onAddComplete?: (message: string) => void;
 }
 type Section = "main" | "sideboard";
-type Notice = { kind: "success" | "error" | "info"; message: string };
-type PendingAction =
-  { kind: "new" } | { kind: "load" | "duplicate"; id: string };
+type Notice = { kind: "error" | "info"; message: string };
+type DeckAction = { kind: "load"; id: string };
+type NewDeckPrompt = {
+  mode: "new" | "current" | "copy";
+  name: string;
+  error: string | null;
+  requestId: string;
+  sourceId?: string;
+};
+type CollectionTarget = { id: string | null; name: string; cards: DeckEntry[] };
 type CardGroup = { card: CatalogCard; entries: DeckEntry[]; quantity: number };
-type CardsPerRow = "auto" | "2" | "3" | "4" | "5" | "6";
+type CardsPerRow = "auto" | "2" | "3" | "4" | "5" | "6" | "7";
 const densityStorageKey = "eternal-league.deck-cards-per-row";
 function savedCardsPerRow(): CardsPerRow {
   try {
     const value = localStorage.getItem(densityStorageKey);
-    if (value && ["auto", "2", "3", "4", "5", "6"].includes(value))
+    if (value && ["auto", "2", "3", "4", "5", "6", "7"].includes(value))
       return value as CardsPerRow;
   } catch {
     /* Storage can be unavailable in a restricted webview. */
@@ -123,13 +142,19 @@ function draftFrom(
     })),
   };
 }
-function signature(draft: DeckDraft) {
-  return JSON.stringify({
-    ...draft,
-    cards: [...draft.cards].sort((a, b) =>
-      `${a.section}${a.cardId}`.localeCompare(`${b.section}${b.cardId}`),
-    ),
-  });
+function deckSummary(deck: DeckDetail): DeckSummary {
+  return {
+    id: deck.id,
+    name: deck.name,
+    createdAt: deck.createdAt,
+    updatedAt: deck.updatedAt,
+    mainCount: deck.cards
+      .filter((card) => card.section === "main")
+      .reduce((sum, card) => sum + card.quantity, 0),
+    sideboardCount: deck.cards
+      .filter((card) => card.section === "sideboard")
+      .reduce((sum, card) => sum + card.quantity, 0),
+  };
 }
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -253,10 +278,12 @@ function DeckDialog({
   title,
   onClose,
   children,
+  className = "",
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -267,7 +294,7 @@ function DeckDialog({
   return createPortal(
     <dialog
       ref={dialog}
-      className="deck-dialog"
+      className={`deck-dialog ${className}`}
       aria-label={title}
       onCancel={(event) => {
         event.preventDefault();
@@ -301,32 +328,59 @@ export default function DeckBuilder({
   league,
   addRequest,
   onAddRequestHandled,
-  onAddComplete,
 }: DeckBuilderProps) {
+  const toast = useToast();
+  const exitState = useSyncExternalStore(
+    appLifecycle.subscribe,
+    appLifecycle.getSnapshot,
+  );
   const [decks, setDecks] = useState<DeckSummary[]>([]);
   const [loadingDecks, setLoadingDecks] = useState(true);
   const [id, setId] = useState<string | null>(null);
-  const [name, setName] = useState("Untitled deck");
-  const [entries, setEntries] = useState<DeckEntry[]>([]);
-  const latestEntries = useRef<DeckEntry[]>([]);
-  const [baseline, setBaseline] = useState(() =>
-    signature(draftFrom(null, "Untitled deck", [])),
-  );
-  const [section, setSection] = useState<Section>("main");
-  const [busy, setBusy] = useState<string | null>(null);
-  const taskRunning = useRef(false);
-  const [notice, setNotice] = useState<Notice | null>(null);
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(
+  const [name, setName] = useState("");
+  const latestName = useRef("");
+  const [newDeckPrompt, setNewDeckPrompt] = useState<NewDeckPrompt | null>(
     null,
   );
+  const [renameValue, setRenameValue] = useState<string | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [entries, setEntries] = useState<DeckEntry[]>([]);
+  const latestEntries = useRef<DeckEntry[]>([]);
+  const [saveState, setSaveState] = useState<DeckSaveState>({
+    phase: "idle",
+    pending: false,
+    error: null,
+  });
+  const saveEvents = useRef<(ack: DeckSaveAcknowledgement) => void>(() => {});
+  const deckListRequest = useRef(0);
+  const [autosave] = useState(
+    () =>
+      new DeckAutosave(
+        async (snapshot, requestId) =>
+          (await saveDeckToForge(snapshot, requestId)).deck,
+        setSaveState,
+        (ack) => saveEvents.current(ack),
+      ),
+  );
+  const [section, setSection] = useState<Section>("main");
+  const [taskBusy, setBusy] = useState<string | null>(null);
+  const busy = taskBusy ?? (exitState.busy ? "exit" : null);
+  const taskRunning = useRef(false);
+  const activeTask = useRef<Promise<void> | null>(null);
+  const activeTaskName = useRef<string | null>(null);
+  const taskFailure = useRef<{ task: string; message: string } | null>(null);
+  const prepareForExit = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => appLifecycle.register(() => prepareForExit.current()), []);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeckSummary | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [validation, setValidation] = useState<DeckValidation | null>(null);
   const [checking, setChecking] = useState(false);
   const validationRequest = useRef(0);
   const [selectedCard, setSelectedCard] = useState<CatalogCard | null>(null);
   const [browserOpen, setBrowserOpen] = useState(true);
   const [cardsPerRow, setCardsPerRow] = useState<CardsPerRow>(savedCardsPerRow);
-  const [availableColumns, setAvailableColumns] = useState(2);
+  const [editorWidth, setEditorWidth] = useState(0);
   const editor = useRef<HTMLElement>(null);
   const [query, setQuery] = useState<CardQuery>(() => ({
     ...defaultCardQuery,
@@ -351,11 +405,52 @@ export default function DeckBuilder({
   const [targetLoading, setTargetLoading] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
   const [targetPrintingLoading, setTargetPrintingLoading] = useState(false);
+  const [collectionBases] = useState(
+    () => new CollectionAddBases<CollectionTarget | null>(),
+  );
   const draft = useMemo(
     () => draftFrom(id, name, entries),
     [id, name, entries],
   );
-  const dirty = signature(draft) !== baseline;
+  const dirty = saveState.pending;
+  saveEvents.current = ({ deck }) => {
+    if (
+      taskFailure.current &&
+      ["rename", "retry"].includes(taskFailure.current.task)
+    )
+      taskFailure.current = null;
+    // Acknowledgements update identity/list metadata, never the current card edits.
+    setId(deck.id);
+    setAddFlow((current) =>
+      current?.targetId === "draft"
+        ? { ...current, targetId: deck.id }
+        : current,
+    );
+    deckListRequest.current++;
+    setDecks((current) => [
+      deckSummary(deck),
+      ...current.filter((item) => item.id !== deck.id),
+    ]);
+    onChange();
+  };
+  prepareForExit.current = async () => {
+    // The global lock prevents another confirmed action from starting while we wait.
+    await activeTask.current;
+    if (taskFailure.current) throw new Error(taskFailure.current.message);
+    const current = autosave.getDraft();
+    if (!current.name.trim() && current.cards.length) {
+      promptForNewDeck("current", true);
+      throw new Error(
+        "Name the pending deck or cancel its proposed edits before leaving.",
+      );
+    }
+    try {
+      await autosave.flush();
+    } catch (error) {
+      setNotice({ kind: "error", message: errorMessage(error) });
+      throw error;
+    }
+  };
   const mainCount = entries
     .filter((entry) => entry.section === "main")
     .reduce((sum, entry) => sum + entry.quantity, 0);
@@ -396,13 +491,14 @@ export default function DeckBuilder({
         a.card.cmc - b.card.cmc || a.card.name.localeCompare(b.card.name),
     );
   }, [entries, section]);
-  const columns = Math.max(
-    1,
-    Math.min(
-      availableColumns,
-      cardsPerRow === "auto" ? 4 : Number(cardsPerRow),
-    ),
-  );
+  const columns =
+    cardsPerRow === "auto"
+      ? // Favor another card at borderline widths, including scaled laptop displays.
+        Math.max(
+          1,
+          Math.min(Math.ceil((editorWidth - 20) / 182), browserOpen ? 5 : 7),
+        )
+      : Number(cardsPerRow);
   const availablePickerCards = pickerCards.filter(
     (card) =>
       isUnlimitedBasic(card) ||
@@ -410,12 +506,19 @@ export default function DeckBuilder({
   );
   function updateEntries(
     update: DeckEntry[] | ((current: DeckEntry[]) => DeckEntry[]),
+    persist = true,
   ) {
     const next =
       typeof update === "function" ? update(latestEntries.current) : update;
     const normalized = normalizePrintings(next);
     latestEntries.current = normalized;
     setEntries(normalized);
+    if (persist) {
+      const changed = autosave.edit(
+        draftFrom(autosave.getDraft().id, latestName.current, normalized),
+      );
+      if (changed && !latestName.current.trim()) promptForNewDeck("current");
+    }
   }
 
   useEffect(() => {
@@ -428,13 +531,7 @@ export default function DeckBuilder({
   useEffect(() => {
     if (!editor.current) return;
     const observer = new ResizeObserver(([entry]) => {
-      if (entry.contentRect.width > 0)
-        setAvailableColumns(
-          Math.max(
-            1,
-            Math.min(6, Math.floor((entry.contentRect.width - 20) / 144)),
-          ),
-        );
+      if (entry.contentRect.width > 0) setEditorWidth(entry.contentRect.width);
     });
     observer.observe(editor.current);
     return () => observer.disconnect();
@@ -446,20 +543,22 @@ export default function DeckBuilder({
       .then((cards) => {
         if (!active) return;
         const ownership = new Map(cards.map((card) => [card.id, card]));
-        updateEntries((current) =>
-          current.map((entry) => {
-            const fresh = ownership.get(entry.card.id);
-            return fresh
-              ? {
-                  ...entry,
-                  card: {
-                    ...entry.card,
-                    owned: fresh.owned,
-                    oracleOwned: ownedCount(fresh),
-                  },
-                }
-              : entry;
-          }),
+        updateEntries(
+          (current) =>
+            current.map((entry) => {
+              const fresh = ownership.get(entry.card.id);
+              return fresh
+                ? {
+                    ...entry,
+                    card: {
+                      ...entry.card,
+                      owned: fresh.owned,
+                      oracleOwned: ownedCount(fresh),
+                    },
+                  }
+                : entry;
+            }),
+          false,
         );
       })
       .catch((error: unknown) => {
@@ -475,10 +574,11 @@ export default function DeckBuilder({
   }, [revision, ownershipKey]);
   useEffect(() => {
     let active = true;
+    const request = ++deckListRequest.current;
     setLoadingDecks(true);
     listDecks()
       .then((result) => {
-        if (active) setDecks(result);
+        if (active && request === deckListRequest.current) setDecks(result);
       })
       .catch((error: unknown) => {
         if (active) setNotice({ kind: "error", message: errorMessage(error) });
@@ -560,8 +660,12 @@ export default function DeckBuilder({
   }, [effectiveQuery, revision]);
   useEffect(() => {
     const request = ++validationRequest.current;
-    setChecking(true);
     setValidation(null);
+    if (!draft.name.trim()) {
+      setChecking(false);
+      return;
+    }
+    setChecking(true);
     const timer = window.setTimeout(() => {
       validateDeck(draft, settings.forge.installDir || settings.forge.dataDir)
         .then((result) => {
@@ -585,10 +689,16 @@ export default function DeckBuilder({
   }, [draft, settings.forge.installDir, settings.forge.dataDir, revision]);
   useEffect(() => {
     if (!addRequest) return;
+    collectionBases.clear();
+    const current = autosave.getDraft();
     setAddFlow({
       request: addRequest,
-      targetId: id ?? (dirty ? "draft" : (decks[0]?.id ?? "new")),
-      name: "Untitled deck",
+      targetId:
+        current.id ??
+        (current.name.trim() || current.cards.length
+          ? "draft"
+          : (decks[0]?.id ?? "new")),
+      name: "",
       section: "main",
       card: addRequest.card,
       defaultCard: addRequest.card,
@@ -607,13 +717,25 @@ export default function DeckBuilder({
           throw new Error(
             "No printing is unlocked for this card. Collect it from a league-unlocked expansion first.",
           );
-        setDecks(availableDecks);
+        const current = autosave.getDraft();
+        setDecks((previous) => {
+          const selected = previous.find((deck) => deck.id === current.id);
+          return selected
+            ? [
+                selected,
+                ...availableDecks.filter((deck) => deck.id !== selected.id),
+              ]
+            : availableDecks;
+        });
         setAddFlow((flow) =>
           flow?.request.requestId === addRequest.requestId
             ? {
                 ...flow,
                 targetId:
-                  id ?? (dirty ? "draft" : (availableDecks[0]?.id ?? "new")),
+                  current.id ??
+                  (current.name.trim() || current.cards.length
+                    ? "draft"
+                    : (availableDecks[0]?.id ?? "new")),
                 card: chosen,
                 defaultCard: chosen,
               }
@@ -708,12 +830,17 @@ export default function DeckBuilder({
 
   function installDeck(deck: DeckDetail, selectColors = true) {
     setDeleteTarget(null);
+    autosave.reset(draftFrom(deck.id, deck.name, deck.cards));
     setId(deck.id);
+    latestName.current = deck.name;
     setName(deck.name);
-    updateEntries(deck.cards);
+    updateEntries(deck.cards, false);
     setSelectedCard(null);
     setPreferred({});
-    setBaseline(signature(draftFrom(deck.id, deck.name, deck.cards)));
+    setDecks((current) => [
+      deckSummary(deck),
+      ...current.filter((item) => item.id !== deck.id),
+    ]);
     setNotice(null);
     if (selectColors) {
       setSection("main");
@@ -730,56 +857,143 @@ export default function DeckBuilder({
   }
   function resetDeck() {
     setDeleteTarget(null);
+    autosave.reset(draftFrom(null, "", []));
     setId(null);
-    setName("Untitled deck");
-    updateEntries([]);
+    latestName.current = "";
+    setName("");
+    updateEntries([], false);
     setSelectedCard(null);
     setPreferred({});
-    setBaseline(signature(draftFrom(null, "Untitled deck", [])));
     setNotice(null);
     setSection("main");
     setQuery((current) => ({ ...current, colors: [], color: "", page: 0 }));
   }
+  function rememberTaskError(error: unknown) {
+    const message = errorMessage(error);
+    taskFailure.current = { task: activeTaskName.current ?? "deck", message };
+    return message;
+  }
+  function clearTaskFailure(...tasks: string[]) {
+    if (taskFailure.current && tasks.includes(taskFailure.current.task))
+      taskFailure.current = null;
+  }
   async function runTask(task: string, action: () => Promise<void>) {
-    if (taskRunning.current) return;
+    if (taskRunning.current || appLifecycle.isLocked()) return;
     taskRunning.current = true;
+    activeTaskName.current = task;
+    taskFailure.current = null;
     setBusy(task);
     setNotice(null);
-    try {
-      await action();
-    } catch (error) {
-      setNotice({ kind: "error", message: errorMessage(error) });
-    } finally {
-      taskRunning.current = false;
-      setBusy(null);
-    }
-  }
-  async function performAction(action: PendingAction) {
-    setPendingAction(null);
-    if (action.kind === "new") {
-      resetDeck();
-      return;
-    }
-    await runTask(action.kind, async () => {
-      const deck =
-        action.kind === "load"
-          ? await loadDeck(action.id)
-          : await duplicateDeck(action.id);
-      installDeck(deck);
-      if (action.kind === "duplicate") {
-        setDecks(await listDecks());
-        onChange();
-        setNotice({
-          kind: "success",
-          message: "Deck copied and saved to Forge.",
-        });
+    const work = (async () => {
+      try {
+        await action();
+      } catch (error) {
+        setNotice({ kind: "error", message: rememberTaskError(error) });
+      } finally {
+        taskRunning.current = false;
+        activeTaskName.current = null;
+        setBusy(null);
       }
+    })();
+    activeTask.current = work;
+    await work;
+    if (activeTask.current === work) activeTask.current = null;
+  }
+
+  async function performAction(action: DeckAction) {
+    await runTask(action.kind, async () => {
+      await autosave.flush();
+      const deck = await loadDeck(action.id);
+      installDeck(deck);
     });
   }
-  function requestAction(action: PendingAction) {
-    if (busy || (action.kind === "load" && action.id === id)) return;
-    if (dirty) setPendingAction(action);
-    else void performAction(action);
+  function requestAction(action: DeckAction) {
+    if (
+      taskRunning.current ||
+      appLifecycle.isLocked() ||
+      (action.kind === "load" && action.id === autosave.getDraft().id)
+    )
+      return;
+    void performAction(action);
+  }
+  function promptForNewDeck(mode: "new" | "current", duringExit = false) {
+    if (appLifecycle.isLocked() && !duringExit) return;
+    setNewDeckPrompt(
+      (current) =>
+        current ?? {
+          mode,
+          name: "",
+          error: null,
+          requestId: crypto.randomUUID(),
+        },
+    );
+  }
+  function promptForCopy() {
+    const sourceId = autosave.getDraft().id;
+    if (!sourceId || taskRunning.current || appLifecycle.isLocked()) return;
+    const suffix = " (copy)";
+    setNewDeckPrompt({
+      mode: "copy",
+      name: `${latestName.current.slice(0, 100 - suffix.length).trimEnd()}${suffix}`,
+      error: null,
+      requestId: crypto.randomUUID(),
+      sourceId,
+    });
+  }
+  function closeNewDeck() {
+    if (taskRunning.current || appLifecycle.isLocked()) return;
+    // Canceling the first creation also cancels its proposed, still-unnamed edits.
+    if (
+      newDeckPrompt?.mode === "current" &&
+      !autosave.getDraft().id &&
+      !latestName.current.trim()
+    )
+      resetDeck();
+    clearTaskFailure("new", "copy");
+    setNewDeckPrompt(null);
+  }
+  async function createNamedDeck() {
+    if (!newDeckPrompt || taskRunning.current || appLifecycle.isLocked())
+      return;
+    const prompt = newDeckPrompt;
+    const nextName = prompt.name.trim();
+    if (!nextName || nextName.length > 100) return;
+    await runTask(prompt.mode === "copy" ? "copy" : "new", async () => {
+      try {
+        if (prompt.mode === "current") {
+          latestName.current = nextName;
+          setName(nextName);
+          autosave.edit(
+            draftFrom(autosave.getDraft().id, nextName, latestEntries.current),
+            true,
+          );
+          await autosave.flush();
+        } else {
+          await autosave.flush();
+          const cards =
+            prompt.mode === "copy" && prompt.sourceId
+              ? (await loadDeck(prompt.sourceId)).cards
+              : [];
+          const result = await saveDeckToForge(
+            draftFrom(null, nextName, cards),
+            prompt.requestId,
+          );
+          installDeck(result.deck);
+          onChange();
+        }
+        setNewDeckPrompt(null);
+        toast(
+          prompt.mode === "copy"
+            ? "Deck copied and saved to Forge."
+            : "Deck created and saved to Forge.",
+        );
+      } catch (error) {
+        const message = rememberTaskError(error);
+        setNewDeckPrompt((current) =>
+          current ? { ...current, error: message } : current,
+        );
+      }
+    });
   }
   function blockedReason(
     card: CatalogCard,
@@ -808,7 +1022,12 @@ export default function DeckBuilder({
     return null;
   }
   function changeCard(card: CatalogCard, target: Section, delta: number) {
-    if (!Number.isSafeInteger(delta)) return false;
+    if (
+      taskRunning.current ||
+      appLifecycle.isLocked() ||
+      !Number.isSafeInteger(delta)
+    )
+      return false;
     const reason =
       delta > 0
         ? blockedReason(card, target, latestEntries.current, delta)
@@ -829,50 +1048,122 @@ export default function DeckBuilder({
       !isUnlimitedBasic(entry.card) &&
       oracleCopies(entry.card, entries) > ownedCount(entry.card),
   );
-  async function handleSave() {
-    await runTask("save", async () => {
-      const result = await saveDeckToForge(
-        draftFrom(id, name, latestEntries.current),
-      );
-      installDeck(result.deck, false);
-      setDecks(await listDecks());
-      onChange();
-      setNotice({ kind: "success", message: "Deck saved to Forge." });
+  function closeRename() {
+    if (taskRunning.current || appLifecycle.isLocked()) return;
+    clearTaskFailure("rename");
+    setRenameValue(null);
+    setRenameError(null);
+  }
+  async function handleRename() {
+    if (renameValue === null || taskRunning.current || appLifecycle.isLocked())
+      return;
+    const nextName = renameValue.trim();
+    if (!nextName || nextName.length > 100) {
+      setRenameError("Enter a deck name from 1 to 100 characters.");
+      return;
+    }
+    if (nextName === name && !saveState.pending) {
+      closeRename();
+      return;
+    }
+    await runTask("rename", async () => {
+      try {
+        latestName.current = nextName;
+        setName(nextName);
+        autosave.edit(
+          draftFrom(autosave.getDraft().id, nextName, latestEntries.current),
+        );
+        await autosave.flush();
+        setRenameValue(null);
+        setRenameError(null);
+        toast("Deck renamed and saved to Forge.");
+      } catch (error) {
+        setRenameError(rememberTaskError(error));
+      }
     });
   }
   async function handleDelete() {
     if (!deleteTarget) return;
     const target = deleteTarget;
     await runTask("delete", async () => {
-      await deleteDeck(target.id);
-      if (id === target.id) resetDeck();
-      setDeleteTarget(null);
-      setDecks(await listDecks());
-      onChange();
-      setNotice({
-        kind: "success",
-        message: `Deleted “${target.name}” and its Forge file.`,
-      });
+      setDeleteError(null);
+      await autosave.suspend();
+      try {
+        await deleteDeck(target.id);
+        resetDeck();
+        deckListRequest.current++;
+        setDecks((current) => current.filter((deck) => deck.id !== target.id));
+        onChange();
+        toast(`Deleted "${target.name}" and its Forge file.`);
+      } catch (error) {
+        autosave.resume();
+        setDeleteError(rememberTaskError(error));
+      }
     });
   }
+  function closeDelete() {
+    if (taskRunning.current || appLifecycle.isLocked()) return;
+    clearTaskFailure("delete");
+    setDeleteTarget(null);
+    setDeleteError(null);
+  }
   function closeAddFlow() {
-    if (taskRunning.current) return;
+    if (taskRunning.current || appLifecycle.isLocked()) return;
     if (addFlow) onAddRequestHandled?.(addFlow.request.requestId);
+    clearTaskFailure("collection-add", "collection-target");
     setAddFlow(null);
     setTargetError(null);
+    collectionBases.clear();
+  }
+  async function changeAddTarget(targetId: string) {
+    if (taskRunning.current || appLifecycle.isLocked()) return;
+    await runTask("collection-target", async () => {
+      try {
+        await autosave.flush();
+        setTargetError(null);
+        setAddFlow((flow) => (flow ? { ...flow, targetId } : flow));
+      } catch (error) {
+        setTargetError(rememberTaskError(error));
+      }
+    });
   }
   async function confirmCollectionAdd() {
     if (!addFlow) return;
     const flow = addFlow;
+    if (
+      flow.targetId === "new" &&
+      (!flow.name.trim() || flow.name.trim().length > 100)
+    ) {
+      setTargetError("Enter a deck name from 1 to 100 characters.");
+      return;
+    }
     await runTask("collection-add", async () => {
       setTargetError(null);
       try {
-        const target =
-          flow.targetId === "new"
-            ? null
-            : flow.targetId === id || flow.targetId === "draft"
-              ? { id, name, cards: latestEntries.current }
-              : await loadDeck(flow.targetId);
+        await autosave.flush();
+        const current = autosave.getDraft();
+        const isCurrent =
+          flow.targetId === "draft" || flow.targetId === current.id;
+        const targetId =
+          flow.targetId === "draft" ? (current.id ?? "draft") : flow.targetId;
+        let target = collectionBases.get(flow.request.requestId, targetId);
+        if (target === undefined) {
+          const loaded =
+            flow.targetId === "new"
+              ? null
+              : isCurrent
+                ? {
+                    id: current.id,
+                    name: current.name,
+                    cards: latestEntries.current,
+                  }
+                : await loadDeck(flow.targetId);
+          target = collectionBases.capture(
+            flow.request.requestId,
+            targetId,
+            loaded,
+          );
+        }
         const cards = target?.cards ?? [];
         const existing = cards.find(
           (entry) => entry.card.oracleId === flow.card.oracleId,
@@ -888,30 +1179,26 @@ export default function DeckBuilder({
           );
         const reason = blockedReason(card, flow.section, cards, flow.quantity);
         if (reason) throw new Error(reason);
-        const result = await saveDeckToForge(
-          draftFrom(
-            target?.id ?? null,
-            target?.name ?? flow.name,
-            withCard(
-              normalizePrintings(cards, card),
-              card,
-              flow.section,
-              flow.quantity,
-            ),
+        // Derive edited retries from the original contents, never an ambiguous commit.
+        const next = draftFrom(
+          target?.id ?? null,
+          flow.targetId === "new" ? flow.name.trim() : target!.name,
+          withCard(
+            normalizePrintings(cards, card),
+            card,
+            flow.section,
+            flow.quantity,
           ),
         );
-        if (flow.targetId === id || flow.targetId === "draft")
-          installDeck(result.deck, false);
+        const result = await saveDeckToForge(
+          next,
+          next.id ? undefined : flow.request.requestId,
+        );
+        if (isCurrent) installDeck(result.deck, false);
+        collectionBases.clear();
         setAddFlow(null);
         onAddRequestHandled?.(flow.request.requestId);
         onChange();
-        onAddComplete?.(
-          `Added ${flow.quantity} ${flow.card.name} to "${result.deck.name}".`,
-        );
-        setNotice({
-          kind: "success",
-          message: `Added ${flow.quantity} ${flow.card.name} to “${result.deck.name}” and saved to Forge.`,
-        });
         try {
           setDecks(await listDecks());
         } catch (error) {
@@ -921,7 +1208,7 @@ export default function DeckBuilder({
           });
         }
       } catch (error) {
-        setTargetError(errorMessage(error));
+        setTargetError(rememberTaskError(error));
       }
     });
   }
@@ -937,12 +1224,22 @@ export default function DeckBuilder({
       .reduce((sum, entry) => sum + entry.quantity, 0),
   );
   const curveMax = Math.max(1, ...curve);
+  const addTargetId =
+    addFlow?.targetId === "draft"
+      ? (autosave.getDraft().id ?? "draft")
+      : addFlow?.targetId;
+  const capturedTarget =
+    addFlow && addTargetId
+      ? collectionBases.get(addFlow.request.requestId, addTargetId)
+      : undefined;
   const targetCards =
-    addFlow?.targetId === id || addFlow?.targetId === "draft"
-      ? entries
-      : addFlow?.targetId === "new"
-        ? []
-        : (targetDeck?.cards ?? []);
+    capturedTarget !== undefined
+      ? (capturedTarget?.cards ?? [])
+      : addFlow?.targetId === id || addFlow?.targetId === "draft"
+        ? entries
+        : addFlow?.targetId === "new"
+          ? []
+          : (targetDeck?.cards ?? []);
   const targetReason =
     addFlow && !targetLoading && !targetPrintingLoading
       ? blockedReason(
@@ -961,65 +1258,34 @@ export default function DeckBuilder({
           className={`notice notice-${notice.kind}`}
           role={notice.kind === "error" ? "alert" : "status"}
         >
-          {notice.kind === "error" ? (
-            <AlertTriangle size={17} />
-          ) : (
-            <CheckCircle2 size={17} />
-          )}
+          <AlertTriangle size={17} />
           <span>{notice.message}</span>
           <button
             className="deck-dismiss"
             type="button"
-            onClick={() => setNotice(null)}
+            onClick={() => {
+              taskFailure.current = null;
+              setNotice(null);
+            }}
             aria-label="Dismiss deck message"
           >
             <X size={15} />
           </button>
         </div>
       )}
-      {pendingAction && (
-        <div className="notice notice-info deck-confirm" role="alert">
-          <div>
-            <strong>Keep your current changes?</strong>
-            <p>Save this deck first, or discard the edits to continue.</p>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setPendingAction(null)}
-          >
-            Keep editing
-          </Button>
+      {saveState.error && (
+        <div className="notice notice-error deck-autosave-error" role="alert">
+          <AlertTriangle size={17} />
+          <span>Changes have not been saved: {saveState.error}</span>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void performAction(pendingAction)}
-          >
-            Discard changes
-          </Button>
-        </div>
-      )}
-      {deleteTarget && (
-        <div className="notice notice-error deck-confirm" role="alert">
-          <div>
-            <strong>Delete “{deleteTarget.name}”?</strong>
-            <p>The saved deck and its managed Forge file will be removed.</p>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setDeleteTarget(null)}
             disabled={!!busy}
+            onClick={() => {
+              void runTask("retry", () => autosave.flush());
+            }}
           >
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => void handleDelete()}
-            disabled={!!busy}
-          >
-            Delete deck
+            Retry saving
           </Button>
         </div>
       )}
@@ -1027,81 +1293,88 @@ export default function DeckBuilder({
         <div className="notice notice-error" role="alert">
           <AlertTriangle size={17} />
           <span>
-            This deck uses more copies than you own. Reduce their quantities
-            before saving.
+            This deck uses more copies than you own. Reduce their quantities so
+            automatic saving can continue.
           </span>
         </div>
       )}
       <div
         className={`deck-workbench ${browserOpen ? "with-browser" : "browser-collapsed"}`}
       >
-        <aside className="panel deck-library">
-          <div className="panel-header">
-            <h2 className="section-title">Decks</h2>
-            <span className="badge badge-muted">{decks.length}</span>
-          </div>
-          <div className="deck-library-actions">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => requestAction({ kind: "new" })}
-              disabled={!!busy}
-            >
-              <Plus size={15} /> New deck
-            </Button>
-          </div>
-          <div className="deck-list">
-            {loadingDecks ? (
-              <p className="field-hint deck-list-empty">
-                <Loader2 size={15} className="animate-spin" /> Loading decks...
-              </p>
-            ) : !decks.length ? (
-              <div className="deck-list-empty">
-                <Swords size={25} strokeWidth={1.3} />
-                <p>No saved decks yet.</p>
-              </div>
-            ) : (
-              decks.map((deck) => (
-                <button
-                  type="button"
-                  key={deck.id}
-                  className={`deck-list-item ${deck.id === id ? "active" : ""}`}
-                  onClick={() => requestAction({ kind: "load", id: deck.id })}
-                  disabled={!!busy}
-                  aria-pressed={deck.id === id}
-                >
-                  <strong>{deck.name}</strong>
-                  <span>
-                    {deck.mainCount} main · {deck.sideboardCount} sideboard
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        </aside>
         <section className="panel deck-workbench-editor" ref={editor}>
           <div className="deck-workbench-heading">
-            <div className="field">
-              <Label htmlFor="deck-name">
-                Deck name{" "}
-                {dirty && <span className="deck-unsaved">· Unsaved</span>}
-              </Label>
-              <Input
-                id="deck-name"
-                value={name}
-                maxLength={100}
-                onChange={(event) => setName(event.target.value)}
+            <div
+              className="deck-heading-selection"
+              role="group"
+              aria-label="Deck selection"
+            >
+              <div className="deck-library-selector">
+                <Label htmlFor="deck-saved-selection">Deck</Label>
+                <select
+                  id="deck-saved-selection"
+                  value={id ?? ""}
+                  title={name || "Choose or create a deck"}
+                  aria-busy={loadingDecks}
+                  disabled={loadingDecks || !!busy || !decks.length}
+                  onChange={(event) =>
+                    requestAction({ kind: "load", id: event.target.value })
+                  }
+                >
+                  {id === null && (
+                    <option value="" disabled>
+                      {name || "Choose or create a deck"}
+                    </option>
+                  )}
+                  {id !== null && !decks.some((deck) => deck.id === id) && (
+                    <option value={id}>{name}</option>
+                  )}
+                  {decks.map((deck) => (
+                    <option key={deck.id} value={deck.id}>
+                      {deck.id === id ? name : deck.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                title="Rename deck"
+                aria-label="Rename deck"
                 disabled={!!busy}
-              />
+                onClick={() => {
+                  if (!latestName.current.trim()) {
+                    promptForNewDeck("current");
+                    return;
+                  }
+                  setRenameValue(name);
+                  setRenameError(null);
+                }}
+              >
+                <Pencil size={15} />
+              </Button>
             </div>
             <div className="deck-workbench-actions">
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!!busy || !id || hasUnownedCards}
-                onClick={() => id && requestAction({ kind: "duplicate", id })}
+                onClick={() =>
+                  promptForNewDeck(
+                    latestName.current.trim() ? "new" : "current",
+                  )
+                }
+                disabled={!!busy}
               >
-                <Copy size={14} /> Copy deck
+                <Plus size={15} /> New deck
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                title="Copy deck"
+                aria-label="Copy deck"
+                disabled={!!busy || !id || hasUnownedCards}
+                onClick={promptForCopy}
+              >
+                <Copy size={16} />
               </Button>
               <Button
                 size="icon"
@@ -1109,9 +1382,11 @@ export default function DeckBuilder({
                 aria-label="Delete saved deck"
                 title="Delete saved deck"
                 disabled={!!busy || !selectedSummary}
-                onClick={() =>
-                  selectedSummary && setDeleteTarget(selectedSummary)
-                }
+                onClick={() => {
+                  setDeleteError(null);
+                  if (selectedSummary)
+                    setDeleteTarget({ ...selectedSummary, name });
+                }}
               >
                 <Trash2 size={16} />
               </Button>
@@ -1156,7 +1431,7 @@ export default function DeckBuilder({
                   }
                 >
                   <option value="auto">Auto</option>
-                  {[2, 3, 4, 5, 6].map((value) => (
+                  {[2, 3, 4, 5, 6, 7].map((value) => (
                     <option value={value} key={value}>
                       {value}
                     </option>
@@ -1186,7 +1461,7 @@ export default function DeckBuilder({
             id="deck-card-list"
             className="deck-oracle-grid"
             style={{
-              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+              gridTemplateColumns: `repeat(${columns}, minmax(${cardsPerRow === "auto" ? "0" : "110px"}, 1fr))`,
             }}
             role="tabpanel"
             aria-labelledby={`deck-tab-${section}`}
@@ -1335,22 +1610,6 @@ export default function DeckBuilder({
               </p>
             )}
           </div>
-          <div className="deck-save-bar">
-            <Button
-              size="sm"
-              onClick={() => void handleSave()}
-              disabled={
-                !!busy || hasUnownedCards || !name.trim() || (!dirty && !!id)
-              }
-            >
-              {busy === "save" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Save size={14} />
-              )}{" "}
-              Save deck
-            </Button>
-          </div>
         </section>
         {browserOpen && (
           <aside className="panel deck-browser" id="deck-browser">
@@ -1382,13 +1641,6 @@ export default function DeckBuilder({
                 loading={pickerLoading}
                 advancedCollapsible
               />
-              <p className="field-hint">
-                Adding to{" "}
-                <strong>
-                  {section === "main" ? "main deck" : "sideboard"}
-                </strong>{" "}
-                · {pickerTotal.toLocaleString()} available cards
-              </p>
             </div>
             {pickerError && pickerCards.length > 0 && (
               <p className="deck-browser-query-error" role="alert">
@@ -1511,129 +1763,299 @@ export default function DeckBuilder({
           </aside>
         )}
       </div>
-      {addFlow && (
-        <DeckDialog title="Add to a deck" onClose={closeAddFlow}>
-          <div className="deck-add-preview">
-            <div>
-              <CardImage card={addFlow.card} imageCacheDir={imageCacheDir} />
+      {deleteTarget && (
+        <DeckDialog
+          title="Delete deck"
+          className="deck-rename-dialog"
+          onClose={closeDelete}
+        >
+          <p className="deck-dialog-copy">
+            Delete <strong>{deleteTarget.name}</strong>? The saved deck and its
+            managed Forge file will be removed.
+          </p>
+          {deleteError && (
+            <div className="notice notice-error" role="alert">
+              {deleteError}
             </div>
-            <div>
-              <strong>{addFlow.card.name}</strong>
-              <span>{addFlow.card.setName}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!!busy || targetPrintingLoading}
-                onClick={() => setSelectedCard(addFlow.card)}
+          )}
+          <div className="deck-dialog-footer">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={closeDelete}
+              disabled={!!busy}
+              autoFocus
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleDelete()}
+              disabled={!!busy}
+            >
+              {busy === "delete" && (
+                <Loader2 size={14} className="animate-spin" />
+              )}{" "}
+              Delete deck
+            </Button>
+          </div>
+        </DeckDialog>
+      )}
+      {newDeckPrompt && (
+        <DeckDialog
+          title={newDeckPrompt.mode === "copy" ? "Copy deck" : "New deck"}
+          className="deck-rename-dialog"
+          onClose={closeNewDeck}
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void createNamedDeck();
+            }}
+          >
+            <div className="field">
+              <Label htmlFor="deck-new-name">Deck name</Label>
+              <Input
+                id="deck-new-name"
+                value={newDeckPrompt.name}
+                maxLength={100}
+                required
+                autoFocus
+                disabled={!!busy}
+                aria-invalid={!!newDeckPrompt.error}
+                aria-describedby={
+                  newDeckPrompt.error ? "deck-new-error" : undefined
+                }
+                onChange={(event) =>
+                  setNewDeckPrompt((current) =>
+                    current
+                      ? { ...current, name: event.target.value, error: null }
+                      : current,
+                  )
+                }
+              />
+            </div>
+            {newDeckPrompt.error && (
+              <div
+                id="deck-new-error"
+                className="notice notice-error"
+                role="alert"
               >
-                Details
+                {newDeckPrompt.error}
+              </div>
+            )}
+            <div className="deck-dialog-footer">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={closeNewDeck}
+                disabled={!!busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  !!busy ||
+                  !newDeckPrompt.name.trim() ||
+                  newDeckPrompt.name.trim().length > 100
+                }
+              >
+                {(busy === "new" || busy === "copy") && (
+                  <Loader2 size={14} className="animate-spin" />
+                )}{" "}
+                {newDeckPrompt.mode === "copy" ? "Create copy" : "Create deck"}
               </Button>
             </div>
-          </div>
-          <div className="field">
-            <Label htmlFor="deck-add-target">Deck</Label>
-            <select
-              id="deck-add-target"
-              value={addFlow.targetId}
-              disabled={!!busy || targetPrintingLoading}
-              onChange={(event) => {
-                setTargetError(null);
-                setAddFlow((flow) =>
-                  flow ? { ...flow, targetId: event.target.value } : flow,
-                );
-              }}
-            >
-              <option value="new">Create a new deck</option>
-              {id === null && dirty && (
-                <option value="draft">Current draft: {name}</option>
-              )}
-              {decks.map((deck) => (
-                <option key={deck.id} value={deck.id}>
-                  {deck.name}
-                  {deck.id === id && dirty ? " (current draft)" : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-          {addFlow.targetId === "new" && (
+          </form>
+        </DeckDialog>
+      )}
+      {renameValue !== null && (
+        <DeckDialog
+          title="Rename deck"
+          className="deck-rename-dialog"
+          onClose={closeRename}
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleRename();
+            }}
+          >
             <div className="field">
-              <Label htmlFor="deck-add-name">Deck name</Label>
+              <Label htmlFor="deck-rename-name">Deck name</Label>
               <Input
-                id="deck-add-name"
-                value={addFlow.name}
-                disabled={!!busy || targetPrintingLoading}
+                id="deck-rename-name"
+                value={renameValue}
                 maxLength={100}
+                required
+                autoFocus
+                disabled={!!busy}
+                aria-invalid={!!renameError}
+                aria-describedby={renameError ? "deck-rename-error" : undefined}
+                onFocus={(event) => event.target.select()}
                 onChange={(event) => {
-                  setTargetError(null);
-                  setAddFlow((flow) =>
-                    flow ? { ...flow, name: event.target.value } : flow,
-                  );
+                  setRenameValue(event.target.value);
+                  setRenameError(null);
                 }}
               />
             </div>
-          )}
-          <div className="deck-add-controls">
-            <div className="field">
-              <Label htmlFor="deck-add-section">Section</Label>
-              <select
-                id="deck-add-section"
-                value={addFlow.section}
-                disabled={!!busy}
-                onChange={(event) => {
-                  setTargetError(null);
-                  setAddFlow((flow) =>
-                    flow
-                      ? { ...flow, section: event.target.value as Section }
-                      : flow,
-                  );
-                }}
+            {renameError && (
+              <div
+                id="deck-rename-error"
+                className="notice notice-error"
+                role="alert"
               >
-                <option value="main">Main deck</option>
-                <option value="sideboard">Sideboard</option>
-              </select>
+                {renameError}
+              </div>
+            )}
+            <div className="deck-dialog-footer">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={closeRename}
+                disabled={!!busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  !!busy ||
+                  !renameValue.trim() ||
+                  renameValue.trim().length > 100
+                }
+              >
+                {busy === "rename" && (
+                  <Loader2 size={14} className="animate-spin" />
+                )}
+                Rename
+              </Button>
             </div>
-            <div className="field">
-              <Label>Copies</Label>
-              <div className="deck-printing-quantity">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Add fewer copies"
-                  disabled={!!busy || addFlow.quantity <= 1}
-                  onClick={() => {
-                    setTargetError(null);
-                    setAddFlow((flow) =>
-                      flow
-                        ? { ...flow, quantity: Math.max(1, flow.quantity - 1) }
-                        : flow,
-                    );
-                  }}
+          </form>
+        </DeckDialog>
+      )}
+      {addFlow && (
+        <DeckDialog title="Add to a deck" onClose={closeAddFlow}>
+          <div className="deck-add-layout">
+            <div className="deck-add-art">
+              <CardImage card={addFlow.card} imageCacheDir={imageCacheDir} />
+            </div>
+            <div className="deck-add-fields">
+              <div className="deck-add-card-heading">
+                <strong>{addFlow.card.name}</strong>
+              </div>
+              <div className="field">
+                <Label htmlFor="deck-add-target">Deck</Label>
+                <select
+                  id="deck-add-target"
+                  value={addFlow.targetId}
+                  disabled={!!busy || targetPrintingLoading}
+                  onChange={(event) => void changeAddTarget(event.target.value)}
                 >
-                  <Minus size={14} />
-                </Button>
-                <strong>{addFlow.quantity}</strong>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Add more copies"
-                  disabled={
-                    !!busy ||
-                    !!blockedReason(
-                      addFlow.card,
-                      addFlow.section,
-                      targetCards,
-                      addFlow.quantity + 1,
-                    )
-                  }
-                  onClick={() => {
-                    setTargetError(null);
-                    setAddFlow((flow) =>
-                      flow ? { ...flow, quantity: flow.quantity + 1 } : flow,
-                    );
-                  }}
-                >
-                  <Plus size={14} />
-                </Button>
+                  <option value="new">Create a new deck</option>
+                  {id === null && dirty && (
+                    <option value="draft">Current draft: {name}</option>
+                  )}
+                  {id !== null && !decks.some((deck) => deck.id === id) && (
+                    <option value={id}>{name}</option>
+                  )}
+                  {decks.map((deck) => (
+                    <option key={deck.id} value={deck.id}>
+                      {deck.name}
+                      {deck.id === id && dirty ? " (current draft)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {addFlow.targetId === "new" && (
+                <div className="field">
+                  <Label htmlFor="deck-add-name">Deck name</Label>
+                  <Input
+                    id="deck-add-name"
+                    value={addFlow.name}
+                    disabled={!!busy || targetPrintingLoading}
+                    maxLength={100}
+                    required
+                    onChange={(event) => {
+                      setTargetError(null);
+                      setAddFlow((flow) =>
+                        flow ? { ...flow, name: event.target.value } : flow,
+                      );
+                    }}
+                  />
+                </div>
+              )}
+              <div className="deck-add-controls">
+                <div className="field">
+                  <Label htmlFor="deck-add-section">Section</Label>
+                  <select
+                    id="deck-add-section"
+                    value={addFlow.section}
+                    disabled={!!busy}
+                    onChange={(event) => {
+                      setTargetError(null);
+                      setAddFlow((flow) =>
+                        flow
+                          ? { ...flow, section: event.target.value as Section }
+                          : flow,
+                      );
+                    }}
+                  >
+                    <option value="main">Main deck</option>
+                    <option value="sideboard">Sideboard</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <Label>Copies</Label>
+                  <div className="deck-printing-quantity">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      aria-label="Add fewer copies"
+                      disabled={!!busy || addFlow.quantity <= 1}
+                      onClick={() => {
+                        setTargetError(null);
+                        setAddFlow((flow) =>
+                          flow
+                            ? {
+                                ...flow,
+                                quantity: Math.max(1, flow.quantity - 1),
+                              }
+                            : flow,
+                        );
+                      }}
+                    >
+                      <Minus size={14} />
+                    </Button>
+                    <strong>{addFlow.quantity}</strong>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      aria-label="Add more copies"
+                      disabled={
+                        !!busy ||
+                        !!blockedReason(
+                          addFlow.card,
+                          addFlow.section,
+                          targetCards,
+                          addFlow.quantity + 1,
+                        )
+                      }
+                      onClick={() => {
+                        setTargetError(null);
+                        setAddFlow((flow) =>
+                          flow
+                            ? { ...flow, quantity: flow.quantity + 1 }
+                            : flow,
+                        );
+                      }}
+                    >
+                      <Plus size={14} />
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1665,7 +2087,6 @@ export default function DeckBuilder({
                 !!busy ||
                 targetLoading ||
                 targetPrintingLoading ||
-                !!targetError ||
                 !!targetReason ||
                 (addFlow.targetId === "new" && !addFlow.name.trim())
               }
@@ -1688,6 +2109,7 @@ export default function DeckBuilder({
           onClose={() => setSelectedCard(null)}
           onChange={onChange}
           onPrintingChange={(card) => {
+            if (taskRunning.current || appLifecycle.isLocked()) return;
             setSelectedCard(card);
             if (addFlow) {
               setAddFlow((flow) =>

@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { appLifecycle, protectWindowClose } from "@/lib/app-lifecycle";
 import { migrateForgeDecks } from "@/services/decks";
 import {
   AlertCircle,
   ArrowRight,
-  CheckCircle2,
   LayoutDashboard,
   Library,
   LoaderCircle,
@@ -21,6 +28,7 @@ import Collection from "@/pages/Collection";
 import DeckBuilder from "@/pages/DeckBuilder";
 import Boosters from "@/pages/Boosters";
 import UpdatePrompt from "@/components/UpdatePrompt";
+import ToastProvider from "@/components/ToastProvider";
 import { leagueStatus } from "@/services/progression";
 import {
   catalogStatus,
@@ -47,19 +55,75 @@ import type {
   Page,
 } from "@/lib/types";
 
+type CatalogSetupError = {
+  message: string;
+  action: "configure-forge" | "retry";
+};
+
+type CatalogSetupRequest = { id: number; paths: ForgePaths };
+
+function catalogSetupFailure(
+  error: unknown,
+  inspection?: IntegrationReport,
+): CatalogSetupError {
+  const message = String(error);
+  const folderProblem =
+    inspection?.installDirExists === false ||
+    /select (?:your |its )?forge installation folder|forge installation (?:was not found|folder.*(?:absolute|invalid|missing|required))|(?:deck export|image cache) folder.*(?:absolute|invalid|missing|required)/i.test(
+      message,
+    );
+  return {
+    message: folderProblem
+      ? "Choose a valid Forge installation folder to finish setting up your card catalog."
+      : `Card catalog setup could not finish: ${message}`,
+    action: folderProblem ? "configure-forge" : "retry",
+  };
+}
+
 export default function App() {
+  const exitState = useSyncExternalStore(
+    appLifecycle.subscribe,
+    appLifecycle.getSnapshot,
+  );
+  useEffect(() => {
+    if (!exitState.busy) return;
+    // Body portals escape app-shell inert, so freeze native modal controls too.
+    const previous = new Map<HTMLElement, boolean>();
+    const freeze = () => {
+      for (const dialog of document.querySelectorAll<HTMLElement>(
+        "dialog[open]",
+      )) {
+        if (!previous.has(dialog)) previous.set(dialog, dialog.inert);
+        dialog.inert = true;
+      }
+    };
+    freeze();
+    const observer = new MutationObserver(freeze);
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["open"],
+    });
+    return () => {
+      observer.disconnect();
+      for (const [dialog, inert] of previous) dialog.inert = inert;
+    };
+  }, [exitState.busy]);
   const [page, setPage] = useState<Page>("dashboard");
   const [deckAddRequest, setDeckAddRequest] = useState<DeckAddRequest | null>(
     null,
   );
-  const [cardAddedNotice, setCardAddedNotice] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [report, setReport] = useState<IntegrationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [bannerCard, setBannerCard] = useState<CatalogCard | null>(null);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<CatalogSetupError | null>(
+    null,
+  );
+  const [forgeSetupRequest, setForgeSetupRequest] = useState(0);
   const [catalog, setCatalog] = useState<CatalogStatus>({
     count: 0,
     updatedAt: null,
@@ -69,7 +133,9 @@ export default function App() {
   );
   const [importBusy, setImportBusy] = useState(false);
   const importing = useRef(false);
-  const pendingCatalog = useRef<ForgePaths | null>(null);
+  const pendingCatalog = useRef<CatalogSetupRequest | null>(null);
+  const catalogRequestId = useRef(0);
+  const activeCatalogRequestId = useRef<number | null>(null);
   const initializing = useRef(false);
   const [revision, setRevision] = useState(0);
   const [visited, setVisited] = useState({
@@ -89,6 +155,21 @@ export default function App() {
   });
   const desktop = isTauri();
   const [appVersion, setAppVersion] = useState("");
+  useEffect(() => {
+    if (!desktop) return;
+    let active = true;
+    const guard = protectWindowClose(getCurrentWindow(), appLifecycle);
+    void guard.ready.catch((failure: unknown) => {
+      if (active)
+        setError(
+          `The safe-close handler could not start. Keep the app open until deck changes finish saving: ${String(failure)}`,
+        );
+    });
+    return () => {
+      active = false;
+      guard.dispose();
+    };
+  }, [desktop]);
   useEffect(() => {
     if (desktop)
       void getVersion()
@@ -194,7 +275,6 @@ export default function App() {
   ]);
 
   function navigate(next: Page) {
-    setCardAddedNotice(null);
     if (next === "collection" || next === "decks" || next === "boosters")
       setVisited((current) => ({ ...current, [next]: true }));
     setPage(next);
@@ -203,39 +283,67 @@ export default function App() {
     );
   }
 
+  function configureForge() {
+    setForgeSetupRequest((request) => request + 1);
+    navigate("settings");
+  }
+
   async function prepareCatalog(paths: ForgePaths) {
-    pendingCatalog.current = paths;
+    pendingCatalog.current = {
+      id: ++catalogRequestId.current,
+      paths: { ...paths },
+    };
+    setCatalogError(null);
+    setImportProgress(null);
     if (importing.current) return;
     importing.current = true;
     setImportBusy(true);
-    setImportProgress(null);
-    setCatalogError(null);
     let unlisten: (() => void) | undefined;
     try {
-      unlisten = await onCatalogProgress(setImportProgress);
+      try {
+        unlisten = await onCatalogProgress((progress) => {
+          if (activeCatalogRequestId.current === catalogRequestId.current)
+            setImportProgress(progress);
+        });
+      } catch {
+        // Progress notifications are optional; native setup can still complete.
+      }
       while (pendingCatalog.current) {
-        const current = pendingCatalog.current;
+        const request = pendingCatalog.current;
         pendingCatalog.current = null;
+        activeCatalogRequestId.current = request.id;
+        const current = () => request.id === catalogRequestId.current;
+        let inspection: IntegrationReport | undefined;
+        if (current()) setImportProgress(null);
         try {
-          setCatalog(await ensureCatalog(current));
-          setReport(await testForgeIntegration(current));
+          inspection = await testForgeIntegration(request.paths);
+          if (!current()) continue;
+          setReport(inspection);
+          if (!inspection.installDirExists)
+            throw new Error("Select your Forge installation folder.");
+          const prepared = await ensureCatalog(request.paths);
+          if (!current()) continue;
+          setCatalog(prepared);
           setRevision((value) => value + 1);
           setCatalogError(null);
         } catch (err) {
-          setCatalogError(
-            `Card catalog setup could not finish: ${String(err)}`,
-          );
+          if (current()) setCatalogError(catalogSetupFailure(err, inspection));
         }
+        if (!current()) continue;
         try {
-          setBannerCard(await getBannerCard());
+          const banner = await getBannerCard();
+          if (current()) setBannerCard(banner);
         } catch {
           // Already downloaded artwork and the rest of the app remain usable offline.
         }
       }
-    } catch (err) {
-      setCatalogError(`Card catalog setup could not finish: ${String(err)}`);
     } finally {
-      unlisten?.();
+      try {
+        unlisten?.();
+      } catch {
+        // A listener cleanup failure must not leave setup stuck in a busy state.
+      }
+      activeCatalogRequestId.current = null;
       importing.current = false;
       setImportBusy(false);
     }
@@ -249,12 +357,16 @@ export default function App() {
     setSettings(saved);
     setLeague(await leagueStatus());
     setRevision((value) => value + 1);
-    if (!forgeChanged) return;
-    setReport(null);
+    if (forgeChanged) {
+      // Invalidate callbacks from an attempt using the previous saved folders.
+      catalogRequestId.current += 1;
+      setCatalogError(null);
+      setReport(null);
+    }
     try {
       const checked = await testForgeIntegration(saved.forge);
       setReport(checked);
-      if (checked.installDirExists && checked.deckDirExists) {
+      if (forgeChanged && checked.installDirExists && checked.deckDirExists) {
         try {
           await migrateForgeDecks();
         } catch (migrationError) {
@@ -281,7 +393,7 @@ export default function App() {
   ];
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" inert={exitState.busy}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
@@ -377,35 +489,48 @@ export default function App() {
           {catalogError && settings && !importBusy && (
             <div className="notice notice-error" role="alert">
               <AlertCircle size={18} />
-              <span>{catalogError}</span>
+              <span>{catalogError.message}</span>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void prepareCatalog(settings.forge)}
+                onClick={() => {
+                  if (catalogError.action === "configure-forge")
+                    configureForge();
+                  else void prepareCatalog(settings.forge);
+                }}
               >
-                Retry setup
+                {catalogError.action === "configure-forge"
+                  ? "Configure Forge"
+                  : "Retry setup"}
               </Button>
             </div>
           )}
 
+          {exitState.error && (
+            <div className="notice notice-error" role="alert">
+              <AlertCircle size={19} />
+              <span>{exitState.error}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("decks")}
+              >
+                Review deck
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void appLifecycle.retry().catch(() => {})}
+              >
+                Try again
+              </Button>
+            </div>
+          )}
           {error && (
             <div className="notice notice-error" role="alert">
               <AlertCircle size={19} />
               <div>{error}</div>
               <Button variant="ghost" size="sm" onClick={() => setError(null)}>
-                Dismiss
-              </Button>
-            </div>
-          )}
-          {cardAddedNotice && (
-            <div className="notice notice-success" role="status">
-              <CheckCircle2 size={18} />
-              <span>{cardAddedNotice}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setCardAddedNotice(null)}
-              >
                 Dismiss
               </Button>
             </div>
@@ -453,7 +578,6 @@ export default function App() {
                     catalogCount={catalog.count}
                     onSettings={() => navigate("settings")}
                     onAddToDeck={(card) => {
-                      setCardAddedNotice(null);
                       setDeckAddRequest({
                         requestId: crypto.randomUUID(),
                         card,
@@ -471,7 +595,6 @@ export default function App() {
                     onChange={handleDataChange}
                     league={league}
                     addRequest={deckAddRequest}
-                    onAddComplete={setCardAddedNotice}
                     onAddRequestHandled={(requestId) => {
                       setDeckAddRequest((current) =>
                         current?.requestId === requestId ? null : current,
@@ -483,6 +606,7 @@ export default function App() {
               {visited.boosters && (
                 <div hidden={page !== "boosters"}>
                   <Boosters
+                    active={page === "boosters"}
                     settings={settings}
                     revision={revision}
                     onChange={handleDataChange}
@@ -492,10 +616,12 @@ export default function App() {
               )}
               <div hidden={page !== "settings"}>
                 <Settings
+                  leagueStatus={league}
+                  forgeSetupRequest={forgeSetupRequest}
+                  catalogSetupNeeded={catalogError !== null}
                   settings={settings}
                   onSave={handleSave}
                   report={report}
-                  onReport={setReport}
                   catalogCount={catalog.count}
                 />
               </div>
@@ -516,6 +642,7 @@ export default function App() {
         </div>
       </main>
       <UpdatePrompt busy={loading || importBusy} />
+      <ToastProvider />
     </div>
   );
 }

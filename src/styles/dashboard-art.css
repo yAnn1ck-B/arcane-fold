@@ -26,30 +26,30 @@
 
 .hero-art-mox .banner-mox-pearl {
   left: 19%;
-  top: 48%;
+  top: 45%;
   z-index: 1;
 }
 
 .hero-art-mox .banner-mox-sapphire {
   left: 35%;
-  top: 36%;
+  top: 42%;
   z-index: 2;
 }
 
 .hero-art-mox .banner-mox-jet {
-  top: 29%;
+  top: 39%;
   z-index: 3;
 }
 
 .hero-art-mox .banner-mox-ruby {
   left: 65%;
-  top: 36%;
+  top: 42%;
   z-index: 2;
 }
 
 .hero-art-mox .banner-mox-emerald {
   left: 81%;
-  top: 48%;
+  top: 45%;
   z-index: 1;
 }
 
@@ -58,7 +58,7 @@
   height: auto;
   aspect-ratio: 488 / 680;
   left: 50%;
-  top: 57%;
+  top: 56%;
   transform: translate(-50%, -50%);
   z-index: 5;
   box-shadow: 0 10px 24px #0007;
@@ -83,10 +83,6 @@
   );
   text-align: center;
   font-size: 10px;
-}
-
-.hero-art-mox .art-spark {
-  z-index: 0;
 }
 
 :root[data-theme="light"] .hero-art-mox .banner-mox {
@@ -153,4 +149,162 @@
 .dashboard-wildcard-label {
   color: inherit;
   text-transform: capitalize;
+}
+
+/* Keep the status strip compact even after the entire calendar unlocks. */
+.dashboard-page .league-status-strip {
+  overflow: visible;
+}
+.dashboard-expansion-disclosure {
+  position: relative;
+}
+.dashboard-expansion-disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 4px;
+  color: var(--tone-text, #c6d7b5);
+  max-width: 240px;
+}
+.dashboard-expansion-disclosure > summary > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dashboard-expansion-more {
+  flex-shrink: 0;
+  color: var(--tone-muted, #91a680);
+  font-size: calc(11px * var(--font-scale, 1));
+}
+.banner-spark {
+  position: absolute;
+  color: var(--tone-accent, #b2c38b);
+  line-height: 1;
+  font-size: 25px;
+  opacity: .7;
+  z-index: 6;
+  pointer-events: none;
+}
+.banner-spark-left { left: 1%; top: 8%; }
+.banner-spark-right { right: 1%; top: 18%; font-size: 18px; }
+.dashboard-expansion-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.dashboard-expansion-disclosure > summary:focus-visible {
+  outline: 2px solid var(--tone-accent, #8f9e75);
+  outline-offset: 5px;
+}
+.dashboard-expansion-disclosure[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.dashboard-expansion-list {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: min(410px, 65vw);
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 14px;
+  list-style: none;
+  border: 1px solid var(--tone-border, #40523a);
+  border-radius: 8px;
+  background: var(--tone-bg1, #18201b);
+  box-shadow: 0 10px 30px #0002;
+}
+.dashboard-expansion-list > li {
+  max-width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--tone-border, #40523a);
+  border-radius: 5px;
+  color: var(--tone-text, #c6d7b5);
+  background: var(--tone-bg2, #253224);
+  font-size: calc(11px * var(--font-scale, 1));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* Read-only calendar position and row status. */
+.settings-page .expansion-calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 8px 0 12px;
+}
+.settings-page .expansion-calendar-heading > h3 {
+  margin: 0;
+}
+.settings-page .calendar-current-week {
+  padding: 6px 12px;
+  border-radius: 5px;
+  background: var(--tone-bg3, #35462f);
+  color: var(--tone-text, #d0dfbf);
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+  white-space: nowrap;
+}
+.settings-page .calendar-position {
+  padding-bottom: 16px;
+}
+.settings-page .calendar-position > progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: var(--tone-bg3, #35462f);
+  accent-color: var(--tone-accent, #91aa7c);
+}
+.settings-page .calendar-position > progress::-webkit-progress-bar {
+  background: var(--tone-bg3, #35462f);
+}
+.settings-page .calendar-position > progress::-webkit-progress-value {
+  background: var(--tone-accent, #91aa7c);
+}
+.settings-page .calendar-position > p {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin: 9px 0 0;
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--tone-secondary, #93a48c);
+}
+.settings-page .calendar-position strong {
+  color: var(--tone-text, #d0dfbf);
+  font-weight: 500;
+}
+.settings-page .calendar-current-row {
+  background: color-mix(in srgb, var(--tone-accent, #91aa7c) 10%, transparent);
+}
+.settings-page .calendar-current-row > td:first-child {
+  box-shadow: inset 3px 0 var(--tone-accent, #91aa7c);
+}
+.settings-page .calendar-expansion-name {
+  display: block;
+}
+.settings-page .calendar-unlock-status {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: calc(9px * var(--font-scale, 1));
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.settings-page .calendar-unlocked {
+  color: var(--tone-text, #d0dfbf);
+  background: color-mix(in srgb, var(--tone-accent, #91aa7c) 18%, transparent);
+}
+.settings-page .calendar-upcoming {
+  color: var(--tone-secondary, #93a48c);
+  background: var(--tone-bg2, #253224);
 }

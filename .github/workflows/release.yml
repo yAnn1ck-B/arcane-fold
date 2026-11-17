@@ -159,8 +159,8 @@ jobs:
           rustup default 1.90.0
       - name: Install locked frontend dependencies
         run: npm ci
-      - name: Test updater and release verification
-        run: node --test scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
+      - name: Test autosave, updater and release verification
+        run: node --test scripts/deck-autosave.test.mjs scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
       - name: Validate tagged versions
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -219,6 +219,44 @@ jobs:
         with:
           name: linux-install-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/linux-install-smoke.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Prepare exact uploaded Linux signed-upgrade fixtures
+        if: runner.os == 'Linux' && needs.preflight.outputs.signingMode == 'actions'
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ needs.preflight.outputs.releaseId }}
+        run: |
+          appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          test "${#appimages[@]}" -eq 1 || { echo 'Expected one frozen release AppImage.' >&2; exit 1; }
+          python3 scripts/linux-signed-upgrade.py self-test
+          python3 scripts/linux-signed-upgrade.py prepare --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" --local-appimage "${appimages[0]}"
+      - name: Build verification-only native Linux updater probe
+        if: runner.os == 'Linux' && needs.preflight.outputs.signingMode == 'actions'
+        timeout-minutes: 12
+        run: |
+          # The release AppImage is already frozen/uploaded. This throwaway
+          # example uses the existing dependency cache; app/config/lock files
+          # and the signed installer are not changed or rebuilt.
+          mkdir -p src-tauri/examples
+          test ! -e src-tauri/examples/linux_release_updater_probe.rs
+          cp scripts/linux-updater-probe.rs src-tauri/examples/linux_release_updater_probe.rs
+          cargo build --manifest-path src-tauri/Cargo.toml --release --example linux_release_updater_probe --features tauri/test --locked
+      - name: Verify real Linux signed upgrade and game-data preservation
+        if: runner.os == 'Linux' && needs.preflight.outputs.signingMode == 'actions'
+        timeout-minutes: 7
+        env:
+          LINUX_UPGRADE_REPORT: ${{ runner.temp }}/linux-signed-upgrade.json
+        run: xvfb-run -a python3 scripts/linux-signed-upgrade.py exercise --probe src-tauri/target/release/examples/linux_release_updater_probe
+      - name: Save Linux signed-upgrade evidence
+        if: always() && runner.os == 'Linux' && needs.preflight.outputs.signingMode == 'actions'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: linux-signed-upgrade-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/linux-signed-upgrade.json
           if-no-files-found: warn
           retention-days: 14
 

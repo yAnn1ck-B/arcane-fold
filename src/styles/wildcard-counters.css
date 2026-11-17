@@ -1,0 +1,28 @@
+.wildcard-counters {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+.wildcard-counters-label {
+  color: var(--tone-secondary, #91a680);
+  font-size: calc(12px * var(--font-scale, 1));
+  white-space: nowrap;
+}
+.wildcard-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--tone-text, #d0e0bf);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+.wildcard-counter > .rarity-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+.wildcard-counter > strong {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}

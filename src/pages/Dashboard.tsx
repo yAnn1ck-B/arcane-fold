@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   ArrowRight,
   CalendarDays,
+  ChevronDown,
   Layers3,
   Sparkles,
   Swords,
@@ -120,6 +121,10 @@ export default function Dashboard({
     )?.name ??
     sets.find((set) => set.code.toLowerCase() === code.toLowerCase())?.name ??
     code.toUpperCase();
+  const latestUnlocked = [...settings.league.expansionSchedule]
+    .reverse()
+    .find((entry) => league.enabledSets.some((code) => code.toLowerCase() === entry.code.toLowerCase()));
+  const latestUnlockedName = latestUnlocked?.name ?? (league.enabledSets[0] ? expansionName(league.enabledSets[0]) : "");
   const metrics = [
     { label: "Cards owned", value: stats.totalCards, icon: Layers3 },
     { label: "Saved decks", value: stats.decks, icon: Swords },
@@ -158,8 +163,8 @@ export default function Dashboard({
         >
           <div className="orbit orbit-one" />
           <div className="orbit orbit-two" />
-          <span className="art-spark art-spark-one">✧</span>
-          <span className="art-spark art-spark-two">✧</span>
+          <span className="banner-spark banner-spark-left" aria-hidden="true">✧</span>
+          <span className="banner-spark banner-spark-right" aria-hidden="true">✧</span>
           {bannerMoxes.map(({ name, position }) => {
             const card = moxCards.find((candidate) => candidate.name === name);
             return (
@@ -211,13 +216,34 @@ export default function Dashboard({
           <span>Booster packs</span>
           <strong>{availablePacks} available</strong>
         </div>
-        <div>
+        <div className="dashboard-unlocked-expansions">
           <span>Unlocked expansions</span>
-          <strong className="expansion-names">
-            {league.enabledSets.length
-              ? league.enabledSets.map(expansionName).join(", ")
-              : "No expansions unlocked"}
-          </strong>
+          {league.enabledSets.length ? (
+            <details
+              className="dashboard-expansion-disclosure"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") event.currentTarget.open = false;
+              }}
+            >
+              <summary
+                aria-label={`View ${league.enabledSets.length} unlocked expansions`}
+              >
+                <strong title={latestUnlockedName}>{latestUnlockedName}</strong>
+                {league.enabledSets.length > 1 && <span className="dashboard-expansion-more">+{league.enabledSets.length - 1}</span>}
+                <ChevronDown size={14} aria-hidden="true" />
+              </summary>
+              <ul
+                className="dashboard-expansion-list"
+                aria-label="Unlocked expansion names"
+              >
+                {league.enabledSets.map((code) => (
+                  <li key={code}>{expansionName(code)}</li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <strong>No expansions unlocked</strong>
+          )}
         </div>
         <div>
           <span>Next weekly reward</span>

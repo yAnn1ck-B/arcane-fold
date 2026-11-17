@@ -41,9 +41,21 @@ pub struct ExportResult {
     pub content: String,
 }
 
-/// Detect conventional Forge paths without creating or changing any Forge files.
+/// Detect Forge paths away from the UI thread without changing any Forge files.
 #[tauri::command]
-pub fn detect_forge_paths() -> ForgePaths {
+pub async fn detect_forge_paths() -> Result<ForgePaths, String> {
+    tauri::async_runtime::spawn_blocking(detected_forge_paths)
+        .await
+        .map_err(|error| format!("Forge detection could not finish: {error}"))
+}
+
+pub(crate) fn detected_forge_paths() -> ForgePaths {
+    let mut paths = default_forge_paths();
+    paths.install_dir = detected_installation(None).map(|(path, _)| display_path(&path));
+    paths
+}
+
+fn default_forge_paths() -> ForgePaths {
     let profile = if cfg!(windows) {
         env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"))
     } else {
@@ -57,12 +69,11 @@ pub fn detect_forge_paths() -> ForgePaths {
         env::var_os("APPDATA").map(PathBuf::from),
         env::var_os("LOCALAPPDATA").map(PathBuf::from),
     );
-    let installation = detected_installation(None);
     ForgePaths {
         deck_dir: display_path(&data.join("decks").join("constructed")),
         data_dir: display_path(&data),
         image_cache_dir: display_path(&cache.join("pics").join("cards")),
-        install_dir: installation.map(|(path, _)| display_path(&path)),
+        install_dir: None,
     }
 }
 
@@ -112,7 +123,7 @@ pub async fn test_forge_integration(paths: ForgePaths) -> Result<IntegrationRepo
 }
 
 fn inspect_forge(paths: &ForgePaths) -> Result<IntegrationReport, String> {
-    inspect_forge_with_defaults(paths, &detect_forge_paths())
+    inspect_forge_with_defaults(paths, &default_forge_paths())
 }
 
 fn inspect_forge_with_defaults(
@@ -191,7 +202,26 @@ fn inspect_forge_with_defaults(
 }
 
 fn detected_installation(hint: Option<&str>) -> Option<(PathBuf, Option<String>)> {
-    let mut installations: Vec<_> = crate::decks::resource_candidates(hint)
+    preferred_installation(hint, || crate::decks::resource_candidates(hint))
+}
+
+fn preferred_installation(
+    hint: Option<&str>,
+    candidates: impl FnOnce() -> Vec<PathBuf>,
+) -> Option<(PathBuf, Option<String>)> {
+    if let Some(path) = hint
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| PathBuf::from(value.trim()))
+    {
+        if path.is_absolute()
+            && path.join("res/editions").is_dir()
+            && path.join("res/cardsfolder").is_dir()
+        {
+            let version = installation_version(&path);
+            return Some((path, version));
+        }
+    }
+    let mut installations: Vec<_> = candidates()
         .into_iter()
         .filter_map(|resource| {
             if !resource.join("editions").is_dir() || !resource.join("cardsfolder").is_dir() {
@@ -221,7 +251,7 @@ fn detected_installation(hint: Option<&str>) -> Option<(PathBuf, Option<String>)
 }
 
 pub(crate) fn prepare_standard_directories(paths: &ForgePaths) -> Result<(), String> {
-    prepare_default_directories(paths, &detect_forge_paths())
+    prepare_default_directories(paths, &default_forge_paths())
 }
 
 fn prepare_default_directories(paths: &ForgePaths, defaults: &ForgePaths) -> Result<(), String> {
@@ -540,6 +570,40 @@ mod tests {
             "c:\\players\\forge",
             true
         ));
+    }
+
+    #[test]
+    fn forge_detection_keeps_explicit_paths_and_selects_latest_fast_installation() {
+        let root = tempfile::tempdir().unwrap();
+        let selected = root.path().join("portable selected");
+        let older = root.path().join("Forge 2.0.9");
+        let newer = root.path().join("Forge 2.0.13");
+        for directory in [&selected, &older, &newer] {
+            fs::create_dir_all(directory.join("res/editions")).unwrap();
+            fs::create_dir_all(directory.join("res/cardsfolder")).unwrap();
+        }
+        fs::write(
+            older.join("forge-gui-desktop-2.0.9-jar-with-dependencies.jar"),
+            "fixture",
+        )
+        .unwrap();
+        fs::write(
+            newer.join("forge-gui-desktop-2.0.13-jar-with-dependencies.jar"),
+            "fixture",
+        )
+        .unwrap();
+        let chosen = preferred_installation(selected.to_str(), || {
+            panic!("valid explicit path must skip search")
+        });
+        assert_eq!(chosen.unwrap().0, selected);
+        let chosen = preferred_installation(None, || {
+            vec![
+                newer.join("res"),
+                older.join("res"),
+                root.path().join("missing/res"),
+            ]
+        });
+        assert_eq!(chosen.unwrap().0, newer);
     }
 
     #[test]

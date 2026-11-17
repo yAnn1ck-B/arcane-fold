@@ -1,6 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
-  CheckCircle2,
   FolderOpen,
   Loader2,
   Save,
@@ -10,6 +9,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ToastProvider";
+import "@/styles/dashboard-art.css";
 import { listSets } from "@/services/cards";
 import { chooseDirectory, testForgeIntegration } from "@/services/forge";
 import type {
@@ -17,14 +18,17 @@ import type {
   CatalogSet,
   ForgePaths,
   IntegrationReport,
+  LeagueStatus,
 } from "@/lib/types";
 
 interface SettingsProps {
   settings: AppSettings;
   onSave: (settings: AppSettings) => Promise<void>;
-  onReport: (report: IntegrationReport) => void;
   report: IntegrationReport | null;
   catalogCount?: number;
+  leagueStatus?: LeagueStatus;
+  forgeSetupRequest?: number;
+  catalogSetupNeeded?: boolean;
 }
 
 type SettingsTab = "forge" | "league";
@@ -58,11 +62,32 @@ function pathKey(paths: ForgePaths) {
 export default function Settings({
   settings,
   onSave,
-  onReport,
   report,
   catalogCount = 0,
+  leagueStatus,
+  forgeSetupRequest = 0,
+  catalogSetupNeeded = false,
 }: SettingsProps) {
+  const toast = useToast();
   const [tab, setTab] = useState<SettingsTab>("forge");
+  const installInput = useRef<HTMLInputElement>(null);
+  const focusedSetupRequest = useRef(0);
+  useEffect(() => {
+    if (forgeSetupRequest) setTab("forge");
+  }, [forgeSetupRequest]);
+  useEffect(() => {
+    if (
+      !forgeSetupRequest ||
+      tab !== "forge" ||
+      focusedSetupRequest.current === forgeSetupRequest
+    )
+      return;
+    const frame = window.requestAnimationFrame(() => {
+      installInput.current?.focus();
+      focusedSetupRequest.current = forgeSetupRequest;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [forgeSetupRequest, tab]);
   const [draft, setDraft] = useState(settings);
   const [sets, setSets] = useState<CatalogSet[]>([]);
   const [checking, setChecking] = useState(false);
@@ -71,10 +96,7 @@ export default function Settings({
     key: string;
     report: IntegrationReport;
   } | null>(null);
-  const [notice, setNotice] = useState<{
-    error: boolean;
-    message: string;
-  } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const savedKey = pathKey(settings.forge);
   useEffect(() => {
     setDraft((current) => ({
@@ -135,7 +157,7 @@ export default function Settings({
           forge: { ...current.forge, [key]: selected },
         }));
     } catch (error) {
-      setNotice({ error: true, message: String(error) });
+      setNotice(String(error));
     }
   }
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -157,10 +179,9 @@ export default function Settings({
           "One or more Forge folders were not detected. Check the highlighted paths.",
         );
       await onSave({ ...settings, forge: draft.forge });
-      onReport(checked);
-      setNotice({ error: false, message: "Forge folders saved." });
+      toast("Forge folders saved.");
     } catch (error) {
-      setNotice({ error: true, message: String(error) });
+      setNotice(String(error));
     } finally {
       setSaving(false);
     }
@@ -173,11 +194,21 @@ export default function Settings({
     code.toUpperCase();
   const league = settings.league;
   const startingAt = league.startedAt;
+  const calendar = [...league.expansionSchedule].sort(
+    (a, b) => a.week - b.week,
+  );
+  const currentWeek = leagueStatus
+    ? Math.max(0, (leagueStatus.week || 1) - 1)
+    : Math.max(0, Math.floor((Date.now() / 1000 - startingAt) / 604800));
+  const unlockedCount = calendar.filter(
+    (entry) => entry.week <= currentWeek,
+  ).length;
+  const currentExpansion = calendar[unlockedCount - 1];
+  const nextExpansion = calendar[unlockedCount];
   const composition = [
     [league.booster.commons, "commons"],
     [league.booster.uncommons, "uncommons"],
     [league.booster.rareSlots, "rare or mythic"],
-    [league.booster.basicLands, "basic lands"],
   ]
     .filter(([quantity]) => Number(quantity) > 0)
     .map(([quantity, label]) => `${quantity} ${label}`)
@@ -209,16 +240,9 @@ export default function Settings({
         </button>
       </div>
       {notice && (
-        <div
-          className={`notice ${notice.error ? "notice-error" : "notice-success"}`}
-          role={notice.error ? "alert" : "status"}
-        >
-          {notice.error ? (
-            <TriangleAlert size={18} />
-          ) : (
-            <CheckCircle2 size={18} />
-          )}
-          <span>{notice.message}</span>
+        <div className="notice notice-error" role="alert">
+          <TriangleAlert size={18} />
+          <span>{notice}</span>
         </div>
       )}
       <form onSubmit={save} hidden={tab !== "forge"}>
@@ -230,6 +254,7 @@ export default function Settings({
                 <div className="path-input-row">
                   <Input
                     id={`forge-${key}`}
+                    ref={key === "installDir" ? installInput : undefined}
                     value={draft.forge[key] ?? ""}
                     required
                     disabled={saving}
@@ -268,7 +293,10 @@ export default function Settings({
             ))}
           </div>
           <div className="panel-footer settings-save-row">
-            <Button type="submit" disabled={!dirty || saving}>
+            <Button
+              type="submit"
+              disabled={(!dirty && !catalogSetupNeeded) || saving}
+            >
               {saving ? (
                 <Loader2 size={15} className="animate-spin" />
               ) : (
@@ -280,15 +308,7 @@ export default function Settings({
         </section>
       </form>
       <section className="panel" hidden={tab !== "league"}>
-        <div className="panel-header">
-          <h2 className="section-title">Shared league rules</h2>
-        </div>
         <div className="panel-body settings-stack">
-          <p className="field-hint">
-            These rules come with the app and are the same for everyone. New
-            players receive all starting and weekly rewards earned since this
-            league began.
-          </p>
           <dl className="league-rule-summary">
             {startingAt != null && (
               <div>
@@ -319,6 +339,20 @@ export default function Settings({
             <div>
               <dt>Pack contents</dt>
               <dd>{composition}</dd>
+            </div>
+            {league.booster.commonLandWeight != null && (
+              <div>
+                <dt>Nonbasic lands</dt>
+                <dd>
+                  Only common lands are {league.booster.commonLandWeight === 0.5 ? "half as likely" : `${Math.round(league.booster.commonLandWeight * 100)}% as likely`} to be chosen as other commons.
+                  Normally at most {league.booster.preferredLandLimit} land per pack, with mythic, rare, then uncommon lands taking priority over common lands.
+                  This limit relaxes when only missing lands remain at a rarity.
+                </dd>
+              </div>
+            )}
+            <div>
+              <dt>Basic lands</dt>
+              <dd>Free from unlocked expansions; never included in packs.</dd>
             </div>
             <div>
               <dt>Mythic chance</dt>
@@ -372,7 +406,25 @@ export default function Settings({
             className="expansion-calendar"
             aria-label="Expansion calendar"
           >
-            <h3>Expansion calendar</h3>
+            <div className="expansion-calendar-heading">
+              <h3>Expansion calendar</h3>
+              <span className="calendar-current-week">Week {currentWeek}</span>
+            </div>
+            <div className="calendar-position">
+              <progress
+                max={Math.max(calendar.length, 1)}
+                value={unlockedCount}
+                aria-label={`${unlockedCount} of ${calendar.length} expansions unlocked`}
+              />
+              <p>
+                <strong>
+                  {unlockedCount} of {calendar.length} unlocked
+                </strong>
+                {nextExpansion
+                  ? `Next: ${nextExpansion.name} at week ${nextExpansion.week}`
+                  : "All scheduled expansions are unlocked"}
+              </p>
+            </div>
             <table>
               <thead>
                 <tr>
@@ -383,8 +435,18 @@ export default function Settings({
                 </tr>
               </thead>
               <tbody>
-                {league.expansionSchedule.map((entry) => (
-                  <tr key={entry.code}>
+                {calendar.map((entry) => (
+                  <tr
+                    key={entry.code}
+                    className={
+                      entry.code === currentExpansion?.code
+                        ? "calendar-current-row"
+                        : ""
+                    }
+                    aria-current={
+                      entry.code === currentExpansion?.code ? "step" : undefined
+                    }
+                  >
                     <td>
                       <strong>{entry.week}</strong>
                       <small>
@@ -393,7 +455,22 @@ export default function Settings({
                         ).toLocaleDateString()}
                       </small>
                     </td>
-                    <td>{entry.name}</td>
+                    <td>
+                      <span className="calendar-expansion-name">
+                        {entry.name}
+                      </span>
+                      <span
+                        className={`calendar-unlock-status ${entry.week <= currentWeek ? "calendar-unlocked" : "calendar-upcoming"}`}
+                      >
+                        {entry.code === currentExpansion?.code
+                          ? "Unlocked - current"
+                          : entry.week <= currentWeek
+                            ? "Unlocked"
+                            : entry.code === nextExpansion?.code
+                              ? "Upcoming - next"
+                              : "Upcoming"}
+                      </span>
+                    </td>
                     <td>{entry.description}</td>
                     <td>
                       {entry.bonusPacks ? (

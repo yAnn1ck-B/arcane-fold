@@ -2,6 +2,7 @@ mod card_policy;
 mod catalog;
 mod decks;
 mod forge;
+mod forge_discovery;
 mod images;
 mod league_clock;
 mod league_rules;
@@ -102,6 +103,7 @@ pub fn run() {
             progression::claim_weekly_reward,
             progression::open_boosters,
             progression::open_next_boosters,
+            progression::resolve_booster_opening,
             progression::craft_card,
             maintenance::database_info,
             maintenance::save_app_settings,

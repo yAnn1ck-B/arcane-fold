@@ -16,7 +16,9 @@
     "commons": 10,
     "uncommons": 4,
     "rareSlots": 1,
-    "basicLands": 0
+    "basicLands": 0,
+    "commonLandWeight": 0.5,
+    "preferredLandLimit": 1
   },
   "wildcardDropProbability": 0,
   "autoUnlock": {

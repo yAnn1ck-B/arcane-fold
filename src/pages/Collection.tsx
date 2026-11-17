@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import CardImage from "@/components/CardImage";
 import CardDetails from "@/components/CardDetails";
+import WildcardCounters from "@/components/WildcardCounters";
 import { isUnlimitedBasic } from "@/lib/cards";
 import { Button } from "@/components/ui/button";
 import CardFilters, { getCardFilterScope } from "@/components/CardFilters";
@@ -196,23 +197,10 @@ export default function Collection({
             </span>
           </button>
         </div>
-        <div
+        <WildcardCounters
+          balances={league.wildcards}
           className="collection-toolbar-wildcards"
-          role="group"
-          aria-label="Wildcards"
-        >
-          {(["common", "uncommon", "rare", "mythic"] as const).map((rarity) => (
-            <span
-              className="collection-wildcard-balance"
-              key={rarity}
-              title={`${league.wildcards[rarity]} ${rarity} wildcards`}
-              aria-label={`${league.wildcards[rarity]} ${rarity} wildcards`}
-            >
-              <i className={`rarity-dot rarity-${rarity}`} aria-hidden="true" />
-              <strong>{league.wildcards[rarity]}</strong>
-            </span>
-          ))}
-        </div>
+        />
       </div>
       <CardFilters
         query={query}

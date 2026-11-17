@@ -259,28 +259,7 @@
   font-variant-numeric: tabular-nums;
 }
 .collection-toolbar-wildcards {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 15px;
   margin-left: auto;
-}
-.collection-wildcard-balance {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--tone-text, #d0e0bf);
-  font-size: calc(12px * var(--font-scale, 1));
-}
-.collection-wildcard-balance > .rarity-dot {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-}
-.collection-wildcard-balance > strong {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
 }
 .collection-card-type {
   display: flex;

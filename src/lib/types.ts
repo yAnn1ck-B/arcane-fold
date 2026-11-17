@@ -35,6 +35,8 @@ export interface AppSettings {
       uncommons: number;
       rareSlots: number;
       basicLands: number;
+      commonLandWeight: number;
+      preferredLandLimit: number;
     };
     wildcardDropProbability: number;
     autoUnlock: { intervalWeeks: number; setCodes: string[] };

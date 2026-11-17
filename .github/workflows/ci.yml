@@ -60,8 +60,8 @@ jobs:
         run: npm ci
       - name: Check versions and release identity
         run: node scripts/check-version.mjs
-      - name: Test updater and release verification
-        run: node --test scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
+      - name: Test autosave, updater and release verification
+        run: node --test scripts/deck-autosave.test.mjs scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
       - name: Test native code (Windows)
