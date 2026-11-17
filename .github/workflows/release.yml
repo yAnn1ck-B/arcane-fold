@@ -210,6 +210,7 @@ jobs:
         env:
           SMOKE_REPORT: ${{ runner.temp }}/linux-install-smoke.json
         run: |
+          python3 scripts/linux-install-smoke.py self-test
           appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
           test "${#appimages[@]}" -eq 1 || { echo 'Expected one built AppImage.' >&2; exit 1; }
           xvfb-run -a python3 scripts/linux-install-smoke.py "${appimages[0]}"

@@ -878,7 +878,9 @@ pub async fn automatic_status_pool(pool: &SqlitePool, now: i64) -> Result<League
         .await
         .map_err(|e| e.to_string())?;
     let config = config(&mut transaction).await?;
-    accrue_rewards(&mut transaction, &config, now, false).await?;
+    // First use grants the same persisted entitlements as a first opening.
+    // Keep pre-launch status readable without granting rewards early.
+    accrue_rewards(&mut transaction, &config, now, now >= config.started_at).await?;
     let result = status_connection(&mut transaction, now).await?;
     transaction.commit().await.map_err(|e| e.to_string())?;
     Ok(result)
@@ -3112,9 +3114,12 @@ mod tests {
             let preview = status_pool(&late.pool, NOW).await.unwrap();
             assert_eq!(preview.join_packs, 20);
             assert_eq!(preview.join_wildcards, rules.starting_wildcards);
-            let started = begin_pool(&early.pool, NOW).await.unwrap();
+            let started = automatic_status_pool(&early.pool, NOW).await.unwrap();
+            assert!(started.started);
             assert_eq!(started.general_packs, 20);
             assert_eq!(started.wildcards, rules.starting_wildcards);
+            assert!(started.history.is_empty());
+            assert!(owned_reward_snapshot(&early.pool).await.0.is_empty());
             for week in 1..=4 {
                 automatic_status_pool(&early.pool, NOW + week * WEEK_SECONDS)
                     .await
@@ -3133,7 +3138,7 @@ mod tests {
                     mythic: 2
                 }
             );
-            let late = begin_pool(&late.pool, NOW + 4 * WEEK_SECONDS)
+            let late = automatic_status_pool(&late.pool, NOW + 4 * WEEK_SECONDS)
                 .await
                 .unwrap();
             let early = automatic_status_pool(&early.pool, NOW + 4 * WEEK_SECONDS)
@@ -3142,6 +3147,167 @@ mod tests {
             assert_eq!(late.general_packs, 44);
             assert_eq!(late.general_packs, early.general_packs);
             assert_eq!(late.wildcards, early.wildcards);
+        });
+    }
+
+    #[test]
+    fn first_use_allows_crafting_before_opening_and_does_not_refill_spent_rewards_on_restart() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            automatic_status_pool(&db.pool, NOW).await.unwrap();
+            let crafted = craft_pool(&db.pool, "c", "first-use-craft", NOW)
+                .await
+                .unwrap();
+            assert_eq!(crafted.wildcards.common, 9);
+            let before = reconciliation_snapshot(&db.pool).await;
+            db.pool.close().await;
+            let reopened = SqlitePoolOptions::new()
+                .connect_with(
+                    SqliteConnectOptions::new()
+                        .filename(db._directory.path().join("league.db"))
+                        .foreign_keys(true),
+                )
+                .await
+                .unwrap();
+            let again = automatic_status_pool(&reopened, NOW).await.unwrap();
+            assert_eq!(again.general_packs, 20);
+            assert_eq!(again.wildcards, crafted.wildcards);
+            assert!(again.history.is_empty());
+            assert_eq!(reconciliation_snapshot(&reopened).await, before);
+            reopened.close().await;
+        });
+    }
+
+    #[test]
+    fn first_use_preserves_existing_first_opening_grant_spends_and_receipts_exactly() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            // Reproduce the released app: the first opening granted rewards.
+            open_next_pool_boosters(&db.pool, 1, "released-first-opening", NOW)
+                .await
+                .unwrap();
+            craft_pool(&db.pool, "r", "spent-starting-rare", NOW)
+                .await
+                .unwrap();
+            let before = status_pool(&db.pool, NOW).await.unwrap();
+            let snapshot = reconciliation_snapshot(&db.pool).await;
+            for _ in 0..3 {
+                let after = automatic_status_pool(&db.pool, NOW).await.unwrap();
+                assert_eq!(after.general_packs, 19);
+                assert_eq!(after.wildcards, before.wildcards);
+                assert_eq!(reconciliation_snapshot(&db.pool).await, snapshot);
+            }
+        });
+    }
+
+    #[test]
+    fn first_use_with_production_rules_catches_up_every_due_reward_without_a_catalog() {
+        tauri::async_runtime::block_on(async {
+            let early = fixture().await;
+            sqlx::query("DELETE FROM settings WHERE key='test.allow-league-settings'")
+                .execute(&early.pool)
+                .await
+                .unwrap();
+            let rules = crate::league_rules::builtin_rules().unwrap();
+            for week in [0, 1, 2, 3, 4, 8, 12, 53] {
+                let late = fixture().await;
+                sqlx::query("DELETE FROM settings WHERE key='test.allow-league-settings'")
+                    .execute(&late.pool)
+                    .await
+                    .unwrap();
+                sqlx::query("DELETE FROM cards")
+                    .execute(&late.pool)
+                    .await
+                    .unwrap();
+                let now = rules.started_at + week * WEEK_SECONDS;
+                let veteran = automatic_status_pool(&early.pool, now).await.unwrap();
+                let newcomer = automatic_status_pool(&late.pool, now).await.unwrap();
+                let expected_sets: BTreeMap<String, i64> = rules
+                    .expansion_schedule
+                    .iter()
+                    .filter(|entry| entry.week <= week && entry.bonus_packs > 0)
+                    .map(|entry| (entry.code.to_lowercase(), entry.bonus_packs))
+                    .collect();
+                assert!(newcomer.started);
+                assert_eq!(newcomer.started_at, rules.started_at);
+                assert_eq!(newcomer.general_packs, 20 + 6 * week);
+                assert_eq!(newcomer.set_packs, expected_sets);
+                assert_eq!(
+                    newcomer.available_packs,
+                    20 + 6 * week + expected_sets.values().sum::<i64>()
+                );
+                assert_eq!(
+                    newcomer.wildcards,
+                    WildcardBalances {
+                        common: 10 + 4 * week,
+                        uncommon: 5 + 2 * week,
+                        rare: 2 + week / 2,
+                        mythic: 1 + week / 4,
+                    }
+                );
+                assert_eq!(newcomer.available_packs, veteran.available_packs);
+                assert_eq!(newcomer.wildcards, veteran.wildcards);
+                assert_eq!(newcomer.enabled_sets, veteran.enabled_sets);
+                assert!(newcomer.history.is_empty());
+                let snapshot = reconciliation_snapshot(&late.pool).await;
+                automatic_status_pool(&late.pool, now).await.unwrap();
+                assert_eq!(reconciliation_snapshot(&late.pool).await, snapshot);
+            }
+        });
+    }
+
+    #[test]
+    fn concurrent_first_use_grants_once_and_failed_initial_grant_rolls_back_before_retry() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            sqlx::raw_sql("CREATE TRIGGER reject_initial_ledger BEFORE INSERT ON settings WHEN NEW.key='league_reward_entitlements_v1' BEGIN SELECT RAISE(ABORT,'test initial grant failure'); END;")
+                .execute(&db.pool).await.unwrap();
+            let before = reconciliation_snapshot(&db.pool).await;
+            assert!(automatic_status_pool(&db.pool, NOW)
+                .await
+                .unwrap_err()
+                .contains("test initial grant failure"));
+            assert_eq!(reconciliation_snapshot(&db.pool).await, before);
+            sqlx::raw_sql("DROP TRIGGER reject_initial_ledger")
+                .execute(&db.pool)
+                .await
+                .unwrap();
+            let first = db.pool.clone();
+            let second = db.pool.clone();
+            let a = tokio::spawn(async move { automatic_status_pool(&first, NOW).await });
+            let b = tokio::spawn(async move { automatic_status_pool(&second, NOW).await });
+            for result in [a.await.unwrap().unwrap(), b.await.unwrap().unwrap()] {
+                assert_eq!(result.general_packs, 20);
+                assert_eq!(result.wildcards, current_reward_rules().starting_wildcards);
+                assert!(result.history.is_empty());
+            }
+        });
+    }
+
+    #[test]
+    fn automatic_first_use_waits_for_the_shared_start_without_an_error_or_early_grant() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            let before = automatic_status_pool(&db.pool, NOW - 1).await.unwrap();
+            assert!(!before.started);
+            assert_eq!(before.available_packs, 0);
+            assert_eq!(before.wildcards, WildcardBalances::default());
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM settings WHERE key=?")
+                    .bind(REWARD_ENTITLEMENTS_KEY)
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                0
+            );
+            let started = automatic_status_pool(&db.pool, NOW).await.unwrap();
+            assert!(started.started);
+            assert_eq!(started.general_packs, 20);
+            assert_eq!(started.wildcards, current_reward_rules().starting_wildcards);
         });
     }
 

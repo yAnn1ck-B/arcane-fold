@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3] - 2026-11-17
+
+- Grant starting packs and wildcards together on first app use after online verification, without requiring a booster opening. Reuse the existing entitlement ledger so prior grants and spent balances stay intact.
+- Verify late-join catch-up for starting, weekly, and unlocked-expansion rewards through the same first-use path.
+- Move the read-only expansion calendar into its own Settings tab.
+- Keep routine update rechecks quiet while an already-verified session is current. Startup verification, failed checks, and detected updates still require attention.
+
 ## [0.3.2] - 2026-11-17
 
 - Open the app maximized by default.

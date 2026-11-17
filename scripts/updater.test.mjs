@@ -219,6 +219,48 @@ test('scheduled checks repeat every five minutes only after a completed current 
   assert.equal(calls.install, 0);
 });
 
+test('successful background rechecks never expose a blocking phase or replace the verified session', async () => {
+  let now = 0;
+  const { controller, adapter, calls } = fixture({}, () => now);
+  adapter.check = async () => { calls.check++; return null; };
+  await controller.check();
+  const result = deferred();
+  const phases = [];
+  const unsubscribe = controller.subscribe(() => phases.push(controller.getSnapshot().phase));
+  adapter.check = async () => { calls.check++; return result.promise; };
+  now = UPDATE_CHECK_INTERVAL;
+  const pending = controller.poll();
+  assert.equal(controller.getSnapshot().phase, 'current');
+  assert.equal(isUpdateBlocking(controller.getSnapshot()), false);
+  await controller.check(); // Focus/reconnect while the periodic request is pending.
+  await controller.poll();
+  assert.equal(calls.check, 2);
+  result.resolve(null);
+  await pending;
+  assert.equal(isUpdateBlocking(controller.getSnapshot()), false);
+  assert.ok(phases.every((phase) => phase === 'current'));
+  assert.deepEqual([calls.download, calls.install, calls.restart], [0, 0, 0]);
+  unsubscribe();
+});
+
+test('a discovered background update blocks immediately and remains mandatory', async () => {
+  const { controller, adapter, handle, calls } = fixture();
+  adapter.check = async () => { calls.check++; return null; };
+  await controller.check();
+  const result = deferred();
+  adapter.check = async () => { calls.check++; return result.promise; };
+  const pending = controller.check();
+  assert.equal(isUpdateBlocking(controller.getSnapshot()), false);
+  result.resolve(handle);
+  await pending;
+  assert.equal(controller.getSnapshot().phase, 'available');
+  assert.equal(controller.getSnapshot().version, handle.version);
+  assert.equal(isUpdateBlocking(controller.getSnapshot()), true);
+  await controller.check();
+  assert.equal(calls.check, 2);
+  assert.deepEqual([calls.download, calls.install, calls.restart], [0, 0, 0]);
+});
+
 test('scheduled checks retain pending downloads and installed updates without duplicate notifications', async () => {
   let now = 0;
   const { controller, calls } = fixture({}, () => now);
@@ -273,7 +315,7 @@ test('idle and a pending startup network check block until the server proves the
   assert.equal(isUpdateBlocking(controller.getSnapshot()), false);
 });
 
-test('a later failed verification blocks a previously current session until a successful retry', async () => {
+test('a failed background verification blocks a previously current session until a successful retry', async () => {
   const { controller, adapter, calls } = fixture();
   adapter.check = async () => { calls.check++; return null; };
   await controller.check();
@@ -281,8 +323,8 @@ test('a later failed verification blocks a previously current session until a su
   const result = deferred();
   adapter.check = async () => { calls.check++; return result.promise; };
   const pending = controller.check();
-  assert.equal(controller.getSnapshot().phase, 'checking');
-  assert.equal(isUpdateBlocking(controller.getSnapshot()), true);
+  assert.equal(controller.getSnapshot().phase, 'current');
+  assert.equal(isUpdateBlocking(controller.getSnapshot()), false);
   result.reject(new Error('verification timed out'));
   await pending;
   assert.equal(controller.getSnapshot().phase, 'check-failed');

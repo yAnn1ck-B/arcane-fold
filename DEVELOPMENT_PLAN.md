@@ -159,7 +159,7 @@ Select card identities before choosing artwork, so extra printings do not improv
 **Booster opening experience:**
 
 1. User chooses **Open one pack** or **Open all** beside the total pack count and wildcard balances.
-2. The application starts the league if necessary, automatically credits due rewards, and generates contents from the next chronological queue entries.
+2. First app use has already granted starting packs and wildcards. Opening automatically credits any newly due rewards and generates contents from the next chronological queue entries, retaining transactional auto-start as a fallback.
 3. Contents, collection changes, rewards, and history are saved atomically.
 4. All cards are displayed together, with a details popup for each card.
 5. Saved openings remain available in history with the same card details.
@@ -195,20 +195,21 @@ Show available wildcard balances on the dashboard and crafting screen.
 
 Everyone uses the same built-in league calendar, anchored at the single committed `startedAt` value in `src-tauri/league-rules.json`. Set the real production start before the first public release and keep it stable afterward; the earlier development anchor remains recorded in verification history. The 0.3.1 rules grant 20 starting packs, 6 weekly packs, and starting wildcards of 10 common, 5 uncommon, 2 rare, and 1 mythic. Weekly wildcards remain unchanged: 4 common and 2 uncommon each week, 1 rare every two weeks, and 1 mythic every four weeks. Published 0.3.0 retains its earlier 12/4 pack amounts until upgraded. Claims count shared calendar boundaries, including missed periods and late joining, while preserving existing balances.
 
-A late joiner receives the starting packs plus all scheduled weekly rewards elapsed since that shared start. Status updates automatically credit all due periods for existing players. The first opening starts a new league and includes its elapsed catch-up rewards. Record periods locally and prevent duplicate rewards, including concurrent calls and retries. For the 0.3.1 change, already-started leagues receive the positive entitlement difference exactly once: 8 additional starting packs, 2 per already-credited week, and the starting wildcard grant. Keep earned/spent progress and historical receipts intact; record the applied entitlement policy atomically with its rewards.
+A late joiner receives the starting packs and wildcards plus all scheduled rewards elapsed since that shared start. On first app use after online version verification, the initial status call starts a new league and credits those rewards together, without requiring a catalog or booster opening. Status updates automatically credit all due periods for existing players. Reuse the existing entitlement ledger so players who already received or spent their starting wildcards are not granted them again. Record periods locally and prevent duplicate rewards, including concurrent calls and retries. For the historical 0.3.1 change, already-started leagues receive the positive entitlement difference exactly once: 8 additional starting packs, 2 per already-credited week, and the starting wildcard grant. Keep earned/spent progress and historical receipts intact; record the applied entitlement policy atomically with its rewards. Published 0.3.2 still starts new leagues on their first opening; first-use grants are an unreleased source change.
 
 Expansion availability and automatic unlock order come from the same shared configuration. Foundations (`FDN`) starts at week 0. The fixed schedule unlocks Bloomburrow at week 4, Wilds of Eldraine at 8, The Lost Caverns of Ixalan at 12, Outlaws of Thunder Junction at 16, Duskmourn: House of Horror at 20, Kamigawa: Neon Dynasty at 24, The Brothers' War at 28, Aetherdrift at 32, Tarkir: Dragonstorm at 36, Edge of Eternities at 40, Lorwyn Eclipsed at 44, Secrets of Strixhaven at 48, and March of the Machine at 52.
 
 Each later unlock grants 8 additional packs reserved for that set, separate from the normal weekly reward. Migration 007 records persistent queue entries with assigned set, source, earned period, priority, and remaining quantity. Starting, weekly, and bonus packs open in earned chronological order; reserved packs keep their expansion. The new count-zero **Open all** request consumes the remaining queue atomically. Receipt replay returns the same opening, and legacy set-specific pending receipts remain compatible with the shared balances. Late joiners receive all reserved expansion rewards elapsed since the shared start, and claims grant each unlock bonus once.
 
-Settings displays full expansion names, exact themes from the configuration, dates, and reserved rewards as a read-only calendar. Scheduled unlocks follow the shared calendar, including for players who join later. Locked sets cannot generate packs, be crafted, or supply selected deck printings. Existing ownership remains stored. Its pooled quantity may use any eligible printing from globally unlocked expansions; basic lands require no collection ownership.
+Settings displays full expansion names, exact themes from the configuration, dates, and reserved rewards in a separate read-only **Expansion calendar** tab alongside Forge folders and League rules. Scheduled unlocks follow the shared calendar, including for players who join later. Locked sets cannot generate packs, be crafted, or supply selected deck printings. Existing ownership remains stored. Its pooled quantity may use any eligible printing from globally unlocked expansions; basic lands require no collection ownership.
 
 ## 5. Settings
 
-Keep two sections:
+Keep three tabs:
 
 - **Forge folders:** the three required paths, automatically populated and checked, with browse/edit/save for correction.
-- **League rules:** a read-only presentation of the rules included in the app build, using full expansion names and a readable unlock order.
+- **League rules:** a read-only presentation of the rewards, pack composition, and deck rules included in the app build.
+- **Expansion calendar:** full expansion names, themes, unlock dates, reserved-pack bonuses, and the current shared-calendar position.
 
 Fix the interface to Daylight with Larger text in frontend and native settings normalization. Remove Appearance controls but retain the existing theme CSS. Do not expose Application settings, catalog refresh/import, backup/restore, image-cache clearing, export preferences, integration tests, cached-artwork tests, or test-deck export controls. Gameplay rules cannot be changed by an individual user.
 
@@ -382,6 +383,8 @@ Historical 0.2.x Windows evidence includes cold zero-progress production launch,
 ### Shipped in 0.3.1: required version verification
 
 The user explicitly replaced the optional-update policy, and 0.3.1 ships the required-verification gate. Normal league use requires successful online verification that the installed version is current, checked at startup, focus/reconnect, and every five minutes. There is no Later/dismiss bypass. Offline/check failures and download/signature/install/restart failures stay blocked and retryable. Keep separate explicit update steps and cryptographic verification. Recovery may expose only current-deck and Forge-folder repair needed to finish pending autosaves; other league activity remains blocked. Development/preview builds bypass the gate.
+
+Unreleased refinement: routine rechecks keep an already-verified `current` session usable while the request is pending, without flashing the modal or disabling inputs. Startup/retry checks remain blocking. A failed result or detected update blocks immediately on completion; a successful no-update result stays quiet. Concurrent focus/periodic requests share one check.
 
 Version 0.3.1 is published with this behavior. Already-shipped 0.3.0 uses optional updates and requires one ordinary upgrade to adopt it. Periodic client checks do not establish a central-server guarantee of simultaneous versions. The current release record above describes the actual installed Windows gate checks and the narrower Linux preservation scope.
 

@@ -1,5 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import {
+  CalendarDays,
   FolderOpen,
   Loader2,
   Save,
@@ -32,7 +39,12 @@ interface SettingsProps {
   repairOnly?: boolean;
 }
 
-type SettingsTab = "forge" | "league";
+type SettingsTab = "forge" | "league" | "calendar";
+const settingsTabs = [
+  { id: "forge", label: "Forge folders", Icon: FolderOpen },
+  { id: "league", label: "League rules", Icon: Sparkles },
+  { id: "calendar", label: "Expansion calendar", Icon: CalendarDays },
+] as const;
 type EditablePath = "installDir" | "deckDir" | "imageCacheDir";
 const pathFields: { key: EditablePath; label: string; hint: string }[] = [
   {
@@ -72,6 +84,28 @@ export default function Settings({
 }: SettingsProps) {
   const toast = useToast();
   const [tab, setTab] = useState<SettingsTab>("forge");
+  function navigateTabs(
+    event: KeyboardEvent<HTMLButtonElement>,
+    current: SettingsTab,
+  ) {
+    const tabs = repairOnly ? settingsTabs.slice(0, 1) : settingsTabs;
+    const index = tabs.findIndex(({ id }) => id === current);
+    const nextIndex =
+      event.key === "ArrowRight"
+        ? (index + 1) % tabs.length
+        : event.key === "ArrowLeft"
+          ? (index + tabs.length - 1) % tabs.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? tabs.length - 1
+              : null;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextTab = tabs[nextIndex].id;
+    setTab(nextTab);
+    document.getElementById(`settings-tab-${nextTab}`)?.focus();
+  }
   const installInput = useRef<HTMLInputElement>(null);
   const focusedSetupRequest = useRef(0);
   useEffect(() => {
@@ -222,25 +256,23 @@ export default function Settings({
         role="tablist"
         aria-label="Settings sections"
       >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={repairOnly || tab === "forge"}
-          className={`settings-tab ${repairOnly || tab === "forge" ? "active" : ""}`}
-          onClick={() => setTab("forge")}
-        >
-          <FolderOpen size={16} /> Forge folders
-        </button>
-        {!repairOnly && (
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "league"}
-            className={`settings-tab ${tab === "league" ? "active" : ""}`}
-            onClick={() => setTab("league")}
-          >
-            <Sparkles size={16} /> League rules
-          </button>
+        {(repairOnly ? settingsTabs.slice(0, 1) : settingsTabs).map(
+          ({ id, label, Icon }) => (
+            <button
+              key={id}
+              id={`settings-tab-${id}`}
+              type="button"
+              role="tab"
+              aria-controls={`settings-panel-${id}`}
+              aria-selected={(repairOnly ? "forge" : tab) === id}
+              tabIndex={(repairOnly ? "forge" : tab) === id ? 0 : -1}
+              className={`settings-tab ${(repairOnly ? "forge" : tab) === id ? "active" : ""}`}
+              onClick={() => setTab(id)}
+              onKeyDown={(event) => navigateTabs(event, id)}
+            >
+              <Icon size={16} /> {label}
+            </button>
+          ),
         )}
       </div>
       {notice && (
@@ -249,7 +281,13 @@ export default function Settings({
           <span>{notice}</span>
         </div>
       )}
-      <form onSubmit={save} hidden={!repairOnly && tab !== "forge"}>
+      <form
+        id="settings-panel-forge"
+        role="tabpanel"
+        aria-labelledby="settings-tab-forge"
+        onSubmit={save}
+        hidden={!repairOnly && tab !== "forge"}
+      >
         <section className="panel">
           <div className="panel-body settings-stack forge-paths-body">
             {pathFields.map(({ key, label, hint }) => (
@@ -311,7 +349,13 @@ export default function Settings({
           </div>
         </section>
       </form>
-      <section className="panel" hidden={repairOnly || tab !== "league"}>
+      <section
+        id="settings-panel-league"
+        role="tabpanel"
+        aria-labelledby="settings-tab-league"
+        className="panel"
+        hidden={repairOnly || tab !== "league"}
+      >
         <div className="panel-body settings-stack">
           <dl className="league-rule-summary">
             {startingAt != null && (
@@ -420,6 +464,16 @@ export default function Settings({
               </dd>
             </div>
           </dl>
+        </div>
+      </section>
+      <section
+        id="settings-panel-calendar"
+        role="tabpanel"
+        aria-labelledby="settings-tab-calendar"
+        className="panel"
+        hidden={repairOnly || tab !== "calendar"}
+      >
+        <div className="panel-body settings-stack">
           <section
             className="expansion-calendar"
             aria-label="Expansion calendar"

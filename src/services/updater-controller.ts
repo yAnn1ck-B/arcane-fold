@@ -42,6 +42,7 @@ export interface UpdateAdapter {
 export const UPDATE_CHECK_INTERVAL = 5 * 60 * 1000;
 
 // Only a completed check proving this build current unlocks normal app use.
+// Routine rechecks retain that verified state until their result is known.
 // A known update stays mandatory through every download/install/restart retry.
 export function isUpdateBlocking(state: UpdateState | UpdatePhase): boolean {
   return (typeof state === "string" ? state : state.phase) !== "current";
@@ -67,6 +68,7 @@ export class UpdateController {
   private state: UpdateState = initialState;
   private update: UpdateHandle | null = null;
   private started = false;
+  private checking = false;
   private nextCheckAt = 0;
   private downloadAttempt = 0;
   private listeners = new Set<() => void>();
@@ -97,11 +99,15 @@ export class UpdateController {
   }
 
   async check() {
-    if (!["idle", "current", "check-failed"].includes(this.state.phase)) return;
+    if (this.checking || !["idle", "current", "check-failed"].includes(this.state.phase)) return;
+    this.checking = true;
+    const background = this.state.phase === "current";
     this.nextCheckAt = this.now() + UPDATE_CHECK_INTERVAL;
     const previous = this.update;
     this.update = null;
-    this.setState({ ...initialState, phase: "checking" });
+    // Keep a verified session usable while a routine check is in flight. A
+    // failed check or discovered update still blocks as soon as it resolves.
+    if (!background) this.setState({ ...initialState, phase: "checking" });
     await previous?.close().catch(() => {});
     try {
       const update = await this.adapter.check();
@@ -114,6 +120,8 @@ export class UpdateController {
       } : { phase: "current" });
     } catch (error) {
       this.setState({ phase: "check-failed", error: errorMessage(error) });
+    } finally {
+      this.checking = false;
     }
   }
 
