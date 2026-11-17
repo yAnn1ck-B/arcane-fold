@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.2] - 2026-11-17
+
+- Open the app maximized by default.
+- Reuse the preloaded database and retry temporary startup locks quietly, keeping the loading screen visible until the league opens. Show an actionable message only if the database remains busy.
+
 ## [0.3.1] - 2026-11-17
 
 - Require successful online version verification before production league use, with checks at startup, focus/reconnect, and every five minutes. Only a confirmed current version unlocks the league; remove Later/dismiss bypasses.

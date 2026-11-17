@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Eternal League",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "identifier": "com.eternalleague.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -16,6 +16,7 @@
         "title": "Eternal League",
         "width": 1440,
         "height": 940,
+        "maximized": true,
         "minWidth": 980,
         "minHeight": 700,
         "backgroundColor": "#f1f0ea"

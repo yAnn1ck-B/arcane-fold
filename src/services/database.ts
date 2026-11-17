@@ -1,25 +1,25 @@
 import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { defaultAppearance } from "@/lib/appearance";
+import { retryDatabaseBusy } from "@/lib/database-retry";
 import { detectForgePaths } from "@/services/forge";
 import type { AppSettings, DashboardStats } from "@/lib/types";
 
 let connection: Promise<Database> | undefined;
 
 export function database() {
-  connection ??= Database.load("sqlite:eternal-league.db").catch(
-    (error: unknown) => {
-      connection = undefined;
-      throw error;
-    },
-  );
+  // The native SQL plugin preloads this database and finishes migrations before
+  // the webview opens. Reuse it instead of replacing its pool during startup.
+  connection ??= Promise.resolve(Database.get("sqlite:eternal-league.db"));
   return connection;
 }
 
 export async function loadSettings(): Promise<AppSettings> {
   const db = await database();
-  const rows = await db.select<{ value: string }[]>(
-    "SELECT value FROM settings WHERE key = 'app'",
+  const rows = await retryDatabaseBusy(() =>
+    db.select<{ value: string }[]>(
+      "SELECT value FROM settings WHERE key = 'app'",
+    ),
   );
   const saved = rows[0]
     ? (JSON.parse(rows[0].value) as Partial<AppSettings>)
@@ -54,15 +54,19 @@ export async function loadSettings(): Promise<AppSettings> {
 
 export async function saveSettings(settings: AppSettings) {
   await database();
-  await invoke("save_app_settings", { settingsJson: JSON.stringify(settings) });
+  await retryDatabaseBusy(() =>
+    invoke("save_app_settings", { settingsJson: JSON.stringify(settings) }),
+  );
 }
 
 export async function loadDashboardStats(): Promise<DashboardStats> {
   const db = await database();
-  const rows = await db.select<DashboardStats[]>(`SELECT
+  const rows = await retryDatabaseBusy(() =>
+    db.select<DashboardStats[]>(`SELECT
     (SELECT COUNT(*) FROM collection WHERE quantity > 0) AS uniqueCards,
     (SELECT COALESCE(SUM(quantity), 0) FROM collection) AS totalCards,
     (SELECT COUNT(*) FROM decks) AS decks,
-    (SELECT COALESCE(SUM(quantity), 0) FROM wildcards) AS wildcards`);
+    (SELECT COALESCE(SUM(quantity), 0) FROM wildcards) AS wildcards`),
+  );
   return rows[0];
 }

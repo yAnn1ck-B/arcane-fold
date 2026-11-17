@@ -160,7 +160,7 @@ jobs:
       - name: Install locked frontend dependencies
         run: npm ci
       - name: Test autosave, updater and release verification
-        run: node --test scripts/deck-autosave.test.mjs scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
+        run: node --test scripts/deck-autosave.test.mjs scripts/updater.test.mjs scripts/database-retry.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
       - name: Validate tagged versions
         env:
           RELEASE_TAG: ${{ github.ref_name }}

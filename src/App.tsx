@@ -30,6 +30,7 @@ import Boosters from "@/pages/Boosters";
 import UpdatePrompt from "@/components/UpdatePrompt";
 import { updater } from "@/services/updater";
 import { isUpdateBlocking } from "@/services/updater-controller";
+import { isDatabaseBusy, retryDatabaseBusy } from "@/lib/database-retry";
 import ToastProvider from "@/components/ToastProvider";
 import { leagueStatus } from "@/services/progression";
 import {
@@ -212,8 +213,8 @@ export default function App() {
     try {
       const loaded = await loadSettings();
       setSettings(loaded);
-      setCatalog(await catalogStatus());
-      setLeague(await leagueStatus());
+      setCatalog(await retryDatabaseBusy(catalogStatus));
+      setLeague(await retryDatabaseBusy(leagueStatus));
       setStats(await loadDashboardStats());
       try {
         const checked = await testForgeIntegration(loaded.forge);
@@ -234,7 +235,11 @@ export default function App() {
       }
       void prepareCatalog(loaded.forge);
     } catch (err) {
-      setError(`Could not open your local database: ${String(err)}`);
+      setError(
+        isDatabaseBusy(err)
+          ? "Your local database is still busy. Close any other Eternal League windows, then try again. Your saved progress is preserved."
+          : `Could not open your local database: ${String(err)}`,
+      );
     } finally {
       setLoading(false);
       initializing.current = false;

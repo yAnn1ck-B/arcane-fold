@@ -47,7 +47,7 @@ jobs:
       - name: Install locked test dependencies
         run: npm ci
       - name: Test autosave, updater and release verification
-        run: node --test scripts/deck-autosave.test.mjs scripts/updater.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
+        run: node --test scripts/deck-autosave.test.mjs scripts/updater.test.mjs scripts/database-retry.test.mjs scripts/verify-release.test.mjs scripts/release-version.test.mjs scripts/migration-policy.test.mjs
       - name: Install checksum-pinned public signature verifier
         run: |
           $archive = Join-Path $env:RUNNER_TEMP 'minisign-0.12-win64.zip'
