@@ -57,6 +57,7 @@ jobs:
           const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
           if (config.bundle?.createUpdaterArtifacts !== true) throw new Error('Signed updater artifacts must be enabled in the release configuration.');
           if (!config.plugins?.updater?.pubkey?.trim()) throw new Error('The updater public key is missing.');
+          if (config.plugins?.updater?.requireSignedVersion !== true) throw new Error('Signed updater versions must be required.');
           if (!config.plugins?.updater?.endpoints?.length) throw new Error('The updater endpoint is missing.');
           NODE
       - name: Require Actions signing secrets only when explicitly enabled
@@ -224,8 +225,11 @@ jobs:
   verify-draft:
     name: Verify draft artifacts
     needs: [preflight, package]
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     # GitHub exposes draft releases only to callers with push access.
     permissions:
       contents: write
@@ -238,11 +242,75 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24'
-      - name: Install minisign verifier
+      - name: Install checksum-pinned public signature verifier
         if: needs.preflight.outputs.signingMode == 'actions'
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y minisign
+          $archive = Join-Path $env:RUNNER_TEMP 'minisign-0.12-win64.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'minisign-0.12'
+          Invoke-WebRequest -Uri 'https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip' -OutFile $archive -TimeoutSec 120
+          $expected = '37B600344E20C19314B2E82813DB2BFDCC408B77B876F7727889DBD46D539479'
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -cne $expected) {
+            throw 'Official minisign 0.12 archive checksum mismatch.'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $executable = Join-Path $destination 'minisign-win64/x86_64/minisign.exe'
+          if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+            throw 'The verified archive has no x86_64 minisign executable.'
+          }
+          "MINISIGN_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Normalize generated updater manifest to public tagged URLs
+        if: needs.preflight.outputs.signingMode == 'actions'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ needs.preflight.outputs.releaseId }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { canonicalAssetUrl } from './scripts/release-assets.mjs';
+          import { createReleaseRequest, decodeSignature, validateRelease } from './scripts/verify-release.mjs';
+          const repository = process.env.GITHUB_REPOSITORY;
+          const tag = process.env.RELEASE_TAG;
+          const releaseId = Number(process.env.RELEASE_ID);
+          if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !/^v\d+\.\d+\.\d+$/.test(tag) || !Number.isSafeInteger(releaseId) || releaseId <= 0) throw new Error('Invalid draft release coordinates.');
+          const api = `https://api.github.com/repos/${repository}`;
+          const request = createReleaseRequest(false, process.env.GH_TOKEN);
+          const release = await request(`${api}/releases/${releaseId}`);
+          if (release.id !== releaseId || release.tag_name !== tag || !release.draft || release.prerelease) throw new Error('Only the exact unpublished stable draft can be normalized.');
+          const assets = await request(`${api}/releases/${releaseId}/assets?per_page=100`);
+          const manifestAsset = assets.find(asset => asset.name === 'latest.json');
+          if (!manifestAsset) throw new Error('Tauri action did not generate latest.json.');
+          const original = JSON.parse(await request(manifestAsset.url, 'text'));
+          if (original.version !== tag.slice(1)) throw new Error('Generated updater version does not match the tag.');
+          const manifest = { ...original, platforms: {} };
+          for (const [platform, extension] of [['windows-x86_64', '.exe'], ['linux-x86_64', '.AppImage']]) {
+            const entry = original.platforms?.[platform];
+            const matches = assets.filter(asset => asset.name.endsWith(extension) && asset.name.includes(tag.slice(1)) && [asset.url, canonicalAssetUrl(repository, tag, asset.name)].includes(entry?.url));
+            if (matches.length !== 1) throw new Error(`Generated manifest has no unique installer for ${platform}.`);
+            const payload = matches[0];
+            const signatureAsset = assets.find(asset => asset.name === `${payload.name}.sig`);
+            if (!signatureAsset) throw new Error(`Missing public signature for ${platform}.`);
+            const signature = (await request(signatureAsset.url, 'text')).trim();
+            if (entry?.signature?.trim() !== signature) throw new Error(`Generated manifest signature differs for ${platform}.`);
+            decodeSignature(signature, tag.slice(1));
+            manifest.platforms[platform] = { signature, url: canonicalAssetUrl(repository, tag, payload.name) };
+          }
+          // The pinned action emits API URLs and installer aliases. Publish the
+          // same signatures under our two-platform public URL contract instead.
+          validateRelease(release, assets, manifest, tag, false, repository);
+          const change = async (url, options) => {
+            const response = await fetch(url, {
+              ...options, redirect: 'error', signal: AbortSignal.timeout(60000),
+              headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${process.env.GH_TOKEN}`, 'X-GitHub-Api-Version': '2022-11-28', ...options.headers },
+            });
+            if (!response.ok) throw new Error(`Draft manifest update failed with status ${response.status}.`);
+          };
+          await change(`${api}/releases/assets/${manifestAsset.id}`, { method: 'DELETE' });
+          await change(`https://uploads.github.com/repos/${repository}/releases/${releaseId}/assets?name=latest.json`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(manifest, null, 2) + '\n',
+          });
+          console.log('Normalized only latest.json to canonical tagged URLs; installers and version-bound signatures are unchanged.');
+          NODE
       - name: Verify both installers and matching updater signatures
         if: needs.preflight.outputs.signingMode == 'actions'
         env:
