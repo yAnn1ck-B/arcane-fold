@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.1] - 2026-11-17
+
+- Require successful online version verification before production league use, with checks at startup, focus/reconnect, and every five minutes. Only a confirmed current version unlocks the league; remove Later/dismiss bypasses.
+- Keep offline/check, download/signature, installation, and restart failures blocked with retry actions. Retain separate explicit download/install/restart steps and cryptographic verification.
+- Limit recovery while blocked to current-deck and Forge-folder repair needed to finish pending autosaves. Development/preview builds bypass the production gate.
+- Published 0.3.0 still uses optional updates and needs one ordinary upgrade to adopt this policy. These client-side checks do not guarantee simultaneous versions across every device.
+- Wait and retry when another database writer temporarily blocks catalog finalization, without parsing or downloading the catalog again. Avoid a redundant first-setup eligibility update and defer competing progress refreshes until the import finishes. Show the final catalog-saving stage explicitly.
+- Set starting boosters to 20 and weekly boosters to 6. Grant 10 common, 5 uncommon, 2 rare, and 1 mythic wildcard at the start; retain the existing weekly wildcard schedule.
+- Bring existing leagues up to the revised reward totals once, preserving spent packs, card ownership, decks, history, and chronological pack rewards.
+
 ## [0.3.0] - 2026-11-17
 
 - Apply one pack-selection rule to every expansion: reduced weight only for common nonbasic lands, full uncommon/rare/mythic weight, and a usual one-land limit across the whole pack. Higher-rarity lands choose first. Exclude basic lands and prefer different cards within each pack while preserving four-copy protection, complete-rarity wildcard replacements, past openings, and progress.

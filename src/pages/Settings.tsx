@@ -29,6 +29,7 @@ interface SettingsProps {
   leagueStatus?: LeagueStatus;
   forgeSetupRequest?: number;
   catalogSetupNeeded?: boolean;
+  repairOnly?: boolean;
 }
 
 type SettingsTab = "forge" | "league";
@@ -67,14 +68,15 @@ export default function Settings({
   leagueStatus,
   forgeSetupRequest = 0,
   catalogSetupNeeded = false,
+  repairOnly = false,
 }: SettingsProps) {
   const toast = useToast();
   const [tab, setTab] = useState<SettingsTab>("forge");
   const installInput = useRef<HTMLInputElement>(null);
   const focusedSetupRequest = useRef(0);
   useEffect(() => {
-    if (forgeSetupRequest) setTab("forge");
-  }, [forgeSetupRequest]);
+    if (forgeSetupRequest || repairOnly) setTab("forge");
+  }, [forgeSetupRequest, repairOnly]);
   useEffect(() => {
     if (
       !forgeSetupRequest ||
@@ -223,21 +225,23 @@ export default function Settings({
         <button
           type="button"
           role="tab"
-          aria-selected={tab === "forge"}
-          className={`settings-tab ${tab === "forge" ? "active" : ""}`}
+          aria-selected={repairOnly || tab === "forge"}
+          className={`settings-tab ${repairOnly || tab === "forge" ? "active" : ""}`}
           onClick={() => setTab("forge")}
         >
           <FolderOpen size={16} /> Forge folders
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "league"}
-          className={`settings-tab ${tab === "league" ? "active" : ""}`}
-          onClick={() => setTab("league")}
-        >
-          <Sparkles size={16} /> League rules
-        </button>
+        {!repairOnly && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "league"}
+            className={`settings-tab ${tab === "league" ? "active" : ""}`}
+            onClick={() => setTab("league")}
+          >
+            <Sparkles size={16} /> League rules
+          </button>
+        )}
       </div>
       {notice && (
         <div className="notice notice-error" role="alert">
@@ -245,7 +249,7 @@ export default function Settings({
           <span>{notice}</span>
         </div>
       )}
-      <form onSubmit={save} hidden={tab !== "forge"}>
+      <form onSubmit={save} hidden={!repairOnly && tab !== "forge"}>
         <section className="panel">
           <div className="panel-body settings-stack forge-paths-body">
             {pathFields.map(({ key, label, hint }) => (
@@ -307,7 +311,7 @@ export default function Settings({
           </div>
         </section>
       </form>
-      <section className="panel" hidden={tab !== "league"}>
+      <section className="panel" hidden={repairOnly || tab !== "league"}>
         <div className="panel-body settings-stack">
           <dl className="league-rule-summary">
             {startingAt != null && (
@@ -319,6 +323,14 @@ export default function Settings({
             <div>
               <dt>Starting packs</dt>
               <dd>{league.startingPacks}</dd>
+            </div>
+            <div>
+              <dt>Starting wildcards</dt>
+              <dd>
+                {(["common", "uncommon", "rare", "mythic"] as const)
+                  .map((rarity) => `${league.startingWildcards?.[rarity] ?? 0} ${rarity}`)
+                  .join("; ")}
+              </dd>
             </div>
             <div>
               <dt>Weekly packs</dt>
@@ -344,9 +356,15 @@ export default function Settings({
               <div>
                 <dt>Nonbasic lands</dt>
                 <dd>
-                  Only common lands are {league.booster.commonLandWeight === 0.5 ? "half as likely" : `${Math.round(league.booster.commonLandWeight * 100)}% as likely`} to be chosen as other commons.
-                  Normally at most {league.booster.preferredLandLimit} land per pack, with mythic, rare, then uncommon lands taking priority over common lands.
-                  This limit relaxes when only missing lands remain at a rarity.
+                  Only common lands are{" "}
+                  {league.booster.commonLandWeight === 0.5
+                    ? "half as likely"
+                    : `${Math.round(league.booster.commonLandWeight * 100)}% as likely`}{" "}
+                  to be chosen as other commons. Normally at most{" "}
+                  {league.booster.preferredLandLimit} land per pack, with
+                  mythic, rare, then uncommon lands taking priority over common
+                  lands. This limit relaxes when only missing lands remain at a
+                  rarity.
                 </dd>
               </div>
             )}

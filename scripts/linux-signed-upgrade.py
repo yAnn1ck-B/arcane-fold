@@ -29,6 +29,7 @@ IDENTIFIER = 'com.eternalleague.desktop'
 OLD_VERSION = '0.2.1'
 OLD_FILENAME = 'Eternal.League_0.2.1_amd64.AppImage'
 OLD_SHA256 = '115090fb3757f1940246a7fa7a0f91a7ff2ae42ae3cd1a4a58c582f5a17084ee'
+REWARD_LEDGER_KEY = 'league_reward_entitlements_v1'
 MAX_BYTES = 512 * 1024 * 1024
 TABLES = ['collection', 'decks', 'deck_cards', 'wildcards', 'booster_history',
           'league_state', 'progression_operations', 'booster_pack_queue',
@@ -47,6 +48,22 @@ def digest(file):
         for part in iter(lambda: source.read(1024 * 1024), b''):
             value.update(part)
     return value.hexdigest()
+
+
+def current_reward_ledger(rules):
+    """Seed current entitlement policy for a pure data-preservation fixture.
+
+    Compensation for historical policy is tested separately in native tests and
+    Windows QA. It must not race this artifact-only probe's strict snapshots.
+    """
+    ledger = {'version': 1, 'startingPacks': rules['startingPacks'],
+              'weeklyPacks': rules['weeklyPacks'],
+              'startingWildcards': {rarity: rules['startingWildcards'][rarity]
+                                   for rarity in ['common', 'uncommon', 'rare', 'mythic']}}
+    quantities = [ledger['startingPacks'], ledger['weeklyPacks'], *ledger['startingWildcards'].values()]
+    if any(type(value) is not int or value < 0 for value in quantities):
+        raise ValueError('Current reward entitlements must be nonnegative integer amounts.')
+    return ledger
 
 
 def runner_temp():
@@ -213,7 +230,10 @@ def exercise(args):
               'assetId': metadata['assetId'], 'oldSha256': metadata['oldSha256'],
               'payloadSha256': metadata['newSha256'], 'schema': expected_schema,
               'success': False, 'nativeInstaller': True, 'guiAutomation': False,
-              'privateSigningMaterialUsed': False}
+              'privateSigningMaterialUsed': False,
+              'rewardCompensationExercised': False,
+              'normalUseVerificationExercised': False,
+              'preservationScope': 'Current reward entitlements are pre-recorded; verify native artifact replacement and fixture preservation, not online-gate UI or compensation.'}
     with tempfile.TemporaryDirectory(prefix='eternal-signed-linux-upgrade-', dir=runner_temp()) as temporary:
         root = Path(temporary).resolve()
         install = root / 'install'
@@ -335,7 +355,7 @@ def exercise(args):
             with connection() as db:
                 value = {table: db.execute(f'SELECT * FROM {table} ORDER BY 1,2').fetchall() for table in TABLES}
                 value['card'] = db.execute("SELECT id,oracle_id,name,set_code,collector_number,rarity FROM cards WHERE id='linux-upgrade-elf'").fetchall()
-                value['settings'] = db.execute("SELECT key,value FROM settings WHERE key='linux-signed-upgrade-probe' OR key LIKE 'forge_export:%' ORDER BY key").fetchall()
+                value['settings'] = db.execute("SELECT key,value FROM settings WHERE key IN ('linux-signed-upgrade-probe',?) OR key LIKE 'forge_export:%' ORDER BY key", (REWARD_LEDGER_KEY,)).fetchall()
                 if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                     raise RuntimeError('The isolated SQLite fixture lost integrity.')
             return value
@@ -362,6 +382,8 @@ def exercise(args):
             stop()
             report['officialOldLaunched'] = True
             rules = json.loads((ROOT / 'src-tauri/league-rules.json').read_text())
+            ledger = current_reward_ledger(rules)
+            report['preRecordedRewardEntitlements'] = ledger
             current_period = max(0, (int(time.time()) - rules['startedAt']) // 604800)
             with sqlite3.connect(database, timeout=2) as db:
                 for table in ['collection', 'decks', 'deck_cards', 'booster_history', 'progression_operations', 'league_state', 'booster_pack_queue']:
@@ -379,6 +401,11 @@ def exercise(args):
                 db.execute("INSERT INTO booster_history(id,set_code,contents_json) VALUES('linux-upgrade-history','fdn','[]')")
                 db.execute("INSERT INTO progression_operations(id,kind,request_json,result_json,created_at) VALUES('linux-upgrade-receipt','craft','{}','{}','2026-11-17T00:00:00Z')")
                 db.execute("INSERT INTO settings(key,value) VALUES('linux-signed-upgrade-probe','preserve-official-linux-upgrade-fixture')")
+                # The published old application ignores this additive key. The
+                # candidate sees no policy top-up due, so the timing of its
+                # mandatory online verification cannot alter this fixture.
+                db.execute('INSERT INTO settings(key,value) VALUES(?,?)',
+                           (REWARD_LEDGER_KEY, json.dumps(ledger, sort_keys=True)))
                 for expansion in rules.get('expansionSchedule', []):
                     if 0 < expansion['week'] <= current_period:
                         db.execute('INSERT INTO expansion_reward_claims(set_code,week,quantity,claimed_at) VALUES(?,?,?,?)',
@@ -414,7 +441,7 @@ def exercise(args):
                           settingsProbePreserved=True, cachePreserved=True, forgeDeckPreserved=True,
                           frozenUploadedPayloadUnchanged=True, ownedCards=2, decks=1,
                           commonWildcards=7, historyRows=1, receiptRows=1, queuedPacks=3)
-            print('PASS: actual official Linux signed upgrade, tamper rejection, relaunch, and fixture preservation.')
+            print('PASS: actual official Linux signed upgrade, tamper rejection, relaunch, and fixture preservation with current reward entitlements pre-recorded; compensation and online-gate UI not exercised.')
         except Exception as error:
             report['error'] = str(error).replace(str(root), '<isolated>')[-2500:]
             if logs:
@@ -429,6 +456,14 @@ def exercise(args):
 
 def self_test():
     assert version('0.3.0') > version('0.2.1')
+    ledger = current_reward_ledger({'startingPacks': 20, 'weeklyPacks': 6,
+                                   'startingWildcards': {'common': 10, 'uncommon': 5, 'rare': 2, 'mythic': 1}})
+    assert ledger == {'version': 1, 'startingPacks': 20, 'weeklyPacks': 6,
+                      'startingWildcards': {'common': 10, 'uncommon': 5, 'rare': 2, 'mythic': 1}}
+    with sqlite3.connect(':memory:') as db:
+        db.execute('CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
+        db.execute('INSERT INTO settings VALUES(?,?)', (REWARD_LEDGER_KEY, json.dumps(ledger)))
+        assert json.loads(db.execute('SELECT value FROM settings WHERE key=?', (REWARD_LEDGER_KEY,)).fetchone()[0]) == ledger
     for invalid in ['v0.3.0', '0.03.0', '0.3.0-beta', '../0.3.0']:
         try:
             version(invalid)
@@ -453,7 +488,7 @@ def self_test():
                             'HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR', 'TMPDIR',
                             'APPIMAGE_EXTRACT_AND_RUN', 'WEBKIT_DISABLE_DMABUF_RENDERER', 'LIBGL_ALWAYS_SOFTWARE', 'GDK_BACKEND', 'LINUX_QA_ROOT'}
         assert all(Path(env[key]).is_relative_to(temporary) for key in ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR', 'TMPDIR'])
-    print('PASS: stable version, signature version, redirect host, and credential-free temporary environment checks.')
+    print('PASS: reward-ledger fixture, stable version, signature version, redirect host, and credential-free temporary environment checks.')
 
 
 def main():

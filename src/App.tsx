@@ -28,6 +28,8 @@ import Collection from "@/pages/Collection";
 import DeckBuilder from "@/pages/DeckBuilder";
 import Boosters from "@/pages/Boosters";
 import UpdatePrompt from "@/components/UpdatePrompt";
+import { updater } from "@/services/updater";
+import { isUpdateBlocking } from "@/services/updater-controller";
 import ToastProvider from "@/components/ToastProvider";
 import { leagueStatus } from "@/services/progression";
 import {
@@ -81,6 +83,21 @@ function catalogSetupFailure(
 }
 
 export default function App() {
+  const desktop = isTauri();
+  const enforceUpdates = desktop && !import.meta.env.DEV;
+  const updateState = useSyncExternalStore(
+    updater.subscribe,
+    updater.getSnapshot,
+  );
+  const updateBlocked = enforceUpdates && isUpdateBlocking(updateState);
+  const canUseLeague = useCallback(
+    () => !enforceUpdates || !isUpdateBlocking(updater.getSnapshot()),
+    [enforceUpdates],
+  );
+  const [repairMode, setRepairMode] = useState(false);
+  const repairing = updateBlocked && repairMode;
+  const initializationRequested = useRef(false);
+  const refreshPending = useRef(false);
   const exitState = useSyncExternalStore(
     appLifecycle.subscribe,
     appLifecycle.getSnapshot,
@@ -153,7 +170,6 @@ export default function App() {
     week: 1,
     history: [],
   });
-  const desktop = isTauri();
   const [appVersion, setAppVersion] = useState("");
   useEffect(() => {
     if (!desktop) return;
@@ -184,12 +200,13 @@ export default function App() {
   }, [settings?.appearance.theme, settings?.appearance.fontSize]);
 
   const initialize = useCallback(async () => {
-    if (initializing.current) return;
+    if (initializing.current || !canUseLeague()) return;
     if (!desktop) {
       setLoading(false);
       return;
     }
     initializing.current = true;
+    initializationRequested.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -222,13 +239,18 @@ export default function App() {
       setLoading(false);
       initializing.current = false;
     }
-  }, [desktop]);
+  }, [desktop, canUseLeague]);
 
   useEffect(() => {
-    void initialize();
-  }, [initialize]);
+    if (!updateBlocked && !initializationRequested.current) void initialize();
+  }, [initialize, updateBlocked]);
 
   const handleDataChange = useCallback(() => {
+    if (!canUseLeague() || importing.current) {
+      refreshPending.current = true;
+      return;
+    }
+    refreshPending.current = false;
     setRevision((value) => value + 1);
     void leagueStatus()
       .then((next) => {
@@ -237,10 +259,15 @@ export default function App() {
       })
       .then(setStats)
       .catch((err: unknown) => setError(String(err)));
-  }, []);
+  }, [canUseLeague]);
 
   useEffect(() => {
-    if (!desktop || loading || !settings) return;
+    if (!updateBlocked && !importBusy && refreshPending.current)
+      handleDataChange();
+  }, [updateBlocked, importBusy, handleDataChange]);
+
+  useEffect(() => {
+    if (!desktop || loading || !settings || updateBlocked || importBusy) return;
     const refresh = () => {
       if (document.visibilityState === "visible") handleDataChange();
     };
@@ -265,6 +292,8 @@ export default function App() {
     };
   }, [
     desktop,
+    updateBlocked,
+    importBusy,
     loading,
     settings,
     league.nextRewardAt,
@@ -275,6 +304,11 @@ export default function App() {
   ]);
 
   function navigate(next: Page) {
+    if (
+      !canUseLeague() &&
+      (!repairing || !["decks", "settings"].includes(next))
+    )
+      return;
     if (next === "collection" || next === "decks" || next === "boosters")
       setVisited((current) => ({ ...current, [next]: true }));
     setPage(next);
@@ -289,6 +323,7 @@ export default function App() {
   }
 
   async function prepareCatalog(paths: ForgePaths) {
+    if (!canUseLeague()) return;
     pendingCatalog.current = {
       id: ++catalogRequestId.current,
       paths: { ...paths },
@@ -297,6 +332,7 @@ export default function App() {
     setImportProgress(null);
     if (importing.current) return;
     importing.current = true;
+    refreshPending.current = true;
     setImportBusy(true);
     let unlisten: (() => void) | undefined;
     try {
@@ -350,13 +386,17 @@ export default function App() {
   }
 
   async function handleSave(updated: AppSettings) {
+    if (!canUseLeague() && !repairing)
+      throw new Error("Finish the required application update first.");
     await saveSettings(updated);
     const saved = await loadSettings();
     const forgeChanged =
       JSON.stringify(saved.forge) !== JSON.stringify(settings?.forge);
     setSettings(saved);
-    setLeague(await leagueStatus());
-    setRevision((value) => value + 1);
+    if (canUseLeague()) {
+      setLeague(await leagueStatus());
+      setRevision((value) => value + 1);
+    }
     if (forgeChanged) {
       // Invalidate callbacks from an attempt using the previous saved folders.
       catalogRequestId.current += 1;
@@ -393,7 +433,10 @@ export default function App() {
   ];
 
   return (
-    <div className="app-shell" inert={exitState.busy}>
+    <div
+      className="app-shell"
+      inert={exitState.busy || (updateBlocked && !repairing)}
+    >
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
@@ -406,17 +449,19 @@ export default function App() {
         </div>
         <div className="sidebar-divider" />
         <nav className="main-nav" aria-label="Main navigation">
-          {navigation.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              className={`nav-item ${page === id ? "active" : ""}`}
-              onClick={() => navigate(id)}
-              aria-current={page === id ? "page" : undefined}
-            >
-              <Icon size={18} strokeWidth={1.7} />
-              <span>{label}</span>
-            </button>
-          ))}
+          {navigation
+            .filter(({ id }) => !repairing || id === "decks")
+            .map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                className={`nav-item ${page === id ? "active" : ""}`}
+                onClick={() => navigate(id)}
+                aria-current={page === id ? "page" : undefined}
+              >
+                <Icon size={18} strokeWidth={1.7} />
+                <span>{label}</span>
+              </button>
+            ))}
         </nav>
         <div className="sidebar-grow" />
         <nav className="utility-nav" aria-label="App navigation">
@@ -426,7 +471,7 @@ export default function App() {
             aria-current={page === "settings" ? "page" : undefined}
           >
             <Settings2 size={18} strokeWidth={1.7} />
-            <span>Settings</span>
+            <span>{repairing ? "Forge folders" : "Settings"}</span>
           </button>
         </nav>
         <div className="sidebar-status">
@@ -477,9 +522,11 @@ export default function App() {
             <div className="notice" role="status">
               <LoaderCircle size={17} className="animate-spin" />
               <span>
-                {catalog.count
-                  ? "Checking card catalog for this Forge version…"
-                  : "Preparing your card catalog…"}
+                {importProgress?.stage === "finalizing"
+                  ? "Saving your card catalog…"
+                  : catalog.count
+                    ? "Checking card catalog for this Forge version…"
+                    : "Preparing your card catalog…"}
                 {importProgress?.processed
                   ? ` ${importProgress.processed.toLocaleString()} printings processed.`
                   : ""}
@@ -555,7 +602,7 @@ export default function App() {
             </div>
           ) : settings && stats ? (
             <>
-              <div hidden={page !== "dashboard"}>
+              <div hidden={repairing || page !== "dashboard"}>
                 <Dashboard
                   settings={settings}
                   stats={stats}
@@ -569,7 +616,7 @@ export default function App() {
                 />
               </div>
               {visited.collection && (
-                <div hidden={page !== "collection"}>
+                <div hidden={repairing || page !== "collection"}>
                   <Collection
                     settings={settings}
                     revision={revision}
@@ -590,6 +637,7 @@ export default function App() {
               {visited.decks && (
                 <div hidden={page !== "decks"}>
                   <DeckBuilder
+                    repairOnly={repairing}
                     settings={settings}
                     revision={revision}
                     onChange={handleDataChange}
@@ -604,9 +652,9 @@ export default function App() {
                 </div>
               )}
               {visited.boosters && (
-                <div hidden={page !== "boosters"}>
+                <div hidden={repairing || page !== "boosters"}>
                   <Boosters
-                    active={page === "boosters"}
+                    active={page === "boosters" && !updateBlocked}
                     settings={settings}
                     revision={revision}
                     onChange={handleDataChange}
@@ -616,6 +664,7 @@ export default function App() {
               )}
               <div hidden={page !== "settings"}>
                 <Settings
+                  repairOnly={repairing}
                   leagueStatus={league}
                   forgeSetupRequest={forgeSetupRequest}
                   catalogSetupNeeded={catalogError !== null}
@@ -641,7 +690,16 @@ export default function App() {
           )}
         </div>
       </main>
-      <UpdatePrompt busy={loading || importBusy} />
+      <UpdatePrompt
+        busy={(loading && initializationRequested.current) || importBusy}
+        repairMode={repairing}
+        onReviewDeck={() => {
+          setRepairMode(true);
+          setVisited((current) => ({ ...current, decks: true }));
+          setPage("decks");
+        }}
+        onResumeUpdate={() => setRepairMode(false)}
+      />
       <ToastProvider />
     </div>
   );

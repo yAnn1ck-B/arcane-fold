@@ -20,6 +20,7 @@ export interface AppSettings {
     startedAt: number;
     expansionSchedule: ExpansionScheduleEntry[];
     startingPacks: number;
+    startingWildcards?: WildcardBalances;
     weeklyPacks: number;
     weeklyWildcards: {
       common: number;

@@ -2,6 +2,12 @@
 
 This document defines the release procedure and records implementation/verification as Phase 5 proceeds. The complete delivery scope remains in [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md). The current working preview and legacy development progress must remain intact.
 
+## Unreleased policy: mandatory online verification
+
+The next production version must verify online that it is current before normal league use. Only updater state `current` unlocks it. Recheck at startup, focus, reconnect, and every five minutes; idle/checking/check-failed states remain blocking. A known update cannot be dismissed or rechecked away. Offline/check failures and download, signature, installation, or restart failures stay blocked with explicit retry actions. Keep download, verified installation, and restart as separate explicit steps. Limited current-deck/Forge-folder repair is available only to finish pending autosaves; other league actions remain blocked. Development/preview builds bypass this production gate.
+
+This user-requested policy supersedes the previous optional-update instruction **for the next version**. Published 0.3.0 retains its shipped optional updater and needs one ordinary upgrade; its behavior cannot be changed retroactively. Client-side startup/focus/reconnect/periodic checks do not provide a central-server lockstep guarantee. The following published-release evidence is unchanged; no new version/tag/publication or installed mandatory-update test is claimed here.
+
 ## Current release: 0.3.0
 
 [Eternal League v0.3.0](https://github.com/yAnn1ck-B/eternal-league/releases/tag/v0.3.0), release **448393920**, was published unchanged at **2026-11-17T10:06:54Z** (17:06:54 Bangkok). The immutable tag points to **`1b22f49f534f1047d9b0026a5d16b2d39fd60b9d`**. The shared league anchor and schema-7 migration bytes remain unchanged.
@@ -113,7 +119,7 @@ Automatic approval review initially rejected credential export and public-releas
 
 Local authenticated operations use `scripts/github.mjs`, which obtains credentials in memory and passes a child-only `GH_TOKEN`. Do not print credentials or persist temporary tokens. Keep the signing identity stable between releases so installed clients continue to verify updates.
 
-Production builds check for updates at startup and every four hours; development and preview builds do not start the updater or show update prompts. It presents **Install update** and **Later**, installs only after acceptance, verifies the signed update, and restarts as needed. Updates and reinstalls must retain the database, collection, decks, rewards, settings, and downloaded artwork. Actual Windows silent uninstall/reinstall and signed-upgrade preservation passed with the fixture described below. The Linux native signed-upgrade probe below also passed. Final 0.2.1 private artifact gates are complete; the precise UI/native test scopes are recorded below.
+Published 0.3.0 and the earlier releases check for updates at startup and every four hours, offering **Install update** and **Later**. Their optional-update behavior is historical shipped behavior; the unreleased policy above requires online verification and removes Later. Development/preview builds continue to bypass the production updater gate. Updates and reinstalls must retain the database, collection, decks, rewards, settings, and downloaded artwork. Actual Windows silent uninstall/reinstall and signed-upgrade preservation passed with the fixture described below. The Linux native signed-upgrade probe below also passed. Final 0.2.1 private artifact gates are complete; the precise UI/native test scopes are recorded below.
 
 ## Historical 0.2.x verification record
 

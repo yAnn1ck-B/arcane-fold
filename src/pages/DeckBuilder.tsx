@@ -76,6 +76,7 @@ interface DeckBuilderProps {
   league: LeagueStatus;
   addRequest?: DeckAddRequest | null;
   onAddRequestHandled?: (requestId: string) => void;
+  repairOnly?: boolean;
 }
 type Section = "main" | "sideboard";
 type Notice = { kind: "error" | "info"; message: string };
@@ -251,9 +252,11 @@ function withCard(
 function DeckCardTitle({
   card,
   onDetails,
+  disabled = false,
 }: {
   card: CatalogCard;
   onDetails: () => void;
+  disabled?: boolean;
 }) {
   const mana = formatMana(card.manaCost);
   return (
@@ -263,6 +266,7 @@ function DeckCardTitle({
         className="deck-oracle-name"
         title={card.name}
         onClick={onDetails}
+        disabled={disabled}
       >
         {card.name}
       </button>
@@ -328,6 +332,7 @@ export default function DeckBuilder({
   league,
   addRequest,
   onAddRequestHandled,
+  repairOnly = false,
 }: DeckBuilderProps) {
   const toast = useToast();
   const exitState = useSyncExternalStore(
@@ -909,6 +914,7 @@ export default function DeckBuilder({
   }
   function requestAction(action: DeckAction) {
     if (
+      repairOnly ||
       taskRunning.current ||
       appLifecycle.isLocked() ||
       (action.kind === "load" && action.id === autosave.getDraft().id)
@@ -917,6 +923,13 @@ export default function DeckBuilder({
     void performAction(action);
   }
   function promptForNewDeck(mode: "new" | "current", duringExit = false) {
+    const currentDraft = autosave.getDraft();
+    if (
+      repairOnly &&
+      (mode === "new" ||
+        (!currentDraft.name.trim() && !currentDraft.cards.length))
+    )
+      return;
     if (appLifecycle.isLocked() && !duringExit) return;
     setNewDeckPrompt(
       (current) =>
@@ -930,7 +943,13 @@ export default function DeckBuilder({
   }
   function promptForCopy() {
     const sourceId = autosave.getDraft().id;
-    if (!sourceId || taskRunning.current || appLifecycle.isLocked()) return;
+    if (
+      repairOnly ||
+      !sourceId ||
+      taskRunning.current ||
+      appLifecycle.isLocked()
+    )
+      return;
     const suffix = " (copy)";
     setNewDeckPrompt({
       mode: "copy",
@@ -1023,6 +1042,7 @@ export default function DeckBuilder({
   }
   function changeCard(card: CatalogCard, target: Section, delta: number) {
     if (
+      (repairOnly && delta > 0) ||
       taskRunning.current ||
       appLifecycle.isLocked() ||
       !Number.isSafeInteger(delta)
@@ -1315,7 +1335,9 @@ export default function DeckBuilder({
                   value={id ?? ""}
                   title={name || "Choose or create a deck"}
                   aria-busy={loadingDecks}
-                  disabled={loadingDecks || !!busy || !decks.length}
+                  disabled={
+                    repairOnly || loadingDecks || !!busy || !decks.length
+                  }
                   onChange={(event) =>
                     requestAction({ kind: "load", id: event.target.value })
                   }
@@ -1340,7 +1362,7 @@ export default function DeckBuilder({
                 variant="ghost"
                 title="Rename deck"
                 aria-label="Rename deck"
-                disabled={!!busy}
+                disabled={!!busy || (repairOnly && !name.trim() && !dirty)}
                 onClick={() => {
                   if (!latestName.current.trim()) {
                     promptForNewDeck("current");
@@ -1362,7 +1384,7 @@ export default function DeckBuilder({
                     latestName.current.trim() ? "new" : "current",
                   )
                 }
-                disabled={!!busy}
+                disabled={repairOnly || !!busy}
               >
                 <Plus size={15} /> New deck
               </Button>
@@ -1371,7 +1393,7 @@ export default function DeckBuilder({
                 variant="ghost"
                 title="Copy deck"
                 aria-label="Copy deck"
-                disabled={!!busy || !id || hasUnownedCards}
+                disabled={repairOnly || !!busy || !id || hasUnownedCards}
                 onClick={promptForCopy}
               >
                 <Copy size={16} />
@@ -1381,8 +1403,9 @@ export default function DeckBuilder({
                 variant="ghost"
                 aria-label="Delete saved deck"
                 title="Delete saved deck"
-                disabled={!!busy || !selectedSummary}
+                disabled={repairOnly || !!busy || !selectedSummary}
                 onClick={() => {
+                  if (repairOnly) return;
                   setDeleteError(null);
                   if (selectedSummary)
                     setDeleteTarget({ ...selectedSummary, name });
@@ -1493,6 +1516,7 @@ export default function DeckBuilder({
                       <button
                         type="button"
                         className="card-art-trigger"
+                        disabled={repairOnly}
                         onClick={() => setSelectedCard(card)}
                         aria-label={`View ${card.name} details`}
                       />
@@ -1503,6 +1527,7 @@ export default function DeckBuilder({
                     <div className="deck-oracle-copy">
                       <DeckCardTitle
                         card={card}
+                        disabled={repairOnly}
                         onDetails={() => setSelectedCard(card)}
                       />
                       <div className="deck-oracle-controls">
@@ -1523,7 +1548,7 @@ export default function DeckBuilder({
                         <Button
                           size="icon"
                           variant="ghost"
-                          disabled={!!busy || !!reason}
+                          disabled={repairOnly || !!busy || !!reason}
                           title={reason ?? "Add one copy"}
                           aria-label={`Add one ${card.name} to ${section}`}
                           onClick={() => changeCard(card, section, 1)}
@@ -1696,6 +1721,7 @@ export default function DeckBuilder({
                         <button
                           type="button"
                           className="card-art-trigger"
+                          disabled={repairOnly}
                           onClick={() => setSelectedCard(card)}
                           aria-label={`View ${card.name} details`}
                         />
@@ -1711,7 +1737,7 @@ export default function DeckBuilder({
                             variant="secondary"
                             aria-label={`Add ${card.name} to ${section}`}
                             title={reason ?? "Add one copy"}
-                            disabled={!!busy || !!reason}
+                            disabled={repairOnly || !!busy || !!reason}
                             onClick={() => changeCard(card, section, 1)}
                           >
                             <Plus size={16} />
@@ -2035,6 +2061,7 @@ export default function DeckBuilder({
                       size="icon"
                       aria-label="Add more copies"
                       disabled={
+                        repairOnly ||
                         !!busy ||
                         !!blockedReason(
                           addFlow.card,
@@ -2101,7 +2128,7 @@ export default function DeckBuilder({
           </div>
         </DeckDialog>
       )}
-      {selectedCard && (
+      {selectedCard && !repairOnly && (
         <CardDetails
           card={selectedCard}
           imageCacheDir={imageCacheDir}
@@ -2109,7 +2136,8 @@ export default function DeckBuilder({
           onClose={() => setSelectedCard(null)}
           onChange={onChange}
           onPrintingChange={(card) => {
-            if (taskRunning.current || appLifecycle.isLocked()) return;
+            if (repairOnly || taskRunning.current || appLifecycle.isLocked())
+              return;
             setSelectedCard(card);
             if (addFlow) {
               setAddFlow((flow) =>

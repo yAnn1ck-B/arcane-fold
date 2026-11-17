@@ -4,6 +4,12 @@ A desktop companion to MTG Forge. Forge handles gameplay; Eternal League manages
 
 Download [Eternal League 0.3.0](https://github.com/yAnn1ck-B/eternal-league/releases/tag/v0.3.0) for Windows or Linux. Published on 17 November 2026, this is the first complete release built and updater-signed through GitHub Actions. Both installers and the public update endpoint passed cryptographic verification.
 
+## Planned 0.3.1: required version verification
+
+The next production version will require an online check confirming that the installed version is current before the league can be used. Checks run at startup, when focus returns or connectivity resumes, and every five minutes. There is no Later/dismiss option. Offline/check failures and update download, signature, installation, or restart failures keep the league blocked with retry actions. Download, installation, and restart remain separate explicit steps. Limited deck/Forge-folder repair stays available only to finish pending deck saves; other league actions remain blocked. Development/preview builds bypass the gate.
+
+Published **0.3.0 still has optional updates** and needs one ordinary upgrade to adopt this behavior. These client-side checks do not guarantee that every device changes version at the same instant. The 0.3.1 candidate is not yet published.
+
 ## Run locally
 
 Use Windows with Node.js 20.19+ (or a supported newer LTS), Rust 1.90+, the MSVC C++ build tools and Windows SDK, and WebView2. See the [official Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
@@ -23,7 +29,7 @@ The catalog loads automatically during first setup. Later detected Forge-version
 
 Existing Forge artwork is preferred. Missing images download on demand and are cached locally; known exact Forge filenames may also receive a new image without overwriting existing artwork. The dashboard banner prefers the modern **Vintage Masters Black Lotus**, displayed upright with its full proportions preserved. Mox Pearl, Mox Sapphire, Mox Jet, Mox Ruby, and Mox Emerald form five upright layers behind it; these banner cards do not add collection ownership. The banner has no artwork caption. Unlocked expansions use a compact count with an expandable list of full names. The dashboard also shows the next expansion and its unlock date/bonus, or an alert when no future expansion remains on the shared calendar.
 
-Production SQLite data lives in `%APPDATA%\com.eternalleague.desktop\eternal-league.db`, outside the installation and build directories. Ordinary `npm run tauri dev` launches preserve the legacy `com.eternalleague.app` development profile, while the isolated preview uses `com.eternalleague.preview`. Production starts with its own clean profile; existing development databases and Forge files are left intact. Keep the production identifier and migration history stable across updates. SQL migrations use canonical LF bytes on every platform, enforced by checkout attributes, version validation, and a native build guard. Local browsing, card rules, deck editing, and progression work offline after setup; uncached artwork and missing catalog data require a connection.
+Production SQLite data lives in `%APPDATA%\com.eternalleague.desktop\eternal-league.db`, outside the installation and build directories. Ordinary `npm run tauri dev` launches preserve the legacy `com.eternalleague.app` development profile, while the isolated preview uses `com.eternalleague.preview`. Production starts with its own clean profile; existing development databases and Forge files are left intact. Keep the production identifier and migration history stable across updates. SQL migrations use canonical LF bytes on every platform, enforced by checkout attributes, version validation, and a native build guard. Published 0.3.0 supports local browsing, card rules, deck editing, and progression offline after setup; uncached artwork and missing catalog data require a connection. The unreleased version-verification policy above will require online verification before normal use.
 
 The interface uses Daylight with Larger text and compact page headings. Appearance controls are removed; the existing theme CSS remains in the source. The app version appears beneath Forge's connection status. The layout fills the available window, and page navigation returns to the top without navigating away during Collection Add. The deck builder groups a compact deck selector and rename icon on the left, with space before New, Copy, and Delete on the right. **Cards per row** offers responsive Auto (up to five columns with the card browser open or seven with it collapsed) or exact choices from 2 through 7. Fixed choices remain unchanged on resize or maximize; narrow card areas scroll horizontally when needed. The choice is remembered locally.
 
@@ -31,10 +37,11 @@ The interface uses Daylight with Larger text and compact page headings. Appearan
 
 The canonical configuration is [src-tauri/league-rules.json](src-tauri/league-rules.json). It is included in the application build and shown read-only in **Settings → League rules**. The expansion calendar marks the current week and expansion, unlocked entries, and upcoming unlocks. Individual users cannot edit league rewards, pack composition, expansion availability, unlock order, or deck rules through Settings.
 
-The current build uses:
+The planned 0.3.1 build uses the following shared rules; published 0.3.0 retains its 12 starting packs and 4 weekly packs until upgraded:
 
 - One shared start committed in `src-tauri/league-rules.json` before the first public release and kept stable afterward. Phase 4 notes retain the earlier development timestamp.
-- 12 starting packs and 4 packs each week.
+- 20 starting packs and 6 packs each week.
+- Starting wildcards: 10 common, 5 uncommon, 2 rare, and 1 mythic.
 - Wildcards: 4 common and 2 uncommon each week, 1 rare every two weeks, and 1 mythic every four weeks.
 - Foundations (`FDN`) at week 0, followed by a fixed expansion unlock every four weeks through week 52. Each later unlock awards 8 additional packs reserved for that expansion.
 - 15 pack slots: 10 common, 4 uncommon, and 1 rare/mythic; no basic-land slot.
@@ -63,7 +70,7 @@ The expansion calendar comes from the same canonical configuration:
 
 Each expansion unlock adds eight reserved packs to the same persistent chronological queue as starting and weekly packs. A queued pack keeps its assigned expansion. **Open one pack** opens the next earned pack; **Open all** consumes the remaining queue in order, including multiple expansions. There is no expansion selector or manual reward-claim action.
 
-Everyone uses the same league calendar. Starting automatically with the first opening grants the starting packs and all rewards already earned since the shared start. For existing leagues, status updates automatically credit due weekly packs, wildcards, and expansion rewards once. Pack contents remain individual to each opening.
+Everyone uses the same league calendar. Starting automatically with the first opening grants the starting packs and all rewards already earned since the shared start. For existing leagues, status updates automatically credit due weekly packs, wildcards, and expansion rewards once. Pack contents remain individual to each opening. The planned 0.3.1 reward adjustment adds only the unpaid difference for existing started leagues: 8 starting packs, 2 packs per previously credited week, and the new starting wildcard grant, once. Already spent cards, packs, wildcards, and opening history are preserved; the weekly wildcard cadence is unchanged.
 
 ## Collect and build
 

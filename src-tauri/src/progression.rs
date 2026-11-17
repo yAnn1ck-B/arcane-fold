@@ -16,6 +16,7 @@ use tauri::AppHandle;
 const WEEK_SECONDS: i64 = 7 * 24 * 60 * 60;
 const MAX_BALANCE: i64 = 2_147_483_647;
 const COLLECTION_COPY_LIMIT: i64 = 4;
+const REWARD_ENTITLEMENTS_KEY: &str = "league_reward_entitlements_v1";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct WildcardBalances {
@@ -232,9 +233,14 @@ fn validate_config(config: &LeagueConfig) -> Result<(), String> {
             .values()
             .iter()
             .any(|(_, value)| !(0..=100_000).contains(value))
+        || config
+            .starting_wildcards
+            .values()
+            .iter()
+            .any(|(_, value)| !(0..=100_000).contains(value))
     {
         return Err(
-            "Pack and weekly wildcard rewards must be whole numbers between 0 and 100,000.".into(),
+            "Pack and wildcard rewards must be whole numbers between 0 and 100,000.".into(),
         );
     }
     if [config.mythic_probability, config.wildcard_drop_probability]
@@ -511,6 +517,16 @@ async fn enqueue_weekly(
     from: i64,
     through: i64,
 ) -> Result<(), String> {
+    enqueue_weekly_with_prefix(connection, config, from, through, "weekly").await
+}
+
+async fn enqueue_weekly_with_prefix(
+    connection: &mut SqliteConnection,
+    config: &LeagueConfig,
+    from: i64,
+    through: i64,
+    prefix: &str,
+) -> Result<(), String> {
     if through <= from || config.weekly_packs == 0 {
         return Ok(());
     }
@@ -541,7 +557,7 @@ async fn enqueue_weekly(
         let code = pack_set_at(config, first)?;
         enqueue_packs(
             connection,
-            &format!("weekly:{first:012}"),
+            &format!("{prefix}:{first:012}"),
             &code,
             "general",
             first,
@@ -647,6 +663,159 @@ async fn ensure_pack_queue(
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RewardEntitlements {
+    version: u8,
+    starting_packs: i64,
+    weekly_packs: i64,
+    starting_wildcards: WildcardBalances,
+}
+
+impl RewardEntitlements {
+    fn current(config: &LeagueConfig) -> Self {
+        Self {
+            version: 1,
+            starting_packs: config.starting_packs,
+            weekly_packs: config.weekly_packs,
+            starting_wildcards: config.starting_wildcards.clone(),
+        }
+    }
+
+    fn legacy() -> Self {
+        // These are the fixed entitlements shipped before this ledger existed.
+        Self {
+            version: 1,
+            starting_packs: 12,
+            weekly_packs: 4,
+            starting_wildcards: WildcardBalances::default(),
+        }
+    }
+}
+
+async fn store_reward_entitlements(
+    connection: &mut SqliteConnection,
+    ledger: &RewardEntitlements,
+) -> Result<(), String> {
+    sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+        .bind(REWARD_ENTITLEMENTS_KEY).bind(serde_json::to_string(ledger).map_err(|error| error.to_string())?)
+        .execute(&mut *connection).await.map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+async fn reconcile_reward_entitlements(
+    connection: &mut SqliteConnection,
+    config: &LeagueConfig,
+    current: LeagueState,
+) -> Result<bool, String> {
+    let saved: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key=?")
+        .bind(REWARD_ENTITLEMENTS_KEY)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(|error| error.to_string())?;
+    let previous = match saved.as_deref() {
+        Some(value) => serde_json::from_str::<RewardEntitlements>(value).map_err(|_| {
+            "The saved reward entitlement ledger is invalid. Existing progress was preserved."
+                .to_string()
+        })?,
+        None => RewardEntitlements::legacy(),
+    };
+    if previous.version != 1
+        || [previous.starting_packs, previous.weekly_packs]
+            .iter()
+            .any(|value| !(0..=100_000).contains(value))
+        || previous
+            .starting_wildcards
+            .values()
+            .iter()
+            .any(|(_, value)| !(0..=100_000).contains(value))
+    {
+        return Err(
+            "The saved reward entitlement ledger is invalid. Existing progress was preserved."
+                .into(),
+        );
+    }
+    let initial_delta = (config.starting_packs - previous.starting_packs).max(0);
+    let weekly_delta = (config.weekly_packs - previous.weekly_packs).max(0);
+    let packs = weekly_delta
+        .checked_mul(current.last_claimed_period)
+        .and_then(|value| value.checked_add(initial_delta))
+        .filter(|value| *value <= MAX_BALANCE)
+        .ok_or("The accumulated reward adjustment exceeds the supported balance.")?;
+    let wildcard_delta = WildcardBalances {
+        common: (config.starting_wildcards.common - previous.starting_wildcards.common).max(0),
+        uncommon: (config.starting_wildcards.uncommon - previous.starting_wildcards.uncommon)
+            .max(0),
+        rare: (config.starting_wildcards.rare - previous.starting_wildcards.rare).max(0),
+        mythic: (config.starting_wildcards.mythic - previous.starting_wildcards.mythic).max(0),
+    };
+    if packs > 0 {
+        ensure_pack_queue(connection, config, Some(current)).await?;
+        let changed = sqlx::query("UPDATE league_state SET available_packs=available_packs+? WHERE id=1 AND available_packs<=?")
+            .bind(packs).bind(MAX_BALANCE-packs).execute(&mut *connection).await.map_err(|error| error.to_string())?.rows_affected();
+        if changed != 1 {
+            return Err("The pack balance cannot accept the reward adjustment.".into());
+        }
+        enqueue_packs(
+            connection,
+            &format!(
+                "reward-adjustment:v1:starting:{}:{}",
+                previous.starting_packs, config.starting_packs
+            ),
+            &pack_set_at(config, 0)?,
+            "general",
+            0,
+            0,
+            initial_delta,
+        )
+        .await?;
+        let mut delta_config = config.clone();
+        delta_config.weekly_packs = weekly_delta;
+        enqueue_weekly_with_prefix(
+            connection,
+            &delta_config,
+            0,
+            current.last_claimed_period,
+            &format!(
+                "reward-adjustment:v1:weekly:{}:{}",
+                previous.weekly_packs, config.weekly_packs
+            ),
+        )
+        .await?;
+    }
+    add_wildcards(connection, &wildcard_delta).await?;
+    let updated = RewardEntitlements {
+        version: 1,
+        starting_packs: previous.starting_packs.max(config.starting_packs),
+        weekly_packs: previous.weekly_packs.max(config.weekly_packs),
+        starting_wildcards: WildcardBalances {
+            common: previous
+                .starting_wildcards
+                .common
+                .max(config.starting_wildcards.common),
+            uncommon: previous
+                .starting_wildcards
+                .uncommon
+                .max(config.starting_wildcards.uncommon),
+            rare: previous
+                .starting_wildcards
+                .rare
+                .max(config.starting_wildcards.rare),
+            mythic: previous
+                .starting_wildcards
+                .mythic
+                .max(config.starting_wildcards.mythic),
+        },
+    };
+    if saved.is_none()
+        || serde_json::to_string(&updated).map_err(|error| error.to_string())?
+            != serde_json::to_string(&previous).map_err(|error| error.to_string())?
+    {
+        store_reward_entitlements(connection, &updated).await?;
+    }
+    Ok(packs > 0 || wildcard_delta.values().iter().any(|(_, value)| *value > 0))
+}
+
 async fn accrue_rewards(
     connection: &mut SqliteConnection,
     config: &LeagueConfig,
@@ -655,6 +824,9 @@ async fn accrue_rewards(
 ) -> Result<(), String> {
     let mut current = state(connection, config).await?;
     ensure_pack_queue(connection, config, current).await?;
+    if let Some(existing) = current {
+        reconcile_reward_entitlements(connection, config, existing).await?;
+    }
     if current.is_none() {
         if !auto_start {
             return Ok(());
@@ -677,6 +849,8 @@ async fn accrue_rewards(
             config.starting_packs,
         )
         .await?;
+        add_wildcards(connection, &config.starting_wildcards).await?;
+        store_reward_entitlements(connection, &RewardEntitlements::current(config)).await?;
         current = Some(LeagueState {
             started_at: config.started_at,
             available_packs: config.starting_packs,
@@ -841,7 +1015,15 @@ async fn status_connection(
     let claimable_packs = claimable_base_packs
         .checked_add(total_set_packs(&claimable_set_packs)?)
         .ok_or("The claimable pack balance exceeds the supported range.")?;
-    let (join_weekly_packs, join_wildcards) = accumulated_rewards(&config, current)?;
+    let (join_weekly_packs, mut join_wildcards) = accumulated_rewards(&config, current)?;
+    join_wildcards.add(&config.starting_wildcards);
+    if join_wildcards
+        .values()
+        .iter()
+        .any(|(_, quantity)| *quantity > MAX_BALANCE)
+    {
+        return Err("The catch-up wildcard balance exceeds the supported range.".into());
+    }
     let join_packs = config
         .starting_packs
         .checked_add(join_weekly_packs)
@@ -934,6 +1116,7 @@ pub async fn begin_pool(pool: &SqlitePool, now: i64) -> Result<LeagueStatus, Str
         accrue_rewards(&mut transaction, &config, now, true).await?;
     } else {
         ensure_pack_queue(&mut transaction, &config, existing).await?;
+        reconcile_reward_entitlements(&mut transaction, &config, existing.unwrap()).await?;
     }
     let status = status_connection(&mut transaction, now).await?;
     transaction.commit().await.map_err(|e| e.to_string())?;
@@ -950,14 +1133,15 @@ pub async fn claim_pool(pool: &SqlitePool, now: i64) -> Result<LeagueStatus, Str
         .await?
         .ok_or("Begin your league before claiming weekly rewards.")?;
     ensure_pack_queue(&mut transaction, &config, Some(state)).await?;
+    let adjusted = reconcile_reward_entitlements(&mut transaction, &config, state).await?;
     let current = period(config.started_at, now);
     let bonuses = unclaimed_expansion_rewards(&mut transaction, &config, now).await?;
-    if current < 1 && bonuses.is_empty() {
+    if current < 1 && bonuses.is_empty() && !adjusted {
         return Err(
             "The first weekly reward becomes available seven days after the league begins.".into(),
         );
     }
-    if current <= state.last_claimed_period && bonuses.is_empty() {
+    if current <= state.last_claimed_period && bonuses.is_empty() && !adjusted {
         return Err("All available weekly and expansion rewards have already been claimed.".into());
     }
     let (packs, wildcards) = rewards_between(&config, state.last_claimed_period, current)?;
@@ -1335,6 +1519,10 @@ pub async fn open_pool_boosters(
         .await?
         .ok_or("Begin your league before opening booster packs.")?;
     ensure_pack_queue(&mut transaction, &config, Some(state)).await?;
+    reconcile_reward_entitlements(&mut transaction, &config, state).await?;
+    let state = self::state(&mut transaction, &config)
+        .await?
+        .ok_or("Begin your league before opening booster packs.")?;
     if !enabled_sets(&config, Some(state), now).contains(&set_code) {
         return Err("This set is locked until its shared league unlock date.".into());
     }
@@ -1688,6 +1876,7 @@ pub async fn craft_pool(
     let state = state(&mut transaction, &config)
         .await?
         .ok_or("Begin your league before crafting cards.")?;
+    reconcile_reward_entitlements(&mut transaction, &config, state).await?;
     let row = sqlx::query(&format!("SELECT c.*,COALESCE(o.quantity,0) AS owned,{ORACLE_OWNED_SQL} AS oracle_owned FROM cards c LEFT JOIN collection o ON o.card_id=c.id WHERE c.id=?"))
         .bind(card_id).fetch_optional(&mut *transaction).await.map_err(|e| e.to_string())?.ok_or("This printing is missing from the card catalog.")?;
     let card = card_from_row(&row)?;
@@ -1850,7 +2039,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let settings = serde_json::json!({ "league": { "startedAt": NOW, "startingPacks": 2, "weeklyPacks": 4, "weeklyWildcards": { "common": 0, "uncommon": 0, "rare": 2, "mythic": 0 }, "enabledSets": ["tst"], "mythicProbability": 0.125 } });
+        let settings = serde_json::json!({ "league": { "startedAt": NOW, "startingPacks": 2, "startingWildcards": {"common":0,"uncommon":0,"rare":0,"mythic":0}, "weeklyPacks": 4, "weeklyWildcards": { "common": 0, "uncommon": 0, "rare": 2, "mythic": 0 }, "enabledSets": ["tst"], "mythicProbability": 0.125 } });
         sqlx::query("INSERT INTO settings(key,value) VALUES('app',?)")
             .bind(settings.to_string())
             .execute(&pool)
@@ -1882,6 +2071,11 @@ mod tests {
         let db = fixture().await;
         let mut rules = crate::league_rules::builtin_rules().unwrap();
         rules.started_at = NOW;
+        // Existing chronology fixtures intentionally retain the published legacy
+        // amounts. Dedicated entitlement tests exercise the new production amounts.
+        rules.starting_packs = 12;
+        rules.weekly_packs = 4;
+        rules.starting_wildcards = WildcardBalances::default();
         sqlx::query("UPDATE settings SET value=? WHERE key='app'")
             .bind(serde_json::json!({ "league": rules }).to_string())
             .execute(&db.pool)
@@ -2793,6 +2987,389 @@ mod tests {
         }
     }
 
+    fn current_reward_rules() -> LeagueConfig {
+        let mut rules = crate::league_rules::builtin_rules().unwrap();
+        rules.started_at = NOW;
+        rules.enabled_sets = vec!["tst".into()];
+        rules.expansion_schedule.clear();
+        rules.auto_unlock = AutoUnlock::default();
+        rules
+    }
+
+    async fn set_reward_rules(pool: &SqlitePool, rules: &LeagueConfig) {
+        sqlx::query("UPDATE settings SET value=? WHERE key='app'")
+            .bind(serde_json::json!({"league":rules}).to_string())
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn legacy_reward_profile() -> TestDatabase {
+        let db = fixture().await;
+        let mut old = current_reward_rules();
+        old.starting_packs = 12;
+        old.weekly_packs = 4;
+        old.starting_wildcards = WildcardBalances::default();
+        set_reward_rules(&db.pool, &old).await;
+        begin_pool(&db.pool, NOW).await.unwrap();
+        claim_pool(&db.pool, NOW + 4 * WEEK_SECONDS).await.unwrap();
+        open_pool_boosters(&db.pool, "tst", 1, "already-spent", NOW + 4 * WEEK_SECONDS)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO decks(id,name) VALUES('preserved-deck','Preserve this deck')")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO deck_cards(deck_id,card_id,section,quantity) VALUES('preserved-deck','c','main',1)").execute(&db.pool).await.unwrap();
+        // A released legacy binary had no entitlement ledger.
+        sqlx::query("DELETE FROM settings WHERE key=?")
+            .bind(REWARD_ENTITLEMENTS_KEY)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db
+    }
+
+    async fn owned_reward_snapshot(
+        pool: &SqlitePool,
+    ) -> (Vec<(String, i64)>, String, String, String) {
+        let cards = sqlx::query_as("SELECT card_id,quantity FROM collection ORDER BY card_id")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+        let history = sqlx::query_scalar("SELECT COALESCE(json_group_array(contents_json),'[]') FROM (SELECT contents_json FROM booster_history ORDER BY id)").fetch_one(pool).await.unwrap();
+        let receipts = sqlx::query_scalar("SELECT COALESCE(json_group_array(result_json),'[]') FROM (SELECT result_json FROM progression_operations ORDER BY id)").fetch_one(pool).await.unwrap();
+        let decks = sqlx::query_scalar("SELECT COALESCE(json_group_array(json_object('id',d.id,'name',d.name,'card',dc.card_id,'section',dc.section,'quantity',dc.quantity)),'[]') FROM decks d LEFT JOIN deck_cards dc ON dc.deck_id=d.id ORDER BY d.id,dc.card_id").fetch_one(pool).await.unwrap();
+        (cards, history, receipts, decks)
+    }
+
+    #[test]
+    fn reward_upgrade_adds_only_missing_entitlements_once_without_rewriting_spends() {
+        tauri::async_runtime::block_on(async {
+            let db = legacy_reward_profile().await;
+            let old = status_pool(&db.pool, NOW + 4 * WEEK_SECONDS).await.unwrap();
+            let preserved = owned_reward_snapshot(&db.pool).await;
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            let updated = automatic_status_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
+                .await
+                .unwrap();
+            assert_eq!(updated.general_packs, old.general_packs + 8 + 2 * 4);
+            assert_eq!(updated.wildcards.common, old.wildcards.common + 10);
+            assert_eq!(updated.wildcards.uncommon, old.wildcards.uncommon + 5);
+            assert_eq!(updated.wildcards.rare, old.wildcards.rare + 2);
+            assert_eq!(updated.wildcards.mythic, old.wildcards.mythic + 1);
+            assert_eq!(owned_reward_snapshot(&db.pool).await, preserved);
+            let again = automatic_status_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
+                .await
+                .unwrap();
+            assert_eq!(again.general_packs, updated.general_packs);
+            assert_eq!(again.wildcards, updated.wildcards);
+            assert_eq!(
+                begin_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
+                    .await
+                    .unwrap()
+                    .general_packs,
+                updated.general_packs
+            );
+            let ledger: String = sqlx::query_scalar("SELECT value FROM settings WHERE key=?")
+                .bind(REWARD_ENTITLEMENTS_KEY)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+            let ledger: RewardEntitlements = serde_json::from_str(&ledger).unwrap();
+            assert_eq!(ledger.starting_packs, 20);
+            assert_eq!(ledger.weekly_packs, 6);
+            assert_eq!(
+                ledger.starting_wildcards,
+                WildcardBalances {
+                    common: 10,
+                    uncommon: 5,
+                    rare: 2,
+                    mythic: 1
+                }
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT SUM(remaining) FROM booster_pack_queue WHERE source='general'"
+                )
+                .fetch_one(&db.pool)
+                .await
+                .unwrap(),
+                updated.general_packs
+            );
+        });
+    }
+
+    #[test]
+    fn current_new_and_late_players_receive_identical_entitlements_and_initial_preview() {
+        tauri::async_runtime::block_on(async {
+            let early = fixture().await;
+            let late = fixture().await;
+            let rules = current_reward_rules();
+            for db in [&early, &late] {
+                set_reward_rules(&db.pool, &rules).await;
+            }
+            let preview = status_pool(&late.pool, NOW).await.unwrap();
+            assert_eq!(preview.join_packs, 20);
+            assert_eq!(preview.join_wildcards, rules.starting_wildcards);
+            let started = begin_pool(&early.pool, NOW).await.unwrap();
+            assert_eq!(started.general_packs, 20);
+            assert_eq!(started.wildcards, rules.starting_wildcards);
+            for week in 1..=4 {
+                automatic_status_pool(&early.pool, NOW + week * WEEK_SECONDS)
+                    .await
+                    .unwrap();
+            }
+            let preview = status_pool(&late.pool, NOW + 4 * WEEK_SECONDS)
+                .await
+                .unwrap();
+            assert_eq!(preview.join_packs, 44);
+            assert_eq!(
+                preview.join_wildcards,
+                WildcardBalances {
+                    common: 26,
+                    uncommon: 13,
+                    rare: 4,
+                    mythic: 2
+                }
+            );
+            let late = begin_pool(&late.pool, NOW + 4 * WEEK_SECONDS)
+                .await
+                .unwrap();
+            let early = automatic_status_pool(&early.pool, NOW + 4 * WEEK_SECONDS)
+                .await
+                .unwrap();
+            assert_eq!(late.general_packs, 44);
+            assert_eq!(late.general_packs, early.general_packs);
+            assert_eq!(late.wildcards, early.wildcards);
+        });
+    }
+
+    #[test]
+    fn direct_legacy_open_reconciles_spent_balance_before_checking_packs_and_replays_once() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            let mut old = current_reward_rules();
+            old.starting_packs = 12;
+            old.weekly_packs = 4;
+            old.starting_wildcards = WildcardBalances::default();
+            set_reward_rules(&db.pool, &old).await;
+            begin_pool(&db.pool, NOW).await.unwrap();
+            open_pool_boosters(&db.pool, "tst", 12, "spent-starting-packs", NOW)
+                .await
+                .unwrap();
+            sqlx::query("DELETE FROM settings WHERE key=?")
+                .bind(REWARD_ENTITLEMENTS_KEY)
+                .execute(&db.pool)
+                .await
+                .unwrap();
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            let opened = open_pool_boosters(&db.pool, "tst", 1, "first-upgraded-open", NOW)
+                .await
+                .unwrap();
+            assert_eq!(opened.packs, 1);
+            let after = status_pool(&db.pool, NOW).await.unwrap();
+            assert_eq!(after.general_packs, 7);
+            let snapshot = reconciliation_snapshot(&db.pool).await;
+            let replay = open_pool_boosters(&db.pool, "tst", 1, "first-upgraded-open", NOW)
+                .await
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(opened).unwrap(),
+                serde_json::to_value(replay).unwrap()
+            );
+            assert_eq!(reconciliation_snapshot(&db.pool).await, snapshot);
+        });
+    }
+
+    #[test]
+    fn direct_legacy_claim_commits_reward_adjustments_without_another_week_due() {
+        tauri::async_runtime::block_on(async {
+            for credited_weeks in [0, 4] {
+                let db = fixture().await;
+                let mut old = current_reward_rules();
+                old.starting_packs = 12;
+                old.weekly_packs = 4;
+                old.starting_wildcards = WildcardBalances::default();
+                set_reward_rules(&db.pool, &old).await;
+                begin_pool(&db.pool, NOW).await.unwrap();
+                let now = NOW + credited_weeks * WEEK_SECONDS;
+                if credited_weeks > 0 {
+                    claim_pool(&db.pool, now).await.unwrap();
+                }
+                sqlx::query("DELETE FROM settings WHERE key=?")
+                    .bind(REWARD_ENTITLEMENTS_KEY)
+                    .execute(&db.pool)
+                    .await
+                    .unwrap();
+                let before = status_pool(&db.pool, now).await.unwrap();
+                set_reward_rules(&db.pool, &current_reward_rules()).await;
+                let updated = claim_pool(&db.pool, now).await.unwrap();
+                assert_eq!(
+                    updated.general_packs,
+                    before.general_packs + 8 + 2 * credited_weeks
+                );
+                assert_eq!(updated.wildcards.common, before.wildcards.common + 10);
+                assert!(claim_pool(&db.pool, now).await.is_err());
+                let again = status_pool(&db.pool, now).await.unwrap();
+                assert_eq!(again.general_packs, updated.general_packs);
+                assert_eq!(again.wildcards, updated.wildcards);
+            }
+        });
+    }
+
+    #[test]
+    fn concurrent_reward_upgrade_claims_share_one_adjustment() {
+        tauri::async_runtime::block_on(async {
+            let db = legacy_reward_profile().await;
+            let before = status_pool(&db.pool, NOW + 4 * WEEK_SECONDS).await.unwrap();
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            let first = db.pool.clone();
+            let second = db.pool.clone();
+            let a =
+                tokio::spawn(
+                    async move { automatic_status_pool(&first, NOW + 4 * WEEK_SECONDS).await },
+                );
+            let b = tokio::spawn(async move {
+                automatic_status_pool(&second, NOW + 4 * WEEK_SECONDS).await
+            });
+            let a = a.await.unwrap().unwrap();
+            let b = b.await.unwrap().unwrap();
+            assert_eq!(a.general_packs, b.general_packs);
+            assert_eq!(a.general_packs, before.general_packs + 16);
+            assert_eq!(a.wildcards, b.wildcards);
+        });
+    }
+
+    #[test]
+    fn reward_upgrade_failure_rolls_back_balances_queue_and_ledger_then_retries() {
+        tauri::async_runtime::block_on(async {
+            let db = legacy_reward_profile().await;
+            let before = status_pool(&db.pool, NOW + 4 * WEEK_SECONDS).await.unwrap();
+            let queued: i64 = sqlx::query_scalar("SELECT SUM(remaining) FROM booster_pack_queue")
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            sqlx::raw_sql("CREATE TRIGGER reject_reward_ledger BEFORE INSERT ON settings WHEN NEW.key='league_reward_entitlements_v1' BEGIN SELECT RAISE(ABORT,'test ledger failure'); END;").execute(&db.pool).await.unwrap();
+            assert!(automatic_status_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
+                .await
+                .unwrap_err()
+                .contains("test ledger failure"));
+            let after = status_pool(&db.pool, NOW + 4 * WEEK_SECONDS).await.unwrap();
+            assert_eq!(after.general_packs, before.general_packs);
+            assert_eq!(after.wildcards, before.wildcards);
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT SUM(remaining) FROM booster_pack_queue")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                queued
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM settings WHERE key='league_reward_entitlements_v1'"
+                )
+                .fetch_one(&db.pool)
+                .await
+                .unwrap(),
+                0
+            );
+            sqlx::raw_sql("DROP TRIGGER reject_reward_ledger")
+                .execute(&db.pool)
+                .await
+                .unwrap();
+            assert_eq!(
+                automatic_status_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
+                    .await
+                    .unwrap()
+                    .general_packs,
+                before.general_packs + 16
+            );
+        });
+    }
+
+    #[test]
+    fn reward_upgrade_rejects_corrupt_ledger_and_never_subtracts_lower_entitlements() {
+        tauri::async_runtime::block_on(async {
+            let db = legacy_reward_profile().await;
+            let before = status_pool(&db.pool, NOW + 4 * WEEK_SECONDS).await.unwrap();
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            for value in [
+                "not-json",
+                "{}",
+                r#"{"version":2,"startingPacks":12,"weeklyPacks":4,"startingWildcards":{"common":0,"uncommon":0,"rare":0,"mythic":0}}"#,
+            ] {
+                sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(REWARD_ENTITLEMENTS_KEY).bind(value).execute(&db.pool).await.unwrap();
+                assert!(automatic_status_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
+                    .await
+                    .unwrap_err()
+                    .contains("ledger is invalid"));
+                assert_eq!(
+                    status_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
+                        .await
+                        .unwrap()
+                        .general_packs,
+                    before.general_packs
+                );
+            }
+            sqlx::query("DELETE FROM settings WHERE key=?")
+                .bind(REWARD_ENTITLEMENTS_KEY)
+                .execute(&db.pool)
+                .await
+                .unwrap();
+            let mut lower = current_reward_rules();
+            lower.starting_packs = 0;
+            lower.weekly_packs = 0;
+            lower.starting_wildcards = WildcardBalances::default();
+            set_reward_rules(&db.pool, &lower).await;
+            let same = automatic_status_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
+                .await
+                .unwrap();
+            assert_eq!(same.general_packs, before.general_packs);
+            assert_eq!(same.wildcards, before.wildcards);
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            assert_eq!(
+                automatic_status_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
+                    .await
+                    .unwrap()
+                    .general_packs,
+                before.general_packs + 16
+            );
+        });
+    }
+
+    #[test]
+    fn reward_upgrade_queue_retains_historical_set_assignment_and_bonus_balances() {
+        tauri::async_runtime::block_on(async {
+            let db = scheduled_fixture().await;
+            begin_pool(&db.pool, NOW).await.unwrap();
+            let old = claim_pool(&db.pool, NOW + 6 * WEEK_SECONDS).await.unwrap();
+            sqlx::query("DELETE FROM settings WHERE key=?")
+                .bind(REWARD_ENTITLEMENTS_KEY)
+                .execute(&db.pool)
+                .await
+                .unwrap();
+            let mut rules = crate::league_rules::builtin_rules().unwrap();
+            rules.started_at = NOW;
+            set_reward_rules(&db.pool, &rules).await;
+            let updated = automatic_status_pool(&db.pool, NOW + 6 * WEEK_SECONDS)
+                .await
+                .unwrap();
+            assert_eq!(updated.general_packs, old.general_packs + 20);
+            assert_eq!(updated.set_packs, old.set_packs);
+            let adjustments: Vec<(String,i64,i64,i64)> = sqlx::query_as("SELECT set_code,earned_period,priority,remaining FROM booster_pack_queue WHERE id LIKE 'reward-adjustment:%' ORDER BY earned_period,priority,id").fetch_all(&db.pool).await.unwrap();
+            assert_eq!(
+                adjustments,
+                vec![
+                    ("fdn".into(), 0, 0, 8),
+                    ("fdn".into(), 1, 1, 6),
+                    ("blb".into(), 4, 1, 6)
+                ]
+            );
+        });
+    }
+
     fn recipe_config(commons: i64, uncommons: i64, rare_slots: i64) -> LeagueConfig {
         LeagueConfig {
             booster: BoosterConfig {
@@ -3376,14 +3953,14 @@ mod tests {
             let joined = begin_pool(&db.pool, built_in.started_at + 2 * WEEK_SECONDS)
                 .await
                 .unwrap();
-            assert_eq!(joined.available_packs, 20);
+            assert_eq!(joined.available_packs, 32);
             assert_eq!(
                 joined.wildcards,
                 WildcardBalances {
-                    common: 8,
-                    uncommon: 4,
-                    rare: 1,
-                    mythic: 0
+                    common: 18,
+                    uncommon: 9,
+                    rare: 3,
+                    mythic: 1
                 }
             );
             assert_eq!(joined.enabled_sets, vec!["fdn"]);
@@ -3755,22 +4332,22 @@ mod tests {
             assert!(status.upcoming_expansions.is_empty());
             assert_eq!(status.join_set_packs.len(), 13);
             assert!(status.join_set_packs.values().all(|packs| *packs == 8));
-            assert_eq!(status.join_packs, 12 + 52 * 4 + 13 * 8);
+            assert_eq!(status.join_packs, 20 + 52 * 6 + 13 * 8);
             let joined = begin_pool(&db.pool, now).await.unwrap();
-            assert_eq!(joined.general_packs, 220);
-            assert_eq!(joined.available_packs, 324);
+            assert_eq!(joined.general_packs, 332);
+            assert_eq!(joined.available_packs, 436);
             assert_eq!(
                 joined.wildcards,
                 WildcardBalances {
-                    common: 208,
-                    uncommon: 104,
-                    rare: 26,
-                    mythic: 13,
+                    common: 218,
+                    uncommon: 109,
+                    rare: 28,
+                    mythic: 14,
                 }
             );
             assert_eq!(
                 begin_pool(&db.pool, now).await.unwrap().available_packs,
-                324
+                436
             );
         });
     }
@@ -3789,7 +4366,7 @@ mod tests {
             (8, [32, 16, 4, 2]),
         ] {
             let (packs, rewards) = accumulated_rewards(&rules, week).unwrap();
-            assert_eq!(packs, week * 4);
+            assert_eq!(packs, week * 6);
             assert_eq!(
                 rewards,
                 WildcardBalances {

@@ -8,8 +8,7 @@ export type UpdatePhase =
   | "downloaded"
   | "installing"
   | "installed"
-  | "restarting"
-  | "dismissed";
+  | "restarting";
 
 export type UpdateProgress =
   | { event: "Started"; data: { contentLength?: number } }
@@ -40,7 +39,13 @@ export interface UpdateAdapter {
   relaunch: () => Promise<void>;
 }
 
-export const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000;
+export const UPDATE_CHECK_INTERVAL = 5 * 60 * 1000;
+
+// Only a completed check proving this build current unlocks normal app use.
+// A known update stays mandatory through every download/install/restart retry.
+export function isUpdateBlocking(state: UpdateState | UpdatePhase): boolean {
+  return (typeof state === "string" ? state : state.phase) !== "current";
+}
 
 const initialState: UpdateState = {
   phase: "idle",
@@ -63,6 +68,7 @@ export class UpdateController {
   private update: UpdateHandle | null = null;
   private started = false;
   private nextCheckAt = 0;
+  private downloadAttempt = 0;
   private listeners = new Set<() => void>();
   private adapter: UpdateAdapter;
   private now: () => number;
@@ -91,7 +97,7 @@ export class UpdateController {
   }
 
   async check() {
-    if (!["idle", "current", "check-failed", "dismissed"].includes(this.state.phase)) return;
+    if (!["idle", "current", "check-failed"].includes(this.state.phase)) return;
     this.nextCheckAt = this.now() + UPDATE_CHECK_INTERVAL;
     const previous = this.update;
     this.update = null;
@@ -119,9 +125,11 @@ export class UpdateController {
   async download() {
     const update = this.update;
     if (this.state.phase !== "available" || !update) return;
+    const attempt = ++this.downloadAttempt;
     this.setState({ phase: "downloading", error: null, downloadedBytes: 0, totalBytes: null });
     try {
       await update.download((event) => {
+        if (attempt !== this.downloadAttempt || this.state.phase !== "downloading") return;
         if (event.event === "Started") {
           this.setState({ totalBytes: event.data.contentLength ?? null });
         } else if (event.event === "Progress") {
@@ -156,12 +164,4 @@ export class UpdateController {
     }
   }
 
-  async dismiss() {
-    if (["checking", "downloading", "installing", "restarting"].includes(this.state.phase)) return;
-    const update = this.update;
-    this.update = null;
-    this.nextCheckAt = this.now() + UPDATE_CHECK_INTERVAL;
-    this.setState({ phase: "dismissed" });
-    await update?.close().catch(() => {});
-  }
 }

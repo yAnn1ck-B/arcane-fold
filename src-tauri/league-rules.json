@@ -1,7 +1,13 @@
 {
   "startedAt": 1794847589,
-  "startingPacks": 12,
-  "weeklyPacks": 4,
+  "startingPacks": 20,
+  "startingWildcards": {
+    "common": 10,
+    "uncommon": 5,
+    "rare": 2,
+    "mythic": 1
+  },
+  "weeklyPacks": 6,
   "weeklyWildcards": {
     "common": 4,
     "uncommon": 2,

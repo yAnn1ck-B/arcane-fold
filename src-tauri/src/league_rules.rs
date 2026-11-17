@@ -99,6 +99,7 @@ impl Default for WildcardRewardIntervals {
 pub struct LeagueRules {
     pub started_at: i64,
     pub starting_packs: i64,
+    pub starting_wildcards: WildcardBalances,
     pub weekly_packs: i64,
     pub weekly_wildcards: WildcardBalances,
     pub wildcard_reward_intervals: WildcardRewardIntervals,
@@ -115,8 +116,14 @@ impl Default for LeagueRules {
     fn default() -> Self {
         Self {
             started_at: 1_794_801_597,
-            starting_packs: 12,
-            weekly_packs: 4,
+            starting_packs: 20,
+            starting_wildcards: WildcardBalances {
+                common: 10,
+                uncommon: 5,
+                rare: 2,
+                mythic: 1,
+            },
+            weekly_packs: 6,
             weekly_wildcards: WildcardBalances::default(),
             wildcard_reward_intervals: WildcardRewardIntervals::default(),
             mythic_probability: 0.125,

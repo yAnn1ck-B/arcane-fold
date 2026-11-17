@@ -7,7 +7,7 @@ use serde::{
 use serde_json::Value;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow},
-    Acquire, QueryBuilder, Row, Sqlite, SqliteConnection, SqlitePool,
+    Connection, QueryBuilder, Row, Sqlite, SqliteConnection, SqlitePool,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -1189,9 +1189,20 @@ pub async fn import_catalog(
                 None,
                 "Reading card metadata. Your collection and decks remain intact.",
             );
-            let imported = import_file(&pool, &source, |count| {
-                progress(&app, "importing", count, None, "Importing card printings…")
-            });
+            let imported = import_file_with_finalizing(
+                &pool,
+                &source,
+                |count| progress(&app, "importing", count, None, "Importing card printings…"),
+                |count| {
+                    progress(
+                        &app,
+                        "finalizing",
+                        count,
+                        Some(count),
+                        "Finalizing the offline catalog. Your collection and decks remain intact.",
+                    )
+                },
+            );
             if downloaded {
                 let _ = fs::remove_file(&source);
             }
@@ -1422,10 +1433,16 @@ fn normalize(value: Value) -> Result<Option<ImportCard>, String> {
     }))
 }
 
-pub fn import_file(
+#[cfg(test)]
+pub fn import_file(pool: &SqlitePool, path: &Path, notify: impl FnMut(u64)) -> Result<u64, String> {
+    import_file_with_finalizing(pool, path, notify, |_| {})
+}
+
+fn import_file_with_finalizing(
     pool: &SqlitePool,
     path: &Path,
     mut notify: impl FnMut(u64),
+    mut finalizing: impl FnMut(u64),
 ) -> Result<u64, String> {
     // Keep SQLx's deferred connection cleanup inside a runtime context even
     // when this helper is called by a synchronous fixture test.
@@ -1523,15 +1540,79 @@ pub fn import_file(
         );
     }
     flush(&mut connection, &batch)?;
-    tauri::async_runtime::block_on(async {
-        let mut transaction=connection.begin().await?;
-        sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri,league_eligible) SELECT id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri,league_eligible FROM catalog_import_stage WHERE 1 ON CONFLICT(id) DO UPDATE SET oracle_id=excluded.oracle_id,name=excluded.name,set_code=excluded.set_code,collector_number=excluded.collector_number,rarity=excluded.rarity,metadata_json=excluded.metadata_json,set_name=excluded.set_name,mana_cost=excluded.mana_cost,cmc=excluded.cmc,type_line=excluded.type_line,oracle_text=excluded.oracle_text,colors_json=excluded.colors_json,image_uri=excluded.image_uri,back_image_uri=excluded.back_image_uri,league_eligible=excluded.league_eligible").execute(&mut *transaction).await?;
-        sqlx::query("INSERT INTO settings(key,value) VALUES('catalog_updated_at',strftime('%Y-%m-%dT%H:%M:%SZ','now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value").execute(&mut *transaction).await?;
-        sqlx::query("DROP TABLE catalog_import_stage").execute(&mut *transaction).await?;
-        transaction.commit().await
-    }).map_err(|e|format!("Could not commit the catalog; existing data was preserved: {e}"))?;
+    finalizing(count);
+    tauri::async_runtime::block_on(merge_catalog_stage(
+        &mut connection,
+        3,
+        Duration::from_millis(200),
+    ))
+    .map_err(|error| {
+        if sqlite_busy(&error) {
+            "Another database operation is still running. Close other Eternal League windows and retry catalog setup. Your saved collection and decks were preserved.".to_string()
+        } else {
+            format!("Could not commit the catalog; existing data was preserved: {error}")
+        }
+    })?;
     notify(count);
     Ok(count)
+}
+
+fn sqlite_busy(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(|error| error.code())
+        .and_then(|code| code.parse::<u32>().ok())
+        .is_some_and(|code| code & 0xff == 5)
+}
+
+async fn merge_catalog_stage(
+    connection: &mut SqliteConnection,
+    attempts: usize,
+    retry_delay: Duration,
+) -> Result<(), sqlx::Error> {
+    // SQLite permits one writer even with WAL. Retain the complete TEMP stage
+    // while waiting, and acquire write access before reading any main snapshot.
+    // Only lock acquisition is retried; a constraint/disk/merge failure is not.
+    // Production keeps the normal 20-second busy timeout and tries at most 3
+    // times, instead of repeatedly downloading/parsing or waiting indefinitely.
+    for attempt in 0..attempts.max(1) {
+        let mut transaction = match connection.begin_with("BEGIN IMMEDIATE").await {
+            Ok(transaction) => transaction,
+            Err(error) if sqlite_busy(&error) && attempt + 1 < attempts => {
+                tokio::time::sleep(retry_delay).await;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let merged = async {
+            let fresh: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM cards)")
+                .fetch_one(&mut *transaction)
+                .await?;
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri,league_eligible) SELECT id,oracle_id,name,set_code,collector_number,rarity,metadata_json,set_name,mana_cost,cmc,type_line,oracle_text,colors_json,image_uri,back_image_uri,league_eligible FROM catalog_import_stage WHERE 1 ON CONFLICT(id) DO UPDATE SET oracle_id=excluded.oracle_id,name=excluded.name,set_code=excluded.set_code,collector_number=excluded.collector_number,rarity=excluded.rarity,metadata_json=excluded.metadata_json,set_name=excluded.set_name,mana_cost=excluded.mana_cost,cmc=excluded.cmc,type_line=excluded.type_line,oracle_text=excluded.oracle_text,colors_json=excluded.colors_json,image_uri=excluded.image_uri,back_image_uri=excluded.back_image_uri,league_eligible=excluded.league_eligible").execute(&mut *transaction).await?;
+            sqlx::query("INSERT INTO settings(key,value) VALUES('catalog_updated_at',strftime('%Y-%m-%dT%H:%M:%SZ','now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value").execute(&mut *transaction).await?;
+            // normalize() derived eligibility for every row in a fresh catalog.
+            // Avoid immediately locking it again for a redundant full backfill.
+            // Partial/legacy catalogs can contain unimported old rows and must
+            // retain the existing policy-upgrade path instead.
+            if fresh {
+                sqlx::query("INSERT INTO settings(key,value) VALUES('catalog_browse_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+                    .bind(BROWSE_POLICY_VERSION).execute(&mut *transaction).await?;
+            }
+            Ok::<(), sqlx::Error>(())
+        }.await;
+        if let Err(error) = merged {
+            transaction.rollback().await?;
+            return Err(error);
+        }
+        transaction.commit().await?;
+        // TEMP cleanup cannot turn an already committed catalog into a reported
+        // import failure. The next import also clears any leftover TEMP stage.
+        let _ = sqlx::query("DROP TABLE temp.catalog_import_stage")
+            .execute(&mut *connection)
+            .await;
+        return Ok(());
+    }
+    unreachable!("there is always at least one catalog merge attempt")
 }
 
 fn flush(connection: &mut SqliteConnection, cards: &[ImportCard]) -> Result<(), String> {
@@ -1598,6 +1679,294 @@ mod tests {
     }
     fn fixture(id: &str, name: &str) -> Value {
         serde_json::json!({"object":"card","id":id,"oracle_id":id,"name":name,"set":"tst","set_name":"Test","collector_number":"1","rarity":"common","mana_cost":"{G}","cmc":1,"type_line":"Creature","colors":["G"],"oracle_text":"A test card."})
+    }
+
+    fn wal_pool_pair() -> (tempfile::TempDir, SqlitePool, SqlitePool) {
+        let (directory, initial) = pool();
+        tauri::async_runtime::block_on(initial.close());
+        let options = SqliteConnectOptions::new()
+            .filename(directory.path().join("test.db"))
+            .foreign_keys(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_millis(20));
+        let (pool, other) = tauri::async_runtime::block_on(async {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(2)
+                .connect_with(options.clone())
+                .await
+                .unwrap();
+            let other = SqlitePoolOptions::new()
+                .max_connections(2)
+                .connect_with(options)
+                .await
+                .unwrap();
+            (pool, other)
+        });
+        (directory, pool, other)
+    }
+
+    #[test]
+    fn catalog_import_waits_for_another_wal_writer_without_reparsing_or_losing_progress() {
+        let (directory, pool, other) = wal_pool_pair();
+        tauri::async_runtime::block_on(async {
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json) VALUES('owned','owned','Owned card','tst','1','common','{}')").execute(&pool).await.unwrap();
+            sqlx::raw_sql("INSERT INTO collection(card_id,quantity) VALUES('owned',2); INSERT INTO decks(id,name) VALUES('saved','Saved deck'); INSERT INTO deck_cards(deck_id,card_id,section,quantity) VALUES('saved','owned','main',1); UPDATE wildcards SET quantity=7 WHERE rarity='common'; INSERT INTO settings(key,value) VALUES('app','preserve-settings'); INSERT INTO booster_history(id,set_code,contents_json) VALUES('opening','tst','[]');").execute(&pool).await.unwrap();
+            // Pre-open both connections so connection setup is outside contention.
+            let first = pool.acquire().await.unwrap();
+            let second = pool.acquire().await.unwrap();
+            drop((first, second));
+        });
+        let source = directory.path().join("concurrent.json");
+        let cards: Vec<_> = (0..501)
+            .map(|n| fixture(&format!("new-{n}"), "New card"))
+            .collect();
+        fs::write(&source, serde_json::to_vec(&cards).unwrap()).unwrap();
+        let (ready, acquired) = std::sync::mpsc::channel();
+        let writer_pool = other.clone();
+        let writer = std::thread::spawn(move || {
+            tauri::async_runtime::block_on(async {
+                let mut transaction = writer_pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+                sqlx::query("INSERT INTO settings(key,value) VALUES('other-writer','committed')")
+                    .execute(&mut *transaction)
+                    .await
+                    .unwrap();
+                ready.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(180));
+                transaction.commit().await.unwrap();
+            })
+        });
+        acquired.recv_timeout(Duration::from_secs(3)).unwrap();
+        let mut parsed = Vec::new();
+        let mut finalizing = Vec::new();
+        let imported = import_file_with_finalizing(
+            &pool,
+            &source,
+            |count| {
+                parsed.push(count);
+                if count == 500 {
+                    assert_eq!(
+                        tauri::async_runtime::block_on(
+                            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM cards")
+                                .fetch_one(&pool)
+                        )
+                        .unwrap(),
+                        1
+                    );
+                }
+            },
+            |count| finalizing.push(count),
+        );
+        writer.join().unwrap();
+        assert_eq!(imported.unwrap(), 501);
+        assert_eq!(parsed, [500, 501]);
+        assert_eq!(finalizing, [501]);
+        tauri::async_runtime::block_on(async {
+            assert_eq!(status_pool(&pool).await.unwrap().count, 502);
+            assert_eq!(get_card_pool(&pool, "owned").await.unwrap().owned, 2);
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT quantity FROM deck_cards WHERE deck_id='saved'"
+                )
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+                1
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT quantity FROM wildcards WHERE rarity='common'"
+                )
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+                7
+            );
+            assert_eq!(
+                catalog_setting(&pool, "app").await.unwrap().as_deref(),
+                Some("preserve-settings")
+            );
+            assert_eq!(
+                catalog_setting(&pool, "other-writer")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some("committed")
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM booster_history")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                1
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                "ok"
+            );
+            pool.close().await;
+            other.close().await;
+        });
+    }
+
+    #[test]
+    fn catalog_merge_bounds_busy_retries_and_retains_the_stage_for_a_later_attempt() {
+        let (_directory, pool, other) = wal_pool_pair();
+        tauri::async_runtime::block_on(async {
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json) VALUES('old','old','Old card','tst','1','common','{}')").execute(&pool).await.unwrap();
+            let mut connection = pool.acquire().await.unwrap();
+            sqlx::raw_sql("CREATE TEMP TABLE catalog_import_stage AS SELECT * FROM cards; UPDATE catalog_import_stage SET id='new',oracle_id='new';")
+                .execute(&mut *connection).await.unwrap();
+            let writer = other.begin_with("BEGIN IMMEDIATE").await.unwrap();
+            let started = std::time::Instant::now();
+            let error = merge_catalog_stage(&mut connection, 2, Duration::ZERO)
+                .await
+                .unwrap_err();
+            assert!(sqlite_busy(&error));
+            assert!(started.elapsed() < Duration::from_secs(5));
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM cards WHERE id='new'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM temp.catalog_import_stage")
+                    .fetch_one(&mut *connection)
+                    .await
+                    .unwrap(),
+                1
+            );
+            writer.rollback().await.unwrap();
+            merge_catalog_stage(&mut connection, 2, Duration::ZERO)
+                .await
+                .unwrap();
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM cards")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                2
+            );
+            drop(connection);
+            pool.close().await;
+            other.close().await;
+        });
+    }
+
+    #[test]
+    fn catalog_merge_rolls_back_cards_policy_and_timestamp_after_a_late_failure() {
+        let (directory, pool) = pool();
+        tauri::async_runtime::block_on(async {
+            sqlx::raw_sql("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json) VALUES('owned','owned','Original name','tst','1','common','{}'); INSERT INTO collection(card_id,quantity) VALUES('owned',2); INSERT INTO settings(key,value) VALUES('catalog_updated_at','before'); CREATE TRIGGER reject_catalog_stamp BEFORE INSERT ON settings WHEN NEW.key='catalog_updated_at' BEGIN SELECT RAISE(ABORT,'fixture stamp failure'); END;")
+                .execute(&pool).await.unwrap();
+        });
+        let source = directory.path().join("late-failure.json");
+        fs::write(
+            &source,
+            serde_json::to_vec(&[fixture("owned", "Changed name"), fixture("new", "New card")])
+                .unwrap(),
+        )
+        .unwrap();
+        let error = import_file(&pool, &source, |_| {}).unwrap_err();
+        assert!(error.contains("fixture stamp failure"));
+        tauri::async_runtime::block_on(async {
+            assert_eq!(status_pool(&pool).await.unwrap().count, 1);
+            let owned = get_card_pool(&pool, "owned").await.unwrap();
+            assert_eq!(owned.name, "Original name");
+            assert_eq!(owned.owned, 2);
+            assert_eq!(
+                catalog_setting(&pool, "catalog_updated_at")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some("before")
+            );
+            assert_eq!(
+                catalog_setting(&pool, "catalog_browse_policy")
+                    .await
+                    .unwrap(),
+                None
+            );
+            sqlx::query("DROP TRIGGER reject_catalog_stamp")
+                .execute(&pool)
+                .await
+                .unwrap();
+        });
+        assert_eq!(import_file(&pool, &source, |_| {}).unwrap(), 2);
+        tauri::async_runtime::block_on(async {
+            assert_eq!(get_card_pool(&pool, "owned").await.unwrap().owned, 2);
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn fresh_catalog_import_avoids_a_redundant_eligibility_write_but_partial_catalogs_upgrade() {
+        let (directory, fresh_pool) = pool();
+        let source = directory.path().join("fresh.json");
+        fs::write(
+            &source,
+            serde_json::to_vec(&[fixture("fresh", "Fresh creature")]).unwrap(),
+        )
+        .unwrap();
+        import_file(&fresh_pool, &source, |_| {}).unwrap();
+        tauri::async_runtime::block_on(async {
+            assert_eq!(
+                catalog_setting(&fresh_pool, "catalog_browse_policy")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some(BROWSE_POLICY_VERSION)
+            );
+            sqlx::query("CREATE TRIGGER reject_redundant_backfill BEFORE UPDATE OF league_eligible ON cards BEGIN SELECT RAISE(ABORT,'unexpected full catalog backfill'); END")
+                .execute(&fresh_pool).await.unwrap();
+            assert_eq!(
+                query_pool(&fresh_pool, CardQuery::default())
+                    .await
+                    .unwrap()
+                    .total,
+                1
+            );
+            fresh_pool.close().await;
+        });
+        let (partial_directory, partial_pool) = pool();
+        tauri::async_runtime::block_on(async {
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,type_line) VALUES('legacy','legacy','Legacy creature','tst','1','common','{}','Creature')")
+                .execute(&partial_pool).await.unwrap();
+        });
+        let source = partial_directory.path().join("partial.json");
+        fs::write(
+            &source,
+            serde_json::to_vec(&[fixture("new", "New creature")]).unwrap(),
+        )
+        .unwrap();
+        import_file(&partial_pool, &source, |_| {}).unwrap();
+        tauri::async_runtime::block_on(async {
+            assert_eq!(
+                catalog_setting(&partial_pool, "catalog_browse_policy")
+                    .await
+                    .unwrap(),
+                None
+            );
+            assert_eq!(
+                query_pool(&partial_pool, CardQuery::default())
+                    .await
+                    .unwrap()
+                    .total,
+                2
+            );
+            assert_eq!(
+                catalog_setting(&partial_pool, "catalog_browse_policy")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some(BROWSE_POLICY_VERSION)
+            );
+            partial_pool.close().await;
+        });
     }
     #[test]
     fn banner_selects_all_five_original_moxes_preferring_vma_without_acquiring_cards() {
