@@ -2,6 +2,24 @@
 
 This document defines the release procedure and records implementation/verification as Phase 5 proceeds. The complete delivery scope remains in [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md). The current working preview and legacy development progress must remain intact.
 
+## Current release: 0.3.0
+
+[Eternal League v0.3.0](https://github.com/yAnn1ck-B/eternal-league/releases/tag/v0.3.0), release **448393920**, was published unchanged at **2026-11-17T10:06:54Z** (17:06:54 Bangkok). The immutable tag points to **`1b22f49f534f1047d9b0026a5d16b2d39fd60b9d`**. The shared league anchor and schema-7 migration bytes remain unchanged.
+
+- [Tagged workflow 44055179189](https://github.com/yAnn1ck-B/eternal-league/actions/runs/44055179189) passed both Windows and Linux jobs plus signed-draft verification. This completed the **first full application release through Actions updater signing**, using the established encrypted repository Secrets and public key. Local signing remains a fallback; the earlier 0.2.1 release used local signing.
+- All **126 native checks** passed (122 unit, one migration guard, three cold-configuration tests), together with **55 Node checks** (24 deck-autosave/lifecycle and 31 updater/version/verifier/migration checks). The complete locked suite passed in a fresh checkout with pinned Rust 1.90 and in both tagged platform jobs.
+- Full draft verification checked exactly five assets: Windows NSIS installer, Linux AppImage, their version-bound public signatures, and `latest.json`. The workflow normalized only updater manifest URLs to the final public tag; signed installer bytes were unchanged. After publication, **anonymous verification passed** for both actual installer downloads, both version-bound minisign signatures, and the production public updater endpoint serving 0.3.0.
+- **Windows scope:** the exact official updater-signed NSIS artifact passed manual installation, a real **0.2.1 to 0.3.0 installer upgrade**, uninstall/reinstall, and cold launches reporting native 0.3.0 with `previewWeeks: 0`. The fixture retained two owned copies, one deck/main row, seven common wildcards, history, receipt, three queued packs, settings/cache probes, and the Forge file. Installed UI checks covered the new pack policy, missing-Forge configuration focus, and automatic-save deck controls. This 0.3.0 check exercised NSIS directly; the historical updater consent/UI tests below remain separate evidence.
+- **Linux scope:** the job launched the actual published 0.2.1 AppImage and installed the exact uploaded 0.3.0 payload through the real Tauri updater/AppImage installer driven by **MockRuntime**. Tampered bytes were rejected; valid signed replacement preserved permissions and matched the uploaded SHA-256. The upgraded real application relaunched under Xvfb with two owned copies, one deck, seven common wildcards, one history row, one receipt, three queued packs, its settings probe, cache marker, and external Forge file intact. The frozen uploaded payload was unchanged. Package smoke separately passed empty first launch, relaunch, and AppImage-file-replacement preservation. **Linux GUI interaction was not automated.**
+- Cleanup removed only owned QA fixtures and registrations. The actively played preview was rebuilt and reopened after installer QA; its ten game-table fingerprints, catalog, and separate Forge exports matched the pre-release audit. Historical QA checkpoints are not restoration targets.
+
+| Exact published installer | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `Eternal.League_0.3.0_x64-setup.exe` | 5,736,881 | `F8F06DCE0D5240D7664EEBBB069BC697A3027488690E611048D32425AACDDCAB` |
+| `Eternal.League_0.3.0_amd64.AppImage` | 86,899,192 | `193807BBE7902B7F0712FFD19C3783F8D4C899C472645C26CD65E6E3C4DAFC31` |
+
+Ignored local evidence is under `.verification/releases/v0.3.0/`: `state.json`, `published.json`, `windows-verification.json`, `draft-verification.log`, `published-verification.log`, `linux-install/linux-install-smoke.json`, and `linux-upgrade/linux-signed-upgrade.json`. Windows preservation/UI evidence is in `.verification/windows030-*.log`; preview before/after audits are `.verification/release-030-preview-before.json` and `release-030-preview-after.json`. These are evidence paths, not packaged player data. No installed four-hour wall-clock test or Linux GUI-consent test is claimed.
+
 ## Application identities
 
 | Purpose                      | Identifier                  | Launch/configuration                                              |
@@ -26,7 +44,7 @@ Release artifacts exclude the preview identifier/configuration, cloned databases
 
 ## Version and publish contract
 
-Every new publish receives a new, higher SemVer version. Development began at `0.1.0`. The unpublished `0.2.0` candidate was rejected after the official Windows build exposed SQL migration line-ending inconsistency; it must never be published. The first public release is `0.2.1`, published unchanged on 2026-11-17 and matching `release-policy.json`. Never reuse a published version or move an existing tag.
+Every new publish receives a new, higher SemVer version. Development began at `0.1.0`. The unpublished `0.2.0` candidate was rejected after the official Windows build exposed SQL migration line-ending inconsistency; it must never be published. The first public release was `0.2.1`, published unchanged on 2026-11-17 and recorded in the initial release policy. The current public release is `0.3.0`, documented above. Never reuse a published version or move an existing tag.
 
 The version helper synchronizes five files:
 
@@ -70,12 +88,16 @@ After both signatures and `latest.json` have been attached, an optional independ
 node scripts/github.mjs workflow run verify-release.yml --ref main -f tag=vX.Y.Z
 ```
 
-Wait for **Verify signed draft release** to pass before treating this remote check as evidence. The input must match current main's application version. The Windows 2022 job runs the 31 Node checks and version validation, downloads official minisign 0.12 with a pinned SHA-256, and verifies all five draft assets with the public key. Its `contents: write` token is needed for GitHub draft visibility; the workflow performs no upload, signing, publication, or private-key export. It is separate from the immutable tag workflow so verification-only fixes on main can check the same tagged bytes. Workflow implementation alone is not a completed run.
+Wait for **Verify signed draft release** to pass before treating this remote check as evidence. The input must match current main's application version. The Windows 2022 job runs the checked-out Node verification suite and version validation, downloads official minisign 0.12 with a pinned SHA-256, and verifies all five draft assets with the public key. Its `contents: write` token is needed for GitHub draft visibility; the workflow performs no upload, signing, publication, or private-key export. It is separate from the immutable tag workflow so verification-only fixes on main can check the same tagged bytes. Workflow implementation alone is not a completed run.
+
+When changing draft notes or metadata, use a reviewed, complete JSON payload rather than a partial body-only PATCH or implicit CLI defaults. Explicitly retain `tag_name`, the full reviewed `target_commitish`, `name`, `body`, `draft: true`, and `prerelease: false`. Re-read the release ID, tag, target commit, draft state, and asset list before and after the PATCH. Stop if any identity/state changed unexpectedly; do not repair it by moving a tag or replacing signed assets.
+
+For the publication request only, the reviewed `publish.json` contains those same exact identity/notes fields with `draft: false`, `prerelease: false`, and `make_latest: "true"`. The `OWNER/REPO`, release ID, version, and full commit must refer to the already verified candidate; no rebuild or asset replacement is part of promotion.
 
 After verification, promote that exact draft and verify public downloads anonymously:
 
 ```powershell
-node scripts/github.mjs release edit vX.Y.Z --draft=false --latest
+node scripts/github.mjs api repos/OWNER/REPO/releases/RELEASE_ID --method PATCH --input .verification/releases/vX.Y.Z/publish.json
 node scripts/github.mjs exec node scripts/verify-release.mjs --tag vX.Y.Z --published
 ```
 
@@ -85,7 +107,7 @@ Use the actual version, not the placeholder. Changes after tagging that alter th
 
 The pipeline builds a current-user Windows NSIS installer on Windows 2022 and a Linux AppImage on Ubuntu 22.04, using Node 24 and Rust 1.90. The NSIS configuration prevents downgrade and adds no custom uninstall deletion hooks. The local Windows candidate passed installation, silent uninstall/reinstall, and the real signed upgrade as recorded below. The later official tagged Windows `0.2.0` installer failed the migration-checksum gate and is not releasable. Linux AppImage launch/file-replacement and a real native signed-upgrade probe passed with the canonical-LF 0.2.0 payload. The final 0.2.1 AppImage separately passed package smoke and full signature verification. The probe did not automate GUI interactions.
 
-Version **0.2.1** was signed **locally**: CI drafted the two raw installers, then local signing and public attachment completed the verified draft. The local encrypted key and DPAPI-protected password remain available as a fallback. The public updater verification key is committed in application configuration; private signing values must never appear in source, docs, logs, or release assets. Future Actions signing is authorized using repository Secrets and the same established signing identity.
+Version **0.2.1** was signed **locally**: CI drafted the two raw installers, then local signing and public attachment completed the verified draft. The local encrypted key and DPAPI-protected password remain available as a fallback. The public updater verification key is committed in application configuration; private signing values must never appear in source, docs, logs, or release assets. Actions signing with the same established signing identity completed the full 0.3.0 release; local signing remains available as a fallback.
 
 Automatic approval review initially rejected credential export and public-release actions because explicit consent was missing. The user subsequently explicitly approved **all three**: storing the encrypted updater key/password as GitHub Actions secrets, making the repository public with source/history visible, and publishing the unchanged verified **v0.2.1** assets. These approvals supersede the earlier pending blocks. Future `RELEASE_SIGNING_MODE=actions` may use the established `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` Secrets after configuration is verified. Keep values secret and preserve the mandatory higher version/new immutable tag for every future publish. Approval and configuration are separate from evidence that an Actions-signed release has run successfully.
 
@@ -93,7 +115,9 @@ Local authenticated operations use `scripts/github.mjs`, which obtains credentia
 
 Production builds check for updates at startup and every four hours; development and preview builds do not start the updater or show update prompts. It presents **Install update** and **Later**, installs only after acceptance, verifies the signed update, and restarts as needed. Updates and reinstalls must retain the database, collection, decks, rewards, settings, and downloaded artwork. Actual Windows silent uninstall/reinstall and signed-upgrade preservation passed with the fixture described below. The Linux native signed-upgrade probe below also passed. Final 0.2.1 private artifact gates are complete; the precise UI/native test scopes are recorded below.
 
-## Verification record
+## Historical 0.2.x verification record
+
+The following records describe the earlier 0.2.x checkpoints. Statements about a future first Actions-signed release describe that historical stage; 0.3.0 completed that release and its current gates above. Preserve these records rather than treating old fixture counts or old artifact approvals as current-state assertions.
 
 Completed identity and local checks:
 
@@ -126,7 +150,7 @@ Completed native public-channel update and automatic-signing activation:
 - The exact fixture survived: **two owned copies, one deck/main row of quantity one, seven common wildcards, the settings probe, and artwork-cache marker**. Only seven permitted decorative metadata additions occurred; there was no bulk catalog reload. Screenshots are `output/playwright/public-channel-update-offered.png`, `public-channel-update-verified.png`, and `public-channel-update-complete.png`.
 - Cleanup stopped only the owned QA process, restored the factory logical digest with zero game progress, removed only the verified marker, uninstalled the QA app, and removed its guarded QA-created registry key. The original legacy profile, including every table and `_sqlx_migrations`, stayed unchanged at **184 cards / 37 wildcards / one deck**. The working preview is preserved and running. The user has resumed playing, so its current counts legitimately differ from earlier controlled QA checkpoints; no old baseline is a restoration target. Evidence is `.verification/public-channel-evidence.json`.
 - Real encrypted-Secrets [signing-check workflow 43987014045](https://github.com/yAnn1ck-B/eternal-league/actions/runs/43987014045) **passed**. A harmless fixture was signed in Actions and verified against the committed public key and expected signed version, with no private output. This tested the actual configured Secrets, beyond checking their names.
-- After a separate explicit **Enable automatic CI signing** approval, repository variable **`RELEASE_SIGNING_MODE=actions`** was set successfully and read back as active. Future releases use the established signing identity; local signing remains a fallback. **A first complete future application release through Actions signing has not yet been built.** The passing fixture smoke check and workflow validation do not claim otherwise. The published v0.2.1 artifacts and immutable tag were unchanged.
+- After a separate explicit **Enable automatic CI signing** approval, repository variable **`RELEASE_SIGNING_MODE=actions`** was set successfully and read back as active. Future releases use the established signing identity; local signing remains a fallback. **At that 0.2.1 checkpoint, the first complete future application release through Actions signing had not yet been built; 0.3.0 has now completed it.** The passing fixture smoke check and workflow validation do not claim otherwise. The published v0.2.1 artifacts and immutable tag were unchanged.
 
 Completed final tagged **0.2.1** deliverables and private-release gates:
 
@@ -177,4 +201,4 @@ Canonical migration bytes and controlled QA repair:
 
 The Linux GUI and wall-clock test limits above describe the evidence scope; they are not claims of additional completed checks.
 
-The earlier consent blocks are resolved. Public delivery, native public-channel UI, signing-secret configuration, and authorized automatic CI signing are confirmed. The first future full application release through Actions signing remains unperformed; local signing is retained as a fallback. Earlier application checks remain in [Phase 4 verification](phase-4-verification.md).
+The earlier consent blocks are resolved. Public delivery, native public-channel UI, signing-secret configuration, and authorized automatic CI signing are confirmed. At the 0.2.1 checkpoint the first full Actions-signed application release remained unperformed; 0.3.0 has since completed it. Local signing is retained as a fallback. Earlier application checks remain in [Phase 4 verification](phase-4-verification.md).
