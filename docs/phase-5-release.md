@@ -2,7 +2,9 @@
 
 This document defines the release procedure and records implementation/verification as Phase 5 proceeds. The complete delivery scope remains in [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md). The current working preview and legacy development progress must remain intact.
 
-## Release candidate: 0.3.3
+## Current release: 0.3.3
+
+[Eternal League v0.3.3](https://github.com/yAnn1ck-B/eternal-league/releases/tag/v0.3.3), release **448755101**, was published unchanged at **2026-11-17T15:06:03Z** (22:06:03 Bangkok), from immutable tag/commit **`caaa79e7beb2948025432e6ab90e393e07120f08`**. [Release workflow 44104854001](https://github.com/yAnn1ck-B/eternal-league/actions/runs/44104854001) and [main CI 44104844797](https://github.com/yAnn1ck-B/eternal-league/actions/runs/44104844797) passed on Windows and Linux. Full independent draft verification checked exactly five assets and both version-bound minisign signatures. All five asset identities and digests remained unchanged through metadata review/publication; anonymous installer downloads and the public updater endpoint passed afterward.
 
 Source changes prepared on 17 November 2026 grant starting packs and wildcards together during the first successful league status load after online verification. The existing entitlement ledger, shared anchor, reward amounts, migration bytes, and application identifiers are unchanged. Players who already received the grant keep their earned/spent balances; there is no second starting grant. The calendar now has its own Settings tab. Routine update rechecks retain an already-verified `current` session while pending; startup/retry checks, failed verification results, and detected updates remain blocking. The interval remains five minutes, with focus/visibility/network rechecks.
 
@@ -14,9 +16,23 @@ Browser-only production UI checks used in-memory native responses. All three Set
 
 A delayed focus-triggered update recheck (the same controller path as periodic checks) produced zero dialog/inert transitions and retained input focus during and after a successful response. Injected verification failure blocked with Retry; a discovered update blocked and could not be dismissed with Escape. No download, installation, restart, or real profile access occurred. This was a browser fixture, not an installed five-minute wall-clock session. Evidence includes `output/playwright/quiet-update-delayed-current.png`, `quiet-update-failure-blocked.png`, and `quiet-update-available-blocked.png` in the same directory.
 
-This is source-level verification, not a new signed installer or published release. No production, legacy-development, or actively played preview profile was launched or modified. Published 0.3.2 retains its first-opening trigger and blocking rechecks; its release evidence below remains historical and unchanged.
+The initial browser checks above used in-memory fixtures. Subsequent exact signed-installer verification completed as follows:
 
-## Current release: 0.3.2
+- **Windows:** actual NSIS **0.3.2-to-0.3.3 upgrade and uninstall/reinstall** preserved all ten game-table fingerprints, including two owned copies, one deck, seven common wildcards, three queued packs, one history row, and one receipt. Current entitlements were pre-recorded, so no starting grant was repeated. In both installed launches, a focus-triggered native recheck observed for 17 seconds produced zero modal/inert transitions and retained input focus; this was not an installed five-minute wall-clock test. The separate read-only 14-entry calendar passed.
+- **Clean Windows first use:** the permanent production profile received **20 packs and 10 common/5 uncommon/2 rare/1 mythic wildcards before an opening**, with no inherited ownership, decks, history, or receipts. Normal Forge 2.0.13 detection, automatic catalog setup (120,139 printings), and all six Lotus/Mox images passed. The legitimate grant, catalog, artwork, and settings were intentionally retained and verified unchanged through final removal of only the owned QA installation/registration. **Never restore this production profile to a historical factory-zero checkpoint.** Its retained baseline is `.verification/windows-release-qa033/retained-first-use.json`.
+- **Linux:** AppImage first launch observed canonical initialized rewards at credited period zero, with empty ownership/decks/history/receipts; relaunch and application-file reinstall preserved the isolated profile/settings/cache. A separate real native signed upgrade from official 0.2.1 rejected tampering, installed the exact frozen 0.3.3 payload, and preserved permissions, game fixture, settings/cache markers, and Forge deck. **That upgrade probe used pre-recorded current entitlements and MockRuntime; compensation and normal-use online GUI behavior were outside its scope.**
+- **Active preview:** a fresh current-play backup was taken after a save-aware close. All 13 table fingerprints matched after installer QA and again after native 0.3.3 initialization, with `packAdjustment: 0`. The updated preview reopened on Overview using the preview database, with no startup error. No old play checkpoint was restored.
+
+| Public payload | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `Eternal.League_0.3.3_x64-setup.exe` | 5,737,289 | `623281A32C22048866EE520511553DB20710DAE633D134256567100E623ADEF9` |
+| `Eternal.League_0.3.3_amd64.AppImage` | 86,948,344 | `14CE8043ABE565D2E13EA7D2EFA5896C05353606C9FFEBE0C3817A04DD805791` |
+
+Ignored evidence is under `.verification/releases/v0.3.3/`: `windows-installation-verification.json`, `linux-install/linux-install-smoke.json`, `linux-upgrade/linux-signed-upgrade.json`, `draft-verification.log`, and `published-verification.log`. The exact post-launch preview-preservation PASS is `.verification/release033-preview-audit/after-1794927815047164500.json`. Older 0.3.2 behavior and verification remain historical below.
+
+<a id="current-release-032"></a>
+
+## Historical release: 0.3.2
 
 [Eternal League v0.3.2](https://github.com/yAnn1ck-B/eternal-league/releases/tag/v0.3.2), release **448600171**, was published unchanged at **2026-11-17T13:04:56Z** (20:04:56 Bangkok), from immutable tag/commit **`59dbc72b3758260af89b5d3aa03e658ad5529663`**. [Release workflow 44083393262](https://github.com/yAnn1ck-B/eternal-league/actions/runs/44083393262) and [main CI 44083387726](https://github.com/yAnn1ck-B/eternal-league/actions/runs/44083387726) passed with **138 native checks** (134 unit, one migration guard, three cold-configuration tests) and **69 Node checks**. All five asset identities and digests remained unchanged through publication. Full draft verification and anonymous downloads of both installers, their version-bound signatures, and the public updater endpoint passed.
 
@@ -53,6 +69,8 @@ Ignored evidence is under `.verification/releases/v0.3.1/`, including `published
 ## Mandatory online verification (shipped in 0.3.1)
 
 Production releases from 0.3.1 onward must verify online that they are current before normal league use. Only updater state `current` unlocks them. Recheck at startup, focus, reconnect, and every five minutes; idle/checking/check-failed states remain blocking. A known update cannot be dismissed or rechecked away. Offline/check failures and download, signature, installation, or restart failures stay blocked with explicit retry actions. Keep download, verified installation, and restart as separate explicit steps. Limited current-deck/Forge-folder repair is available only to finish pending autosaves; other league actions remain blocked. Development/preview builds bypass this production gate.
+
+From 0.3.3, routine rechecks retain an already-verified `current` session while pending, without a blocking-screen flash. Startup/retry checks remain blocking; failed results and newly available versions block as soon as their result arrives. The schedule and required verification policy remain intact.
 
 This user-requested policy shipped in 0.3.1 and supersedes the earlier optional-update instruction. Published 0.3.0 retains its shipped optional updater and needs one ordinary upgrade; its behavior cannot be changed retroactively. Client-side startup/focus/reconnect/periodic checks do not provide a central-server lockstep guarantee. The release evidence above records the installed Windows gate checks; earlier release evidence remains historical.
 
