@@ -2127,6 +2127,7 @@ mod tests {
             cmc: 1.0,
             type_line: "Creature".into(),
             oracle_text: "".into(),
+            produced_mana: Vec::new(),
             colors: vec!["G".into()],
             image_uri: None,
             back_image_uri: None,

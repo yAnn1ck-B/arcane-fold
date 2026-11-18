@@ -50,6 +50,8 @@ pub struct CatalogCard {
     pub type_line: String,
     pub oracle_text: String,
     pub colors: Vec<String>,
+    #[serde(default)]
+    pub produced_mana: Vec<String>,
     pub image_uri: Option<String>,
     pub back_image_uri: Option<String>,
     pub owned: i64,
@@ -139,6 +141,12 @@ pub async fn open_pool(app: &AppHandle) -> Result<SqlitePool, String> {
     .cloned()
 }
 
+#[derive(Deserialize)]
+struct ManaMetadata {
+    #[serde(default)]
+    produced_mana: Vec<String>,
+}
+
 pub fn card_from_row(row: &SqliteRow) -> Result<CatalogCard, String> {
     let colors: String = row.try_get("colors_json").map_err(|e| e.to_string())?;
     Ok(CatalogCard {
@@ -154,6 +162,12 @@ pub fn card_from_row(row: &SqliteRow) -> Result<CatalogCard, String> {
         type_line: row.get("type_line"),
         oracle_text: row.get("oracle_text"),
         colors: serde_json::from_str(&colors).unwrap_or_default(),
+        produced_mana: row
+            .try_get::<&str, _>("metadata_json")
+            .ok()
+            .and_then(|metadata| serde_json::from_str::<ManaMetadata>(metadata).ok())
+            .map(|metadata| metadata.produced_mana)
+            .unwrap_or_default(),
         image_uri: row.get("image_uri"),
         back_image_uri: row.get("back_image_uri"),
         owned: row.try_get("owned").unwrap_or(0),
@@ -1412,6 +1426,14 @@ fn normalize(value: Value) -> Result<Option<ImportCard>, String> {
             string("oracle_text")
         },
         colors,
+        produced_mana: value
+            .get("produced_mana")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
         image_uri,
         back_image_uri,
         owned: 0,

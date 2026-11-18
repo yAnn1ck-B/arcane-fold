@@ -1244,6 +1244,26 @@ export default function DeckBuilder({
       .reduce((sum, entry) => sum + entry.quantity, 0),
   );
   const curveMax = Math.max(1, ...curve);
+  let basicLands = 0;
+  let nonbasicLands = 0;
+  let landOptions = 0;
+  let manaSources = 0;
+  const sourcesByMana: Record<string, number> = {};
+  for (const { card, section, quantity } of entries) {
+    if (section !== "main") continue;
+
+    const [front = "", back = ""] = card.typeLine.split(" // ");
+    if (isUnlimitedBasic({ typeLine: front })) basicLands += quantity;
+    else if (/\bLand\b/i.test(front.split(/[\u2014\u2013]/, 1)[0])) nonbasicLands += quantity;
+    else if (/\bLand\b/i.test(back.split(/[\u2014\u2013]/, 1)[0])) landOptions += quantity;
+
+    const produced = new Set(
+      (card.producedMana ?? []).filter((mana) => Object.hasOwn(colorNames, mana)),
+    );
+    if (produced.size) manaSources += quantity;
+    for (const mana of produced)
+      sourcesByMana[mana] = (sourcesByMana[mana] ?? 0) + quantity;
+  }
   const addTargetId =
     addFlow?.targetId === "draft"
       ? (autosave.getDraft().id ?? "draft")
@@ -1608,6 +1628,34 @@ export default function DeckBuilder({
               </div>
             </div>
           </div>
+          <section className="deck-analytics" aria-label="Main deck mana base">
+            <div className="deck-land-count">
+              <span className="eyebrow">LANDS</span>
+              <p>
+                <strong>{basicLands + nonbasicLands} / {mainCount}</strong>{" "}
+                main deck cards
+              </p>
+              <p>{basicLands} basic · {nonbasicLands} nonbasic</p>
+              {landOptions > 0 && <p>{landOptions} with a land on the back</p>}
+            </div>
+            <div className="deck-colors">
+              <span className="eyebrow">MANA SOURCES · {manaSources} CARDS</span>
+              <div>
+                {Object.entries(colorNames).map(([key, label]) => (
+                  <span key={key} title={label}>
+                    <i
+                      className={`mana-color mana-${key.toLowerCase()}`}
+                      aria-label={label}
+                    >
+                      {key}
+                    </i>
+                    <strong>{sourcesByMana[key] ?? 0}</strong>
+                  </span>
+                ))}
+              </div>
+              <p>Includes nonland sources. Cards can count toward multiple mana types.</p>
+            </div>
+          </section>
           <div className="deck-validation" aria-live="polite">
             {checking ? (
               <p className="field-hint">
