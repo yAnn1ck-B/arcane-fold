@@ -8,19 +8,13 @@ Build a Windows desktop application that works alongside **MTG Forge**.
 
 The application manages a permanent Magic: The Gathering card collection. Users open booster packs, collect cards, earn wildcards, craft specific cards, and build decks that can be played in Forge.
 
-Forge handles rules-enforced gameplay. The development build offers a shared playtest table for manual games, Forge-backed deck practice and guided rules exercises.
+### Play (unreleased)
 
-### Manual playtest (unreleased)
+**Play** starts a local rules-enforced game from one or two saved main decks. Forge handles phases, priority, legal actions and player decisions. Both players can use the same device with separate private views. The opening-hand dialog handles keeping, mulligans and bottoming cards. The shared board puts the two battlefields and the current hand beside an optional right panel for the stack and public game log.
 
-The Playtest page supports solo practice and two seats controlled on one device. It snapshots main decks, keeps a private hand and library for each seat, and tracks zones, stack entries, mana, life, counters, tokens, attachments, combat markers, turns, and steps. The player resolves card effects and chooses when to advance.
+An active game can switch permanently to manual play after confirmation. The native bridge exports the suspended position at its current revision. The app checks card conservation and writes a manual checkpoint before closing Forge. Replacing a saved manual game requires consent for that save revision. Manual Undo begins at the handoff. Both engines retain the public log; only the current seat's private cards are shown at the table.
 
-Table actions update an independent match model. A local checkpoint records shuffle outcomes and recent actions for resuming and undoing moves. Each seat renders a filtered view of the table. Future network play can put the full match and action validation on a host and send only the appropriate view to each client. Future rules automation can use the same actions. Player authentication, remote connections, AI, and automated rules enforcement are outside this trial.
-
-### Forge practice (unreleased)
-
-Saved-deck games support both seats on one device and solo practice. Forge advances through all turn phases and steps, passing priority when a seat has no available play. At a two-player table, either seat can be viewed at any time. Each seat sees its own hand, and the table hides private information during handoffs. Only the seat with the pending decision can act, including during the other player's turn. Guided positions cover Lightning Bolt, Counterspell, combat damage, Giant Growth after blockers, library searches to different zones and a once-only activated ability. Visible cards can be inspected on the shared table. Graveyards and searches open in dialogs.
-
-Both tables have a public game log grouped by turn. Manual games save it alongside the existing checkpoint. Forge practice records public engine events and explicit priority passes. Undo rebuilds the previous decision using the original random seed and choices, checks the replay, and restores the corresponding log and private seat views. A failed replay leaves the current match available.
+The manual table supports zone moves, life, mana, counters, tokens, attachments, combat markers, stack entries and turn changes. Each move updates a local checkpoint in the existing profile store. Saved manual tables from earlier builds remain resumable. Fixed scenarios are automated integration fixtures.
 
 Foundations is the first set for interaction coverage. The installed Forge 2.0.13 regression suite checks all 771 printings across 517 distinct names and verifies that each printing can enter a practice deck. Gameplay tests use seeded decks to play both sides of a decision and check the resulting hands, stack, battlefield and life totals.
 
@@ -66,7 +60,7 @@ Deck edits save automatically to the app and Forge, with serialized writes and t
 
 Owned incomplete decks may be saved to Forge as drafts. Nonbasic quantities across both sections must stay within pooled Oracle ownership, and every selected printing must be eligible and globally unlocked; collection ownership is pooled across expansions. Report sync failures honestly. There is no separate Export to Forge button or automatic-export preference.
 
-The companion uses Forge files directly for its catalog and deck integration. Starting Forge practice starts a local Java process for that match.
+The companion uses Forge files directly for its catalog and deck integration. Starting a game launches a local Java process for that match.
 
 ## 3. Local Database
 

@@ -1,0 +1,518 @@
+name	collector_numbers	script	types	mana_cost	explicit_roles	keywords	granted_keywords	operations_including_svars	modes_and_events	named_token_scripts	token_script_operations	decision_review	focused_regression_tests
+Abrade	188,327	a/abrade.txt	Instant	1 R	spell			Charm; DealDamage; Destroy					
+Abyssal Harvester	54,316,381,458	a/abyssal_harvester.txt	Creature Demon Warlock	1 B B	activated			ChangeZone; ChangeZoneAll; Cleanup; CopyPermanent					
+Adamant Will	488	a/adamant_will.txt	Instant	1 W	spell			Pump					
+Adaptive Automaton	723	a/adaptive_automaton.txt	Artifact Creature Construct	3	static	ETBReplacement		ChooseType	Continuous				
+Adventuring Gear	249	a/adventuring_gear.txt	Artifact Equipment	1	trigger	Equip		Pump	ChangesZone			attachment	
+Aegis Turtle	150	a/aegis_turtle.txt	Creature Turtle	U									
+Aetherize	151	a/aetherize.txt	Instant	3 U	spell			ChangeZoneAll					
+Affectionate Indrik	211	a/affectionate_indrik.txt	Creature Beast	5 G	trigger			Fight	ChangesZone				real_forge_foundations_indrik_targets_before_the_optional_fight
+Aggressive Mammoth	551	a/aggressive_mammoth.txt	Creature Elephant	3 G G G	static	Trample	Trample		Continuous				
+Ajani's Pridemate	135,293	a/ajanis_pridemate.txt	Creature Cat Soldier	1 W	trigger			PutCounter	LifeGained				
+Ajani, Caller of the Pride	134,357,417	a/ajani_caller_of_the_pride.txt	Legendary Planeswalker Ajani	1 W W	activated			Pump; PutCounter; Token		w_2_2_cat		loyalty ability	
+Alesha, Who Laughs at Fate	115,343,404,476	a/alesha_who_laughs_at_fate.txt	Legendary Creature Human Warrior	1 B R	trigger	First Strike		ChangeZone; PutCounter	Attacks; Phase				
+Ambush Wolf	98	a/ambush_wolf.txt	Creature Wolf	2 G	trigger	Flash		ChangeZone	ChangesZone				
+An Offer You Can't Refuse	160,311	a/an_offer_you_cant_refuse.txt	Instant	U	spell			Counter; Token		c_a_treasure_sac	Mana		
+Ancestor Dragon	489	a/ancestor_dragon.txt	Creature Dragon	4 W W	trigger	Flying		GainLife	AttackersDeclared				
+Angel of Finality	136	a/angel_of_finality.txt	Creature Angel	3 W	trigger	Flying		ChangeZoneAll	ChangesZone				
+Angel of Vitality	706	a/angel_of_vitality.txt	Creature Angel	2 W	replacement; static	Flying		ReplaceEffect	Continuous; GainLife				
+Angelic Destiny	565	a/angelic_destiny.txt	Enchantment Aura	2 W W	static; trigger	Enchant	First Strike; Flying	ChangeZone	ChangesZone; Continuous			attachment	
+Angelic Edict	490	a/angelic_edict.txt	Sorcery	4 W	spell			ChangeZone					
+Anthem of Champions	116,344,405,477	a/anthem_of_champions.txt	Enchantment	G W	static				Continuous				
+Apothecary Stomper	99	a/apothecary_stomper.txt	Creature Elephant	4 G G	trigger	Vigilance		Charm; GainLife; PutCounter	ChangesZone				
+Arahbo, the First Fang	2,294,363,442	a/arahbo_the_first_fang.txt	Legendary Creature Cat Avatar	2 W	static; trigger			Token	ChangesZone; Continuous	w_1_1_cat			
+Arbiter of Woe	55	a/arbiter_of_woe.txt	Creature Demon	4 B B	spell; trigger	Flying		Discard; Draw; GainLife; LoseLife; PermanentCreature	ChangesZone; TgtChoose			choose a permanent to sacrifice as payment	
+Arcane Epiphany	29	a/arcane_epiphany.txt	Instant	3 U U	spell; static			Draw	ReduceCost				
+Arcanis the Omnipotent	585,741	a/arcanis_the_omnipotent.txt	Legendary Creature Wizard	3 U U U	activated			ChangeZone; Draw					
+Archmage of Runes	30,304,372,450	a/archmage_of_runes.txt	Creature Giant Wizard	3 U U	static; trigger			Draw	ReduceCost; SpellCast				
+Archway Angel	566	a/archway_angel.txt	Creature Angel	5 W	trigger	Flying		GainLife	ChangesZone				
+Armasaur Guide	3	a/armasaur_guide.txt	Creature Dinosaur	4 W	trigger	Vigilance		PutCounter	AttackersDeclared				
+Ashroot Animist	117,345,406,478	a/ashroot_animist.txt	Creature Lizard Druid	2 R G	trigger	Trample		Pump	Attacks				
+Aurelia, the Warleader	651	a/aurelia_the_warleader.txt	Legendary Creature Angel	2 R R W W	trigger	Flying; Haste; Vigilance		AddPhase; UntapAll	Attacks				
+Authority of the Consuls	137	a/authority_of_the_consuls.txt	Enchantment	W	replacement; trigger			GainLife; Tap	ChangesZone; Moved				
+Axgard Cavalry	189	a/axgard_cavalry.txt	Creature Dwarf Berserker	1 R	activated			Pump					
+Ayli, Eternal Pilgrim	652	a/ayli_eternal_pilgrim.txt	Legendary Creature Kor Cleric	W B	activated	Deathtouch		ChangeZone; GainLife				choose a permanent to sacrifice as payment	
+Azorius Guildgate	683	a/azorius_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Bake into a Pie	169	b/bake_into_a_pie.txt	Instant	2 B B	spell			Destroy; Token		c_a_food_sac	GainLife		
+Ball Lightning	618	b/ball_lightning.txt	Creature Elemental	R R R	trigger	Haste; Trample		Sacrifice	Phase				
+Ballyrush Banneret	567	b/ballyrush_banneret.txt	Creature Kithkin Soldier	1 W	static				ReduceCost				
+Balmor, Battlemage Captain	237	b/balmor_battlemage_captain.txt	Legendary Creature Bird Wizard	U R	trigger	Flying		PumpAll	SpellCast				
+Banishing Light	138	b/banishing_light.txt	Enchantment	2 W	trigger			ChangeZone	ChangesZone				
+Banner of Kinship	127,352,413,484	b/banner_of_kinship.txt	Artifact	5	replacement; static			ChooseType; PutCounter	Continuous; Moved				
+Basilisk Collar	669	b/basilisk_collar.txt	Artifact Equipment	1	static	Equip	Deathtouch; Lifelink		Continuous			attachment	
+Battle-Rattle Shaman	533	b/battle_rattle_shaman.txt	Creature Goblin Shaman	3 R	trigger			Pump	Phase				
+Battlesong Berserker	78	b/battlesong_berserker.txt	Creature Human Berserker	3 R	trigger			Pump	AttackersDeclared				
+Bear Cub	552	b/bear_cub.txt	Creature Bear	1 G									
+Beast-Kin Ranger	100	b/beast_kin_ranger.txt	Creature Elf Ranger	2 G	trigger	Trample		Pump	ChangesZone				
+Bigfin Bouncer	31	b/bigfin_bouncer.txt	Creature Shark Pirate	3 U	trigger			ChangeZone	ChangesZone				
+Billowing Shriekmass	56	b/billowing_shriekmass.txt	Creature Spirit	3 B	static; trigger	Flying		Mill	ChangesZone; Continuous				
+Biogenic Upgrade	553	b/biogenic_upgrade.txt	Sorcery	4 G G	spell			MultiplyCounter; PutCounter				divide an amount among targets	
+Bishop's Soldier	491	b/bishops_soldier.txt	Creature Vampire Soldier	1 W		Lifelink							
+Bite Down	212	b/bite_down.txt	Instant	1 G	spell			DealDamage; Pump					real_forge_a_targeted_mana_creature_can_pay_for_its_spell
+Blanchwood Armor	213	b/blanchwood_armor.txt	Enchantment Aura	2 G	static	Enchant			Continuous			attachment	
+Blasphemous Edict	57,317,382,459	b/blasphemous_edict.txt	Sorcery	3 B B	spell; static			Sacrifice	AlternativeCost			alternative cost	
+Bloodfell Caves	259	b/bloodfell_caves.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Bloodthirsty Conqueror	58,318,383,426,436,460	b/bloodthirsty_conqueror.txt	Creature Vampire Knight	3 B B	trigger	Deathtouch; Flying		GainLife	LifeLost				real_forge_foundations_blight_priest_conqueror_drains_to_a_win
+Bloodtithe Collector	516,751	b/bloodtithe_collector.txt	Creature Vampire Noble	4 B	trigger	Flying		Discard	ChangesZone; TgtChoose				
+Blossoming Sands	260	b/blossoming_sands.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Bolt Bend	619	b/bolt_bend.txt	Instant	3 R	spell; static			ChangeTargets	ReduceCost			redirect a spell or ability	
+Boltwave	79	b/boltwave.txt	Sorcery	R	spell			DealDamage					
+Boros Charm	721	b/boros_charm.txt	Instant	R W	spell			Charm; DealDamage; Pump; PumpAll					
+Boros Guildgate	684	b/boros_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Brass's Bounty	190	b/brasss_bounty.txt	Sorcery	6 R	spell			Token		c_a_treasure_sac	Mana		
+Brazen Scourge	191	b/brazen_scourge.txt	Creature Gremlin	1 R R		Haste							
+Brineborn Cutthroat	152	b/brineborn_cutthroat.txt	Creature Merfolk Pirate	1 U	trigger	Flash		PutCounter	SpellCast				
+Broken Wings	214	b/broken_wings.txt	Instant	2 G	spell			Destroy					
+Bulk Up	80	b/bulk_up.txt	Instant	1 R	spell	Flashback		Pump					
+Burglar Rat	170	b/burglar_rat.txt	Creature Rat	1 B	trigger			Discard	ChangesZone; TgtChoose				real_forge_foundations_burglar_rat_gives_the_discard_to_the_affected_seat
+Burnished Hart	250	b/burnished_hart.txt	Artifact Creature Elk	3	activated			ChangeZone					
+Burrog Befuddler	504	b/burrog_befuddler.txt	Creature Frog Wizard	1 U	trigger	Flash		Pump	ChangesZone				
+Burst Lightning	192	b/burst_lightning.txt	Instant	R	spell	Kicker		DealDamage					
+Bushwhack	215	b/bushwhack.txt	Sorcery	G	spell			ChangeZone; Charm; Fight; Pump					real_forge_bushwhack_can_fight_instead_of_searching; real_forge_bushwhack_search_can_find_a_basic_or_decline
+Cackling Prowler	101	c/cackling_prowler.txt	Creature Hyena Rogue	3 G	trigger	Ward		PutCounter	Phase				
+Campus Guide	251	c/campus_guide.txt	Artifact Creature Golem	2	trigger			ChangeZone	ChangesZone				
+Cancel	505	c/cancel.txt	Instant	1 U U	spell			Counter					
+Carnelian Orb of Dragonkind	534,759	c/carnelian_orb_of_dragonkind.txt	Artifact	2 R	activated			Mana					
+Cat Collector	4	c/cat_collector.txt	Creature Human Citizen	2 W	trigger			Token	ChangesZone; LifeGained	c_a_food_sac; w_1_1_cat	GainLife		
+Cathar Commando	139	c/cathar_commando.txt	Creature Human Soldier	1 W	activated	Flash		Destroy					
+Celestial Armor	5,295,364,443	c/celestial_armor.txt	Artifact Equipment	2 W	static; trigger	Equip; Flash	Flying	Attach; Pump	ChangesZone; Continuous			attachment	
+Cemetery Recruitment	517	c/cemetery_recruitment.txt	Sorcery	1 B	spell			ChangeZone; Cleanup; Draw					
+Cephalid Inkmage	32	c/cephalid_inkmage.txt	Creature Octopus Wizard	2 U	static; trigger			Surveil	CantBlockBy; ChangesZone				real_forge_foundations_surveil_hides_the_look_and_honors_the_chosen_order
+Chandra, Flameshaper	81,360,420	c/chandra_flameshaper.txt	Legendary Planeswalker Chandra	5 R R	activated		Haste	ChooseCard; Cleanup; CopyPermanent; DealDamage; Dig; Effect; Mana	Continuous			choose a card during resolution; divide an amount among targets; look at or move top cards; loyalty ability; play permission from Exile	
+Charming Prince	568	c/charming_prince.txt	Creature Human Noble	1 W	trigger			ChangeZone; Charm; Cleanup; DelayedTrigger; GainLife; Scry	ChangesZone; Phase				
+Chart a Course	586	c/chart_a_course.txt	Sorcery	1 U	spell			Discard; Draw	TgtChoose				
+Circuitous Route	635	c/circuitous_route.txt	Sorcery	3 G	spell			ChangeZone					
+Claws Out	6	c/claws_out.txt	Instant	3 W W	spell	Affinity		PumpAll					
+Clinquant Skymage	33	c/clinquant_skymage.txt	Creature Bird Wizard	3 U	trigger	Flying		PutCounter	Drawn				
+Cloudblazer	653	c/cloudblazer.txt	Creature Human Scout	3 W U	trigger	Flying		Draw; GainLife	ChangesZone				
+Confiscate	709	c/confiscate.txt	Enchantment Aura	4 U U	static	Enchant			Continuous			attachment	
+Consuming Aberration	238	c/consuming_aberration.txt	Creature Horror	3 U B	static; trigger			DigUntil	Continuous; SpellCast				
+Corsair Captain	506	c/corsair_captain.txt	Creature Human Pirate	2 U	static; trigger			Token	ChangesZone; Continuous	c_a_treasure_sac	Mana		
+Courageous Goblin	82	c/courageous_goblin.txt	Creature Goblin	1 R	trigger			Pump	Attacks				
+Crackling Cyclops	83	c/crackling_cyclops.txt	Creature Cyclops Wizard	2 R	trigger			Pump	SpellCast				
+Crash Through	620	c/crash_through.txt	Sorcery	R	spell			Draw; PumpAll					
+Crawling Barrens	685	c/crawling_barrens.txt	Land	no cost	activated			Animate; Mana; PutCounter					real_forge_foundations_mixed_land_can_explicitly_add_mana
+Crossway Troublemakers	518	c/crossway_troublemakers.txt	Creature Vampire	5 B	static; trigger		Deathtouch; Lifelink	Draw	ChangesZone; Continuous				
+Crow of Dark Tidings	519	c/crow_of_dark_tidings.txt	Creature Zombie Bird	2 B	trigger	Flying		Mill	ChangesZone				
+Crusader of Odric	569,731	c/crusader_of_odric.txt	Creature Human Soldier	2 W	static				Continuous				
+Crypt Feaster	59	c/crypt_feaster.txt	Creature Zombie	3 B	trigger	Menace		Pump	Attacks				
+Cryptic Caves	686,771	c/cryptic_caves.txt	Land	no cost	activated			Draw; Mana					
+Crystal Barricade	7,296,365,444	c/crystal_barricade.txt	Artifact Creature Wall	1 W	replacement; static	Defender	Hexproof		Continuous; DamageDone				
+Cultivator's Caravan	670	c/cultivators_caravan.txt	Artifact Vehicle	3	activated	Crew		Mana					
+Curator of Destinies	34,305,373,451	c/curator_of_destinies.txt	Creature Sphinx	4 U U	replacement; trigger	Flying		ChangeZone; ChangeZoneAll; PeekAndReveal; TwoPiles	ChangesZone; Counter			separate and choose piles	
+Darksteel Colossus	671	d/darksteel_colossus.txt	Artifact Creature Golem	11	replacement	Indestructible; Trample		ChangeZone	Moved				
+Dauntless Veteran	8	d/dauntless_veteran.txt	Creature Human Soldier	1 W W	trigger			PumpAll	Attacks				
+Dawnwing Marshal	570	d/dawnwing_marshal.txt	Creature Cat Soldier	1 W	activated	Flying		PumpAll					
+Day of Judgment	140,422,432	d/day_of_judgment.txt	Sorcery	2 W W	spell			DestroyAll					
+Dazzling Angel	9,732	d/dazzling_angel.txt	Creature Angel	2 W	trigger	Flying		GainLife	ChangesZone				
+Deadly Brew	654	d/deadly_brew.txt	Sorcery	B G	spell			ChangeZone; Cleanup; Sacrifice				choose from graveyard during resolution	
+Deadly Plot	520	d/deadly_plot.txt	Instant	3 B	spell			ChangeZone; Charm; Destroy					
+Deadly Riposte	492	d/deadly_riposte.txt	Instant	1 W	spell			DealDamage; GainLife					
+Death Baron	521	d/death_baron.txt	Creature Zombie Wizard	1 B B	static		Deathtouch		Continuous				
+Deathmark	601	d/deathmark.txt	Sorcery	B	spell			Destroy					
+Demolition Field	687	d/demolition_field.txt	Land	no cost	activated			ChangeZone; Destroy; Mana					
+Demonic Pact	602	d/demonic_pact.txt	Enchantment	2 B B	trigger			Charm; DealDamage; Discard; Draw; GainLife; LosesGame	Phase; TgtChoose				
+Desecration Demon	603	d/desecration_demon.txt	Creature Demon	2 B B	trigger	Flying		Cleanup; PutCounter; Sacrifice; Tap	Phase				
+Devout Decree	571	d/devout_decree.txt	Sorcery	1 W	spell			ChangeZone; Scry					
+Diamond Mare	672,770	d/diamond_mare.txt	Artifact Creature Horse	2	trigger	ETBReplacement		ChooseColor; GainLife	SpellCast			choose a color	
+Dictate of Kruphix	587	d/dictate_of_kruphix.txt	Enchantment	1 U U	trigger	Flash		Draw	Phase				
+Dimir Guildgate	688	d/dimir_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Diregraf Ghoul	171	d/diregraf_ghoul.txt	Creature Zombie	B	replacement			Tap	Moved				
+Disenchant	572	d/disenchant.txt	Instant	1 W	spell			Destroy					
+Dismal Backwater	261	d/dismal_backwater.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Dive Down	588	d/dive_down.txt	Instant	U	spell			Pump					
+Divine Resilience	10	d/divine_resilience.txt	Instant	W	spell	Kicker		Pump					
+Doubling Season	216,428,438	d/doubling_season.txt	Enchantment	4 G	replacement			ReplaceCounter; ReplaceToken	AddCounter; CreateToken				real_forge_foundations_evolving_wilds_landfall_with_doubling_season
+Dragon Fodder	535	d/dragon_fodder.txt	Sorcery	1 R	spell			Token		r_1_1_goblin			
+Dragon Mage	621	d/dragon_mage.txt	Creature Dragon Wizard	5 R R	trigger	Flying		Discard; Draw	DamageDone; Hand				
+Dragon Trainer	84	d/dragon_trainer.txt	Creature Human	3 R R	trigger			Token	ChangesZone	r_4_4_dragon_flying			
+Dragonlord's Servant	536	d/dragonlords_servant.txt	Creature Goblin Shaman	1 R	static				ReduceCost				
+Dragonmaster Outcast	622	d/dragonmaster_outcast.txt	Creature Human Shaman	R	trigger			Token	Phase	r_5_5_dragon_flying			
+Drake Hatcher	35,306,374,452	d/drake_hatcher.txt	Creature Human Wizard	1 U	activated; trigger	Prowess; Vigilance		PutCounter; Token	DamageDone	u_2_2_drake_flying			
+Drakuseth, Maw of Flames	193,760	d/drakuseth_maw_of_flames.txt	Legendary Creature Dragon	4 R R R	trigger	Flying		DamageResolve; DealDamage	Attacks				
+Dread Summons	604	d/dread_summons.txt	Sorcery	X B B	spell			Cleanup; Mill; Token		b_2_2_zombie		announce spell X	
+Dreadwing Scavenger	118	d/dreadwing_scavenger.txt	Creature Nightmare Bird	1 U B	static; trigger	Flying	Deathtouch	Discard; Draw	Attacks; ChangesZone; Continuous; TgtChoose				
+Driver of the Dead	605	d/driver_of_the_dead.txt	Creature Vampire	3 B	trigger			ChangeZone	ChangesZone				
+Drogskol Reaver	655	d/drogskol_reaver.txt	Creature Spirit	5 W U	trigger	Double Strike; Flying; Lifelink		Draw	LifeGained				
+Dropkick Bomber	537	d/dropkick_bomber.txt	Creature Goblin Warrior	2 R	activated; static		Flying	Animate; Sacrifice	Continuous; DamageDealtOnce				
+Druid of the Cowl	554	d/druid_of_the_cowl.txt	Creature Elf Druid	1 G	activated			Mana					
+Dryad Militant	656	d/dryad_militant.txt	Creature Dryad Soldier	GW	replacement			ChangeZone	Moved				
+Duress	606	d/duress.txt	Sorcery	B	spell			Discard	RevealYouChoose				real_forge_foundations_duress_reveals_the_hand_and_only_offers_legal_discards
+Dwynen's Elite	218	d/dwynens_elite.txt	Creature Elf Warrior	1 G	trigger			Token	ChangesZone	g_1_1_elf_warrior			real_forge_foundations_dwynens_elite_rechecks_for_another_elf_on_resolution
+Dwynen, Gilt-Leaf Daen	217	d/dwynen_gilt_leaf_daen.txt	Legendary Creature Elf Warrior	2 G G	static; trigger	Reach		GainLife	Attacks; Continuous				
+Eager Trufflesnout	102	e/eager_trufflesnout.txt	Creature Boar	2 G	trigger	Trample		Token	DamageDone	c_a_food_sac	GainLife		
+Eaten Alive	172	e/eaten_alive.txt	Sorcery	B	spell	AlternateAdditionalCost		ChangeZone				choose a permanent to sacrifice as payment; choose an additional cost	
+Eaten by Piranhas	507	e/eaten_by_piranhas.txt	Enchantment Aura	1 U	static	Enchant; Flash			Continuous			attachment	
+Electroduplicate	85,328,390,465	e/electroduplicate.txt	Sorcery	2 R	spell	Flashback	Haste	CopyPermanent					
+Elementalist Adept	36	e/elementalist_adept.txt	Creature Human Wizard	1 U		Flash; Prowess							
+Elenda, Saint of Dusk	119,346,407,479	e/elenda_saint_of_dusk.txt	Legendary Creature Vampire Knight	2 W B	static	Hexproof; Lifelink	Menace		Continuous				
+Elfsworn Giant	103	e/elfsworn_giant.txt	Creature Giant	3 G G	trigger	Reach		Token	ChangesZone	g_1_1_elf_warrior			
+Elspeth's Smite	493	e/elspeths_smite.txt	Instant	W	spell			DealDamage					
+Elvish Archdruid	219	e/elvish_archdruid.txt	Creature Elf Druid	1 G G	activated; static			Mana	Continuous				
+Elvish Regrower	104	e/elvish_regrower.txt	Creature Elf Druid	2 G G	trigger			ChangeZone	ChangesZone				
+Empyrean Eagle	239	e/empyrean_eagle.txt	Creature Bird Spirit	1 W U	static	Flying			Continuous				
+Enigma Drake	657	e/enigma_drake.txt	Creature Drake	1 U R	static	Flying			Continuous				
+Erudite Wizard	37	e/erudite_wizard.txt	Creature Human Wizard	2 U	trigger			PutCounter	Drawn				
+Essence Scatter	153	e/essence_scatter.txt	Instant	1 U	spell			Counter					real_forge_double_x_is_paid_twice_and_announced_before_essence_scatter
+Etali, Primal Storm	194,329,391	e/etali_primal_storm.txt	Legendary Creature Elder Dinosaur	4 R R	trigger			Cleanup; Dig; Play	Attacks			look at or move top cards; play a card during resolution	
+Evolving Wilds	262	e/evolving_wilds.txt	Land	no cost	activated			ChangeZone					real_forge_evolving_wilds_pays_its_sacrifice_and_finds_a_tapped_basic; real_forge_foundations_evolving_wilds_landfall_with_doubling_season
+Exclusion Mage	508	e/exclusion_mage.txt	Creature Human Wizard	2 U	trigger			ChangeZone	ChangesZone				
+Exemplar of Light	11,297,366,445,733	e/exemplar_of_light.txt	Creature Angel	2 W W	trigger	Flying		Draw; PutCounter	CounterAddedOnce; LifeGained				
+Expedition Map	724	e/expedition_map.txt	Artifact	1	activated			ChangeZone					
+Exsanguinate	173	e/exsanguinate.txt	Sorcery	X B B	spell			GainLife; LoseLife				announce spell X	
+Extravagant Replication	154	e/extravagant_replication.txt	Enchantment	4 U U	trigger			CopyPermanent	Phase				
+Faebloom Trick	38	f/faebloom_trick.txt	Instant	2 U	spell			Cleanup; ImmediateTrigger; Tap; Token		u_1_1_faerie_flying			
+Fake Your Own Death	174	f/fake_your_own_death.txt	Instant	1 B	spell			Animate; ChangeZone; Pump; Token	ChangesZone	c_a_treasure_sac	Mana		
+Fanatical Firebrand	195	f/fanatical_firebrand.txt	Creature Goblin Pirate	R	activated	Haste		DealDamage					
+Feed the Swarm	712	f/feed_the_swarm.txt	Sorcery	1 B	spell			Destroy; LoseLife					
+Feldon's Cane	673	f/feldons_cane.txt	Artifact	1	activated			ChangeZoneAll					
+Felidar Cub	573	f/felidar_cub.txt	Creature Cat Beast	1 W	activated			Destroy					
+Felidar Retreat	574	f/felidar_retreat.txt	Enchantment	3 W	trigger			Charm; PumpAll; PutCounterAll; Token	ChangesZone	w_2_2_cat_beast			
+Felidar Savior	12	f/felidar_savior.txt	Creature Cat Beast	3 W	trigger	Lifelink		PutCounter	ChangesZone				real_forge_foundations_felidar_savior_accepts_zero_one_or_two_distinct_targets
+Felling Blow	105	f/felling_blow.txt	Sorcery	2 G	spell			DealDamage; PutCounter					
+Fiendish Panda	120	f/fiendish_panda.txt	Creature Bear Demon	2 W B	trigger			ChangeZone; PutCounter	ChangesZone; LifeGained				
+Fierce Empath	636	f/fierce_empath.txt	Creature Elf	2 G	trigger			ChangeZone	ChangesZone				
+Fiery Annihilation	86	f/fiery_annihilation.txt	Instant	2 R	spell			ChangeZone; DealDamage					
+Finale of Revelation	589	f/finale_of_revelation.txt	Sorcery	X U U	spell			ChangeZone; ChangeZoneAll; Draw; Effect; Untap	Continuous			announce spell X	
+Fire Elemental	538	f/fire_elemental.txt	Creature Elemental	3 R R									
+Firebrand Archer	196	f/firebrand_archer.txt	Creature Human Archer	1 R	trigger			DealDamage	SpellCast				
+Fireshrieker	674	f/fireshrieker.txt	Artifact Equipment	3	static	Equip	Double Strike		Continuous			attachment	
+Firespitter Whelp	197,761	f/firespitter_whelp.txt	Creature Dragon	2 R	trigger	Flying		DealDamage	SpellCast				
+Fishing Pole	128	f/fishing_pole.txt	Artifact Equipment	1	static; trigger	Equip		Cleanup; PutCounter; RemoveCounter; Token	Continuous; Untaps	u_1_1_fish		attachment	
+Flamewake Phoenix	198	f/flamewake_phoenix.txt	Creature Phoenix	1 R R	static; trigger	Flying; Haste		ChangeZone	MustAttack; Phase				
+Flashfreeze	590	f/flashfreeze.txt	Instant	1 U	spell			Counter					
+Fleeting Distraction	155	f/fleeting_distraction.txt	Instant	U	spell			Draw; Pump					
+Fleeting Flight	13	f/fleeting_flight.txt	Instant	W	spell			Pump; PutCounter					
+Fog Bank	591	f/fog_bank.txt	Creature Wall	1 U		Defender; Flying; Prevent all combat damage that would be dealt to and dealt by CARDNAME.							
+Forest	280,281,290,291	f/forest.txt	Basic Land Forest	no cost									
+Frenzied Goblin	199	f/frenzied_goblin.txt	Creature Goblin Berserker	R	trigger			Pump	Attacks				
+Fumigate	575	f/fumigate.txt	Sorcery	3 W W	spell			Cleanup; DestroyAll; GainLife					
+Fynn, the Fangbearer	637	f/fynn_the_fangbearer.txt	Legendary Creature Human Warrior	1 G	trigger	Deathtouch		Poison	DamageDone				
+Garna, Bloodfist of Keld	658	g/garna_bloodfist_of_keld.txt	Legendary Creature Human Berserker	1 B R R	trigger			Branch; DealDamage; Draw	ChangesZone				
+Garruk's Uprising	220	g/garruks_uprising.txt	Enchantment	2 G	static; trigger		Trample	Draw	ChangesZone; Continuous				
+Gate Colossus	675	g/gate_colossus.txt	Artifact Creature Construct	8	static; trigger	Affinity		ChangeZone	CantBlockBy; ChangesZone				
+Gatekeeper of Malakir	713,752	g/gatekeeper_of_malakir.txt	Creature Vampire Warrior	B B	trigger	Kicker		Sacrifice	ChangesZone				
+Gateway Sneak	592	g/gateway_sneak.txt	Creature Vedalken Rogue	2 U	trigger			Draw; Effect	CantBlockBy; ChangesZone; DamageDone				
+Genesis Wave	221,334,396	g/genesis_wave.txt	Sorcery	X G G G	spell			Dig				announce spell X; look at or move top cards	
+Ghalta, Primal Hunger	222,335,397	g/ghalta_primal_hunger.txt	Legendary Creature Elder Dinosaur	10 G G	static	Trample			ReduceCost				
+Ghitu Lavarunner	623	g/ghitu_lavarunner.txt	Creature Human Wizard	R	static		Haste		Continuous				
+Giada, Font of Hope	141,298,367	g/giada_font_of_hope.txt	Legendary Creature Angel	1 W	activated	ETBReplacement; Flying; Vigilance		Mana; PutCounter					
+Giant Cindermaw	624	g/giant_cindermaw.txt	Creature Dinosaur Beast	2 R	static	Trample			CantGainLife				
+Giant Growth	223	g/giant_growth.txt	Instant	G	spell			Pump					real_forge_a_targeted_mana_creature_can_pay_for_its_spell; real_forge_giant_growth_after_blockers_or_pass
+Gigantosaurus	718	g/gigantosaurus.txt	Creature Dinosaur	G G G G G									
+Gilded Lotus	725	g/gilded_lotus.txt	Artifact	5	activated			Mana					
+Gleaming Barrier	252	g/gleaming_barrier.txt	Artifact Creature Wall	2	trigger	Defender		Token	ChangesZone	c_a_treasure_sac	Mana		
+Gnarlback Rhino	638	g/gnarlback_rhino.txt	Creature Rhino	2 G G	trigger	Trample		Draw	SpellCast				
+Gnarlid Colony	224	g/gnarlid_colony.txt	Creature Beast	1 G	static	Kicker; etbCounter	Trample		Continuous				real_forge_foundations_wildwood_scourge_uses_chosen_x_and_triggers_once_for_kicked_colony
+Goblin Boarders	87	g/goblin_boarders.txt	Creature Goblin Pirate	2 R		etbCounter							
+Goblin Firebomb	562	g/goblin_firebomb.txt	Artifact	1	activated	Flash		Destroy					
+Goblin Negotiation	88	g/goblin_negotiation.txt	Sorcery	X R R	spell			DealDamage; Token		r_1_1_goblin		announce spell X	
+Goblin Oriflamme	539	g/goblin_oriflamme.txt	Enchantment	1 R	static				Continuous				
+Goblin Smuggler	540	g/goblin_smuggler.txt	Creature Goblin Rogue	2 R	activated	Haste		Effect	CantBlockBy				
+Goblin Surprise	200	g/goblin_surprise.txt	Instant	2 R	spell			Charm; PumpAll; Token		r_1_1_goblin			
+Goldvein Pick	253	g/goldvein_pick.txt	Artifact Equipment	2	static; trigger	Equip		Token	Continuous; DamageDone	c_a_treasure_sac	Mana	attachment	
+Golgari Guildgate	689	g/golgari_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Good-Fortune Unicorn	240	g/good_fortune_unicorn.txt	Creature Unicorn	1 G W	trigger			PutCounter	ChangesZone				
+Gorehorn Raider	89	g/gorehorn_raider.txt	Creature Minotaur Pirate	4 R	trigger			DealDamage	ChangesZone				
+Grappling Kraken	39	g/grappling_kraken.txt	Creature Kraken	4 U U	trigger			PutCounter; Tap	ChangesZone				
+Gratuitous Violence	715	g/gratuitous_violence.txt	Enchantment	2 R R R	replacement			ReplaceEffect	DamageDone				
+Grow from the Ashes	225	g/grow_from_the_ashes.txt	Sorcery	2 G	spell	Kicker		ChangeZone					
+Gruul Guildgate	690	g/gruul_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Guarded Heir	14	g/guarded_heir.txt	Creature Human Noble	5 W	trigger	Lifelink		Token	ChangesZone	w_3_3_knight			
+Gutless Plunderer	60	g/gutless_plunderer.txt	Creature Skeleton Pirate	2 B	trigger	Deathtouch		Dig	ChangesZone			look at or move top cards	
+Guttersnipe	716	g/guttersnipe.txt	Creature Goblin Shaman	2 R	trigger			DealDamage	SpellCast				
+Halana and Alena, Partners	659	h/halana_and_alena_partners.txt	Legendary Creature Human Ranger	2 R G	trigger	First Strike; Reach		Pump; PutCounter	Phase				
+Harbinger of the Tides	593	h/harbinger_of_the_tides.txt	Creature Merfolk Wizard	U U	trigger	MayFlashCost		ChangeZone	ChangesZone				
+Hare Apparent	15	h/hare_apparent.txt	Creature Rabbit Noble	1 W	trigger	A deck can have any number of cards named CARDNAME.		Token	ChangesZone	w_1_1_rabbit			
+Harmless Offering	625	h/harmless_offering.txt	Sorcery	2 R	spell			GainControl; Pump					
+Healer's Hawk	142,734	h/healers_hawk.txt	Creature Bird	W		Flying; Lifelink							
+Heartfire Immolator	201	h/heartfire_immolator.txt	Creature Human Wizard	1 R	activated	Prowess		DealDamage					
+Hedron Archive	726	h/hedron_archive.txt	Artifact	4	activated			Draw; Mana					
+Helpful Hunter	16	h/helpful_hunter.txt	Creature Cat	1 W	trigger			Draw	ChangesZone				
+Herald of Eternal Dawn	17,299,368,423,433,446	h/herald_of_eternal_dawn.txt	Creature Angel	4 W W W	replacement	Flash; Flying			GameLoss; GameWin				
+Herald of Faith	494,735	h/herald_of_faith.txt	Creature Angel	3 W W	trigger	Flying		GainLife	Attacks				
+Heraldic Banner	254	h/heraldic_banner.txt	Artifact	3	activated; static	ETBReplacement		ChooseColor; Mana	Continuous			choose a color	
+Hero's Downfall	175,319	h/heros_downfall.txt	Instant	1 B B	spell			Destroy					
+Heroes' Bane	639	h/heroes_bane.txt	Creature Hydra	3 G G	activated	etbCounter		PutCounter					
+Heroic Reinforcements	241	h/heroic_reinforcements.txt	Sorcery	2 R W	spell			PumpAll; Token		w_1_1_soldier			
+Hidetsugu's Second Rite	202	h/hidetsugus_second_rite.txt	Instant	3 R	spell			DealDamage					
+High Fae Trickster	40,307,375,453	h/high_fae_trickster.txt	Creature Faerie Wizard	3 U	static	Flash; Flying			CastWithFlash				
+High-Society Hunter	61,320,384,461	h/high_society_hunter.txt	Creature Vampire Noble	3 B B	trigger	Flying		Draw; PutCounter	Attacks; ChangesZone			choose a permanent to sacrifice as payment	
+Highborn Vampire	522	h/highborn_vampire.txt	Creature Vampire Warrior	3 B									
+Hinterland Sanctifier	730	h/hinterland_sanctifier.txt	Creature Rabbit Cleric	W	trigger			GainLife	ChangesZone				
+Hoarding Dragon	626	h/hoarding_dragon.txt	Creature Dragon	3 R R	trigger	Flying		ChangeZone	ChangesZone				
+Homunculus Horde	41,308,376,454	h/homunculus_horde.txt	Creature Homunculus	3 U	trigger			CopyPermanent	Drawn				
+Hungry Ghoul	62	h/hungry_ghoul.txt	Creature Zombie	1 B	activated			PutCounter				choose a permanent to sacrifice as payment	
+Icewind Elemental	42,742	i/icewind_elemental.txt	Creature Elemental	4 U	trigger	Flying		Discard; Draw	ChangesZone; TgtChoose				
+Immersturm Predator	660	i/immersturm_predator.txt	Creature Vampire Dragon	2 B R	activated; trigger	Flying		ChangeZone; Pump; PutCounter; Tap	Taps			choose a permanent to sacrifice as payment	
+Impact Tremors	717	i/impact_tremors.txt	Enchantment	1 R	trigger			DealDamage	ChangesZone				
+Imperious Perfect	719	i/imperious_perfect.txt	Creature Elf Warrior	2 G	activated; static			Token	Continuous	g_1_1_elf_warrior			
+Imprisoned in the Moon	156	i/imprisoned_in_the_moon.txt	Enchantment Aura	2 U	static	Enchant		Mana	Continuous			attachment	
+Incinerating Blast	90	i/incinerating_blast.txt	Sorcery	4 R	spell			DealDamage; Draw				discard as payment	
+Infernal Vessel	63	i/infernal_vessel.txt	Creature Human Cleric	2 B	trigger			ChangeZone	ChangesZone; Continuous				
+Infestation Sage	64	i/infestation_sage.txt	Creature Elf Warlock	B	trigger			Token	ChangesZone	bg_1_1_insect_flying			
+Ingenious Leonin	495	i/ingenious_leonin.txt	Creature Cat Soldier	4 W	activated			Pump; PutCounter					
+Inspiration from Beyond	43	i/inspiration_from_beyond.txt	Sorcery	2 U	spell	Flashback		ChangeZone; Mill				choose from graveyard during resolution	
+Inspiring Call	226	i/inspiring_call.txt	Instant	2 G	spell			Draw; PumpAll					
+Inspiring Overseer	496,736	i/inspiring_overseer.txt	Creature Angel Cleric	2 W	trigger	Flying		Draw; GainLife	ChangesZone				
+Inspiring Paladin	18	i/inspiring_paladin.txt	Creature Human Knight	2 W	static		First Strike		Continuous				
+Into the Roil	509	i/into_the_roil.txt	Instant	1 U	spell	Kicker		ChangeZone; Draw					
+Involuntary Employment	203	i/involuntary_employment.txt	Sorcery	3 R	spell			GainControl; Token		c_a_treasure_sac	Mana		
+Island	274,275,284,285	i/island.txt	Basic Land Island	no cost									
+Izzet Guildgate	691	i/izzet_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Jazal Goldmane	497	j/jazal_goldmane.txt	Legendary Creature Cat Warrior	2 W W	activated	First Strike		PumpAll					
+Joraga Invocation	555	j/joraga_invocation.txt	Sorcery	4 G G	spell			PumpAll					
+Joust Through	19	j/joust_through.txt	Instant	W	spell			DealDamage; GainLife					
+Juggernaut	255	j/juggernaut.txt	Artifact Creature Juggernaut	4	static				CantBlockBy; MustAttack				
+Jungle Hollow	263	j/jungle_hollow.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Kaito, Cunning Infiltrator	44,358,418,424,434	k/kaito_cunning_infiltrator.txt	Legendary Planeswalker Kaito	1 U U	activated; trigger			Discard; Draw; Effect; PutCounter; Token	CantBlockBy; DamageDone; SpellCast; TgtChoose	u_2_1_ninja		loyalty ability	
+Kalastria Highborn	607,753	k/kalastria_highborn.txt	Creature Vampire Shaman	B B	trigger			GainLife; LoseLife	ChangesZone				
+Kargan Dragonrider	541,762	k/kargan_dragonrider.txt	Creature Human Warrior	1 R	static		Flying		Continuous				
+Kellan, Planar Trailblazer	91,330,392,466	k/kellan_planar_trailblazer.txt	Legendary Creature Human Faerie Scout	R	activated		Double Strike	Animate; Cleanup; Dig; Effect	Continuous; DamageDone			look at or move top cards; play permission from Exile	
+Kindled Fury	542	k/kindled_fury.txt	Instant	R	spell			Pump					
+Kiora, the Rising Tide	45,309,377,455	k/kiora_the_rising_tide.txt	Legendary Creature Merfolk Noble	2 U	trigger			Discard; Draw; Token	Attacks; ChangesZone; TgtChoose	scion_of_the_deep			
+Kitesail Corsair	510,743	k/kitesail_corsair.txt	Creature Human Pirate	1 U	static		Flying		Continuous				
+Knight of Grace	576	k/knight_of_grace.txt	Creature Human Knight	1 W	static	First Strike; Hexproof			Continuous				
+Knight of Malice	608	k/knight_of_malice.txt	Creature Human Knight	1 B	static	First Strike; Hexproof			Continuous				
+Koma, World-Eater	121,347,408,480	k/koma_world_eater.txt	Legendary Creature Serpent	3 G G U U	replacement; trigger	Trample; Ward		Token	Counter; DamageDone	komas_coil			
+Krenko, Mob Boss	204	k/krenko_mob_boss.txt	Legendary Creature Goblin Warrior	2 R R	activated			Token		r_1_1_goblin			
+Kykar, Zephyr Awakener	122,348,409,481	k/kykar_zephyr_awakener.txt	Legendary Creature Bird Wizard	2 W U	trigger	Flying		ChangeZone; Charm; Cleanup; DelayedTrigger; Token	Phase; SpellCast	w_1_1_spirit_flying			
+Lathliss, Dragon Queen	627	l/lathliss_dragon_queen.txt	Legendary Creature Dragon	4 R R	activated; trigger	Flying		PumpAll; Token	ChangesZone	r_5_5_dragon_flying			
+Lathril, Blade of the Elves	242,349,410	l/lathril_blade_of_the_elves.txt	Legendary Creature Elf Noble	2 B G	activated; trigger	Menace		GainLife; LoseLife; Token	DamageDone	g_1_1_elf_warrior			
+Leonin Skyhunter	498	l/leonin_skyhunter.txt	Creature Cat Knight	W W		Flying							
+Leonin Vanguard	499	l/leonin_vanguard.txt	Creature Cat Soldier	W	trigger			GainLife; Pump	Phase				
+Leyline Axe	129,353,414,485	l/leyline_axe.txt	Artifact Equipment	4	static	Equip; MayEffectFromOpeningHand	Double Strike; Trample	ChangeZone	Continuous			attachment	
+Lightshell Duo	157	l/lightshell_duo.txt	Creature Rat Otter	3 U	trigger	Prowess		Surveil	ChangesZone				
+Liliana, Dreadhorde General	176,359,419	l/liliana_dreadhorde_general.txt	Legendary Planeswalker Liliana	4 B B	activated; trigger			ChooseCard; Cleanup; Draw; Sacrifice; SacrificeAll; Token	ChangesZone	b_2_2_zombie		choose a card during resolution; loyalty ability	
+Linden, the Steadfast Queen	577,737	l/linden_the_steadfast_queen.txt	Legendary Creature Human Noble	W W W	trigger	Vigilance		GainLife	Attacks				
+Llanowar Elves	227,429,439	l/llanowar_elves.txt	Creature Elf Druid	G	activated			Mana					real_forge_a_targeted_mana_creature_can_pay_for_its_spell
+Loot, Exuberant Explorer	106,336,398,470	l/loot_exuberant_explorer.txt	Legendary Creature Beast Noble	2 G	activated; static			Dig	Continuous			look at or move top cards	
+Luminous Rebuke	20	l/luminous_rebuke.txt	Instant	4 W	spell; static			Destroy	ReduceCost				
+Lunar Insight	46,310,378,456	l/lunar_insight.txt	Sorcery	2 U	spell			Draw					
+Lyra Dawnbringer	707,738	l/lyra_dawnbringer.txt	Legendary Creature Angel	3 W W	static	First Strike; Flying; Lifelink	Lifelink		Continuous				
+Maalfeld Twins	523	m/maalfeld_twins.txt	Creature Zombie	5 B	trigger			Token	ChangesZone	b_2_2_zombie			
+Macabre Waltz	177	m/macabre_waltz.txt	Sorcery	1 B	spell			ChangeZone; Discard	TgtChoose				
+Maelstrom Pulse	661	m/maelstrom_pulse.txt	Sorcery	1 B G	spell			DestroyAll; Pump					
+Magnigoth Sentry	556	m/magnigoth_sentry.txt	Creature Treefolk	3 G		Reach							
+Make Your Move	143	m/make_your_move.txt	Instant	2 W	spell			Destroy					
+Make a Stand	708	m/make_a_stand.txt	Instant	2 W	spell			PumpAll					
+Marauding Blight-Priest	178	m/marauding_blight_priest.txt	Creature Vampire Cleric	2 B	trigger			LoseLife	LifeGained				real_forge_foundations_blight_priest_conqueror_drains_to_a_win
+Massacre Wurm	714,754	m/massacre_wurm.txt	Creature Phyrexian Wurm	3 B B B	trigger			LoseLife; PumpAll	ChangesZone				
+Maze's End	727	m/mazes_end.txt	Land	no cost	activated; replacement			ChangeZone; Mana; Tap; WinsGame	Moved				
+Mazemind Tome	676	m/mazemind_tome.txt	Artifact Book	2	activated; trigger			ChangeZone; Draw; GainLife; Scry	Always				
+Mentor of the Meek	578	m/mentor_of_the_meek.txt	Creature Human Soldier	2 W	trigger			Draw	ChangesZone				
+Meteor Golem	256	m/meteor_golem.txt	Artifact Creature Golem	7	trigger			Destroy	ChangesZone				
+Micromancer	158	m/micromancer.txt	Creature Human Wizard	3 U	trigger			ChangeZone	ChangesZone				
+Midnight Reaper	609	m/midnight_reaper.txt	Creature Zombie Knight	2 B	trigger			DealDamage; Draw	ChangesZone				
+Midnight Snack	65	m/midnight_snack.txt	Enchantment	2 B	activated; trigger			LoseLife; Token	Phase	c_a_food_sac	GainLife		
+Mild-Mannered Librarian	228	m/mild_mannered_librarian.txt	Creature Human	G	activated			Animate; Draw; PutCounter					real_forge_librarian_pays_mana_changes_type_adds_counters_and_draws; real_forge_librarians_once_limit_survives_untapping
+Mindsparker	628	m/mindsparker.txt	Creature Elemental	1 R R	trigger	First Strike		DealDamage	SpellCast				
+Mischievous Mystic	47	m/mischievous_mystic.txt	Creature Human Wizard	1 U	trigger	Flying		Token	Drawn	u_1_1_faerie_flying			
+Mischievous Pup	144	m/mischievous_pup.txt	Creature Dog	2 W	trigger	Flash		ChangeZone	ChangesZone				
+Mocking Sprite	159,744	m/mocking_sprite.txt	Creature Faerie Rogue	2 U	static	Flying			ReduceCost				
+Mold Adder	640	m/mold_adder.txt	Creature Fungus Snake	G	trigger			PutCounter	SpellCast				
+Moment of Craving	524	m/moment_of_craving.txt	Instant	1 B	spell			GainLife; Pump					
+Moment of Triumph	500	m/moment_of_triumph.txt	Instant	W	spell			GainLife; Pump					
+Mortify	662	m/mortify.txt	Instant	1 W B	spell			Destroy					
+Mossborn Hydra	107,337,399,471	m/mossborn_hydra.txt	Creature Elemental Hydra	2 G	trigger	Trample; etbCounter		MultiplyCounter	ChangesZone				real_forge_foundations_evolving_wilds_landfall_with_doubling_season
+Mountain	278,279,288,289	m/mountain.txt	Basic Land Mountain	no cost									
+Muldrotha, the Gravetide	243,430,440	m/muldrotha_the_gravetide.txt	Legendary Creature Elemental Avatar	3 B G U	static				Continuous			play permission from Graveyard	
+Myojin of Night's Reach	610	m/myojin_of_nights_reach.txt	Legendary Creature Spirit	5 B B B	activated; static	etbCounter	Indestructible	Discard	Continuous; Hand				
+Mystic Archaeologist	511	m/mystic_archaeologist.txt	Creature Human Wizard	1 U	activated			Draw					
+Mystical Teachings	594	m/mystical_teachings.txt	Instant	3 U	spell	Flashback		ChangeZone					
+Needletooth Pack	108	n/needletooth_pack.txt	Creature Dinosaur	3 G G	trigger			PutCounter	Phase				
+Negate	710	n/negate.txt	Instant	1 U	spell			Counter					
+Nessian Hornbeetle	229	n/nessian_hornbeetle.txt	Creature Insect	1 G	trigger			PutCounter	Phase				
+New Horizons	557	n/new_horizons.txt	Enchantment Aura	2 G	static; trigger	Enchant		Mana; PutCounter	ChangesZone; Continuous			attachment	
+Nine-Lives Familiar	66,321,385,462	n/nine_lives_familiar.txt	Creature Cat	1 B B	trigger	etbCounter		ChangeZone; DelayedTrigger	ChangesZone; Phase				
+Niv-Mizzet, Visionary	123,350,411,482	n/niv_mizzet_visionary.txt	Legendary Creature Dragon Wizard	4 U R	static; trigger	Flying		Draw	Continuous; DamageDone				
+Nullpriest of Oblivion	611	n/nullpriest_of_oblivion.txt	Creature Vampire Cleric	1 B	trigger	Kicker; Lifelink; Menace		ChangeZone	ChangesZone				
+Obliterating Bolt	629	o/obliterating_bolt.txt	Sorcery	1 R	spell			DealDamage					
+Offer Immortality	525	o/offer_immortality.txt	Instant	1 B	spell			Pump					
+Omniscience	161,312,379	o/omniscience.txt	Enchantment	7 U U U	static				Continuous			cast without paying mana cost; play permission from Hand	
+Opt	512	o/opt.txt	Instant	U	spell			Draw; Scry					real_forge_undo_restores_opts_private_scry_draw_and_public_history
+Ordeal of Nylea	641	o/ordeal_of_nylea.txt	Enchantment Aura	1 G	static; trigger	Enchant		ChangeZone; PutCounter; Sacrifice	Attacks; Continuous; Sacrificed			attachment	
+Orzhov Guildgate	692	o/orzhov_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Overrun	230	o/overrun.txt	Sorcery	2 G G G	spell			PumpAll					
+Ovika, Enigma Goliath	663	o/ovika_enigma_goliath.txt	Legendary Creature Phyrexian Nightmare	5 U R	trigger	Flying; Ward		Token	SpellCast	r_1_1_phyrexian_goblin			
+Pacifism	501	p/pacifism.txt	Enchantment Aura	1 W	static	Enchant			CantAttack,CantBlock			attachment	
+Painful Quandary	179	p/painful_quandary.txt	Enchantment	3 B B	trigger			LoseLife	SpellCast			discard as payment	
+Pelakka Wurm	720,765	p/pelakka_wurm.txt	Creature Wurm	4 G G G	trigger	Trample		Draw; GainLife	ChangesZone				
+Perforating Artist	124	p/perforating_artist.txt	Creature Devil	1 B R	trigger	Deathtouch		GenericChoice; LoseLife	Phase			choose a permanent to sacrifice as payment; choose between effects during resolution; discard as payment	
+Phyrexian Arena	180,322,386,728	p/phyrexian_arena.txt	Enchantment	1 B B	trigger			Draw; LoseLife	Phase				
+Pilfer	181	p/pilfer.txt	Sorcery	1 B	spell			Discard	RevealYouChoose				
+Pirate's Cutlass	563	p/pirates_cutlass.txt	Artifact Equipment	3	static; trigger	Equip		Attach	ChangesZone; Continuous			attachment	
+Plains	272,273,282,283	p/plains.txt	Basic Land Plains	no cost									
+Prayer of Binding	502,739	p/prayer_of_binding.txt	Enchantment	3 W	trigger	Flash		ChangeZone; GainLife	ChangesZone				
+Predator Ooze	642	p/predator_ooze.txt	Creature Ooze	G G G	trigger	Indestructible		PutCounter	Attacks; ChangesZone				
+Preposterous Proportions	109,338,400,472	p/preposterous_proportions.txt	Sorcery	5 G G	spell			PumpAll					
+Prideful Parent	21	p/prideful_parent.txt	Creature Cat	2 W	trigger	Vigilance		Token	ChangesZone	w_1_1_cat			
+Primal Might	643,766	p/primal_might.txt	Sorcery	X G	spell			Fight; Pump				announce spell X	
+Prime Speaker Zegana	664	p/prime_speaker_zegana.txt	Legendary Creature Merfolk Wizard	2 G G U U	trigger	etbCounter		Draw	ChangesZone				
+Primeval Bounty	644	p/primeval_bounty.txt	Enchantment	5 G	trigger			GainLife; PutCounter; Token	ChangesZone; SpellCast	g_3_3_beast			
+Progenitus	244,431,441	p/progenitus.txt	Legendary Creature Hydra Avatar	W W U U B B R R G G	replacement	Protection from everything		ChangeZone	Moved				
+Pulse Tracker	612,755	p/pulse_tracker.txt	Creature Vampire Rogue	B	trigger			LoseLife	Attacks				
+Pyromancer's Goggles	677	p/pyromancers_goggles.txt	Legendary Artifact	5	activated			CopySpellAbility; Mana	SpellCast			copy a spell or ability	
+Quakestrider Ceratops	110	q/quakestrider_ceratops.txt	Creature Dinosaur	3 G G G									
+Quick Study	513	q/quick_study.txt	Instant	2 U	spell			Draw					
+Quick-Draw Katana	130	q/quick_draw_katana.txt	Artifact Equipment	2	static	Equip	First Strike		Continuous			attachment	
+Quilled Greatwurm	111,339,401,473	q/quilled_greatwurm.txt	Creature Wurm	4 G G	static; trigger	Trample		PutCounter	Continuous; DamageDealtOnce			play permission from Graveyard	
+Raging Redcap	543	r/raging_redcap.txt	Creature Goblin Knight	2 R		Double Strike							
+Raise the Past	22,300,369,447	r/raise_the_past.txt	Sorcery	2 W W	spell			ChangeZoneAll					
+Rakdos Guildgate	693	r/rakdos_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Ramos, Dragon Engine	678	r/ramos_dragon_engine.txt	Legendary Artifact Creature Dragon	6	activated; trigger	Flying		Mana; PutCounter	SpellCast				
+Rampaging Baloths	645	r/rampaging_baloths.txt	Creature Beast	4 G G	trigger	Trample		Token	ChangesZone	g_4_4_beast			
+Rapacious Dragon	544	r/rapacious_dragon.txt	Creature Dragon	4 R	trigger	Flying		Token	ChangesZone	c_a_treasure_sac	Mana		
+Ravenous Amulet	131	r/ravenous_amulet.txt	Artifact	2	activated			Draw; LoseLife; PutCounter				choose a permanent to sacrifice as payment	
+Ravenous Giant	630	r/ravenous_giant.txt	Creature Giant	2 R R	trigger			DealDamage	Phase				
+Reassembling Skeleton	182	r/reassembling_skeleton.txt	Creature Skeleton Warrior	1 B	activated			ChangeZone					real_forge_foundations_reassembling_skeleton_returns_tapped_from_its_owners_graveyard
+Reclamation Sage	231,340	r/reclamation_sage.txt	Creature Elf Shaman	2 G	trigger			Destroy	ChangesZone				
+Redcap Gutter-Dweller	631	r/redcap_gutter_dweller.txt	Creature Goblin Warrior	2 R R	trigger	Menace		Cleanup; Dig; Effect; PutCounter; Token	ChangesZone; Continuous; Phase	b_1_1_rat_noblock		choose a permanent to sacrifice as payment; look at or move top cards; play permission from Exile	
+Refute	48,313	r/refute.txt	Instant	1 U U	spell			Counter; Discard; Draw	TgtChoose				
+Regal Caracal	579	r/regal_caracal.txt	Creature Cat	3 W W	static; trigger		Lifelink	Token	ChangesZone; Continuous	w_1_1_cat_lifelink			
+Release the Dogs	580	r/release_the_dogs.txt	Sorcery	3 W	spell			Token		w_1_1_dog			
+Resolute Reinforcements	145	r/resolute_reinforcements.txt	Creature Human Soldier	1 W	trigger	Flash		Token	ChangesZone	w_1_1_soldier			
+Revenge of the Rats	67	r/revenge_of_the_rats.txt	Sorcery	2 B B	spell	Flashback		Token		b_1_1_rat			
+Rise of the Dark Realms	183,323,387	r/rise_of_the_dark_realms.txt	Sorcery	7 B B	spell			ChangeZoneAll					
+Rite of Replication	711	r/rite_of_replication.txt	Sorcery	2 U U	spell	Kicker		CopyPermanent					
+Rite of the Dragoncaller	92,331,393,467	r/rite_of_the_dragoncaller.txt	Enchantment	4 R R	trigger			Token	SpellCast	r_5_5_dragon_flying			
+River's Rebuke	595	r/rivers_rebuke.txt	Sorcery	4 U U	spell			ChangeZoneAll					
+Rogue's Passage	264	r/rogues_passage.txt	Land	no cost	activated			Effect; Mana	CantBlockBy				
+Ruby, Daring Tracker	245	r/ruby_daring_tracker.txt	Legendary Creature Human Scout	R G	activated; trigger	Haste		Mana; Pump	Attacks				
+Rugged Highlands	265	r/rugged_highlands.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Run Away Together	162	r/run_away_together.txt	Instant	1 U	spell			ChangeZone					
+Rune-Scarred Demon	184	r/rune_scarred_demon.txt	Creature Demon	5 B B	trigger	Flying		ChangeZone	ChangesZone				
+Rune-Sealed Wall	49,745	r/rune_sealed_wall.txt	Artifact Creature Wall	2 U	activated	Defender		Surveil					
+Sanguine Indulgence	613	s/sanguine_indulgence.txt	Sorcery	3 B	spell; static			ChangeZone	ReduceCost				
+Sanguine Syphoner	68	s/sanguine_syphoner.txt	Creature Vampire Warlock	1 B	trigger			GainLife; LoseLife	Attacks				
+Savage Ventmaw	665	s/savage_ventmaw.txt	Creature Dragon	4 R G	trigger	Flying		Mana	Attacks				
+Savannah Lions	146	s/savannah_lions.txt	Creature Cat	W									
+Scavenging Ooze	232	s/scavenging_ooze.txt	Creature Ooze	1 G	activated			ChangeZone; GainLife; PutCounter					
+Scorching Dragonfire	545	s/scorching_dragonfire.txt	Instant	1 R	spell			DealDamage					
+Scoured Barrens	266	s/scoured_barrens.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Scrawling Crawler	132,354,415,486	s/scrawling_crawler.txt	Artifact Creature Phyrexian Construct	3	trigger			Draw; LoseLife	Drawn; Phase				
+Searslicer Goblin	93,332,394,468	s/searslicer_goblin.txt	Creature Goblin Warrior	1 R	trigger			Token	Phase	r_1_1_goblin			
+Secluded Courtyard	267	s/secluded_courtyard.txt	Land	no cost	activated	ETBReplacement		ChooseType; Mana					real_forge_foundations_courtyard_uses_the_chosen_type_and_mana_color
+Seeker's Folly	69	s/seekers_folly.txt	Sorcery	2 B	spell			Charm; Discard; PumpAll	TgtChoose				
+Seismic Rupture	205	s/seismic_rupture.txt	Sorcery	2 R	spell			DamageAll					
+Seize the Spoils	546	s/seize_the_spoils.txt	Sorcery	2 R	spell			Draw; Token		c_a_treasure_sac	Mana	discard as payment	
+Selesnya Guildgate	694	s/selesnya_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Self-Reflection	163	s/self_reflection.txt	Sorcery	4 U U	spell	Flashback		CopyPermanent					
+Serra Angel	147,740	s/serra_angel.txt	Creature Angel	3 W W		Flying; Vigilance							
+Shipwreck Dowser	596	s/shipwreck_dowser.txt	Creature Merfolk Wizard	3 U U	trigger	Prowess		ChangeZone	ChangesZone				
+Shivan Dragon	206,763	s/shivan_dragon.txt	Creature Dragon	4 R R	activated	Flying		Pump					
+Simic Guildgate	695	s/simic_guildgate.txt	Land Gate	no cost	activated; replacement			Mana; Tap	Moved				
+Sire of Seven Deaths	1,292,362	s/sire_of_seven_deaths.txt	Creature Eldrazi	7		First Strike; Lifelink; Menace; Reach; Trample; Vigilance; Ward							
+Skeleton Archer	526	s/skeleton_archer.txt	Creature Skeleton Archer	3 B	trigger			DealDamage	ChangesZone				
+Skyknight Squire	23,301,370,448	s/skyknight_squire.txt	Creature Cat Scout	1 W	static; trigger		Flying	PutCounter	ChangesZone; Continuous				
+Skyraker Giant	547	s/skyraker_giant.txt	Creature Giant	2 R R		Reach							
+Skyship Buccaneer	50	s/skyship_buccaneer.txt	Creature Human Pirate	3 U U	trigger	Flying		Draw	ChangesZone				
+Slagstorm	207	s/slagstorm.txt	Sorcery	1 R R	spell			Charm; DamageAll					
+Slumbering Cerberus	94	s/slumbering_cerberus.txt	Creature Dog	1 R	replacement; trigger			Untap	Phase; Untap				
+Snakeskin Veil	233	s/snakeskin_veil.txt	Instant	G	spell			Pump; PutCounter					
+Solemn Simulacrum	257,729	s/solemn_simulacrum.txt	Artifact Creature Golem	4	trigger			ChangeZone; Draw	ChangesZone				
+Sorcerous Spyglass	679	s/sorcerous_spyglass.txt	Artifact	2	static	ETBReplacement		ChoosePlayer; Cleanup; NameCard; RevealHand	CantBeActivated			choose a player; name a card	
+Soul-Guide Lantern	680	s/soul_guide_lantern.txt	Artifact	1	activated; trigger			ChangeZone; ChangeZoneAll; Draw	ChangesZone				real_forge_foundations_lantern_offers_both_payable_abilities
+Soul-Shackled Zombie	70	s/soul_shackled_zombie.txt	Creature Zombie	3 B	trigger			ChangeZone; Cleanup; GainLife; LoseLife	ChangesZone				
+Soulstone Sanctuary	133,356,416,487	s/soulstone_sanctuary.txt	Land	no cost	activated		Vigilance	Animate; Mana					
+Sower of Chaos	95	s/sower_of_chaos.txt	Creature Devil	3 R	activated			Pump					
+Spectral Sailor	164,746	s/spectral_sailor.txt	Creature Spirit Pirate	U	activated	Flash; Flying		Draw					
+Sphinx of Forgotten Lore	51,314,380,457	s/sphinx_of_forgotten_lore.txt	Creature Sphinx	2 U U	trigger	Flash; Flying		Pump	Attacks				
+Sphinx of the Final Word	597,747	s/sphinx_of_the_final_word.txt	Creature Sphinx	5 U U	replacement	Flying; Hexproof			Counter				
+Spinner of Souls	112,341,402,474	s/spinner_of_souls.txt	Creature Spider Spirit	2 G	trigger	Reach		DigUntil	ChangesZone				
+Spitfire Lagac	208	s/spitfire_lagac.txt	Creature Lizard	3 R	trigger			DealDamage	ChangesZone				
+Springbloom Druid	646,767	s/springbloom_druid.txt	Creature Elf Druid	2 G	trigger			ChangeZone	ChangesZone			choose a permanent to sacrifice as payment	
+Squad Rallier	24	s/squad_rallier.txt	Creature Human Scout	3 W	activated			Dig				look at or move top cards	
+Stab	71	s/stab.txt	Instant	B	spell			Pump					
+Starlight Snare	514	s/starlight_snare.txt	Enchantment Aura	2 U	replacement; trigger	Enchant		Tap	ChangesZone; Untap			attachment	
+Stasis Snare	581	s/stasis_snare.txt	Enchantment	1 W W	trigger	Flash		ChangeZone	ChangesZone				
+Steel Hellkite	681	s/steel_hellkite.txt	Artifact Creature Dragon	6	activated	Flying		DestroyAll; Pump					
+Storm Fleet Spy	515	s/storm_fleet_spy.txt	Creature Human Pirate	2 U	trigger			Draw	ChangesZone				
+Strix Lookout	52,748	s/strix_lookout.txt	Creature Bird	1 U	activated	Flying; Vigilance		Discard; Draw	TgtChoose				
+Stroke of Midnight	148	s/stroke_of_midnight.txt	Instant	2 W	spell			Destroy; Token		w_1_1_human			
+Stromkirk Bloodthief	185	s/stromkirk_bloodthief.txt	Creature Vampire Rogue	2 B	trigger			PutCounter	Phase				
+Stromkirk Noble	632	s/stromkirk_noble.txt	Creature Vampire Noble	R	static; trigger			PutCounter	CantBlockBy; DamageDone				
+Strongbox Raider	96	s/strongbox_raider.txt	Creature Orc Pirate	2 R R	trigger			ChooseCard; Cleanup; Dig; Effect	ChangesZone; Continuous			choose a card during resolution; look at or move top cards; play permission from Exile	
+Sun-Blessed Healer	25	s/sun_blessed_healer.txt	Creature Human Cleric	1 W	trigger	Kicker; Lifelink		ChangeZone	ChangesZone				
+Sure Strike	209	s/sure_strike.txt	Instant	1 R	spell			Pump					
+Surrak, the Hunt Caller	647,768	s/surrak_the_hunt_caller.txt	Legendary Creature Human Warrior	2 G G	trigger			Pump	Phase				
+Suspicious Shambler	527	s/suspicious_shambler.txt	Creature Zombie	3 B	activated			Token		b_2_2_zombie			
+Swab Goblin	548	s/swab_goblin.txt	Creature Goblin Pirate	1 R									
+Swamp	276,277,286,287	s/swamp.txt	Basic Land Swamp	no cost									
+Swiftblade Vindicator	246	s/swiftblade_vindicator.txt	Creature Human Soldier	R W		Double Strike; Trample; Vigilance							
+Swiftfoot Boots	258,355	s/swiftfoot_boots.txt	Artifact Equipment	2	static	Equip	Haste; Hexproof		Continuous			attachment	
+Swiftwater Cliffs	268	s/swiftwater_cliffs.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Sylvan Scavenging	113,342,403,475	s/sylvan_scavenging.txt	Enchantment	1 G G	trigger			Charm; PutCounter; Token	Phase	g_3_3_raccoon			
+Syr Alin, the Lion's Claw	582	s/syr_alin_the_lions_claw.txt	Legendary Creature Human Knight	3 W W	trigger	First Strike		PumpAll	Attacks				
+Tajuru Pathwarden	558	t/tajuru_pathwarden.txt	Creature Elf Warrior Ally	4 G		Trample; Vigilance							
+Tatyova, Benthic Druid	247	t/tatyova_benthic_druid.txt	Legendary Creature Merfolk Druid	3 G U	trigger			Draw; GainLife	ChangesZone				real_forge_foundations_tatyova_and_temple_resolve_in_either_order
+Taurean Mauler	633	t/taurean_mauler.txt	Creature Shapeshifter	2 R	trigger	Changeling		PutCounter	SpellCast				
+Teach by Example	666	t/teach_by_example.txt	Instant	UR UR	spell			CopySpellAbility; DelayedTrigger	SpellCast			copy a spell or ability	
+Tempest Djinn	598,749	t/tempest_djinn.txt	Creature Djinn	U U U	static	Flying			Continuous				
+Temple of Abandon	696	t/temple_of_abandon.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				
+Temple of Deceit	697	t/temple_of_deceit.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				
+Temple of Enlightenment	698	t/temple_of_enlightenment.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				
+Temple of Epiphany	699	t/temple_of_epiphany.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				
+Temple of Malady	700	t/temple_of_malady.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				
+Temple of Malice	701	t/temple_of_malice.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				
+Temple of Mystery	702	t/temple_of_mystery.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				real_forge_foundations_tatyova_and_temple_resolve_in_either_order
+Temple of Plenty	703	t/temple_of_plenty.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				
+Temple of Silence	704	t/temple_of_silence.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				
+Temple of Triumph	705	t/temple_of_triumph.txt	Land	no cost	activated; replacement; trigger			Mana; Scry; Tap	ChangesZone; Moved				
+Terror of Mount Velus	549,764	t/terror_of_mount_velus.txt	Creature Dragon	5 R R	trigger	Double Strike; Flying		PumpAll	ChangesZone				
+Think Twice	165,315,425,435	t/think_twice.txt	Instant	1 U	spell	Flashback		Draw					real_forge_foundations_think_twice_requires_flashback_cost_and_exiles_after_drawing
+Thornweald Archer	559	t/thornweald_archer.txt	Creature Elf Archer	1 G		Deathtouch; Reach							
+Thornwood Falls	269	t/thornwood_falls.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Thousand-Year Storm	248	t/thousand_year_storm.txt	Enchantment	4 U R	trigger			CopySpellAbility	SpellCast			copy a spell or ability	
+Thrashing Brontodon	560	t/thrashing_brontodon.txt	Creature Dinosaur	1 G G	activated			Destroy					
+Three Tree Mascot	682	t/three_tree_mascot.txt	Artifact Creature Shapeshifter	2	activated	Changeling		Mana					
+Thrill of Possibility	210	t/thrill_of_possibility.txt	Instant	1 R	spell			Draw				discard as payment	
+Time Stop	166	t/time_stop.txt	Instant	4 U U	spell			EndTurn					
+Tinybones, Bauble Burglar	72,324,388,463	t/tinybones_bauble_burglar.txt	Legendary Creature Skeleton Rogue	1 B	activated; static; trigger			ChangeZone; Discard	Continuous; Discarded; TgtChoose			play permission from Exile	
+Tolarian Terror	167	t/tolarian_terror.txt	Creature Serpent	6 U	static	Ward			ReduceCost				
+Tragic Banshee	73	t/tragic_banshee.txt	Creature Spirit	4 B	trigger			Pump	ChangesZone				
+Tranquil Cove	270	t/tranquil_cove.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Treetop Snarespinner	114	t/treetop_snarespinner.txt	Creature Spider	3 G	activated	Deathtouch; Reach		PutCounter					
+Tribute to Hunger	614	t/tribute_to_hunger.txt	Instant	2 B	spell			Cleanup; GainLife; Sacrifice					real_forge_foundations_tribute_to_hunger_sacrifices_the_selected_creature
+Trygon Predator	667	t/trygon_predator.txt	Creature Beast	1 G U	trigger	Flying		Destroy	DamageDone				
+Twinblade Blessing	26	t/twinblade_blessing.txt	Enchantment Aura	1 W W	static	Enchant; Flash	Double Strike		Continuous			attachment	
+Twinblade Paladin	503	t/twinblade_paladin.txt	Creature Human Knight	3 W	static; trigger		Double Strike	PutCounter	Continuous; LifeGained				
+Twinflame Tyrant	97,333,395,427,437,469	t/twinflame_tyrant.txt	Creature Dragon	3 R R	replacement	Flying		ReplaceEffect	DamageDone				
+Uncharted Haven	564	u/uncharted_haven.txt	Land	no cost	activated; replacement	ETBReplacement		ChooseColor; Mana; Tap	Moved			choose a color	
+Uncharted Voyage	53	u/uncharted_voyage.txt	Instant	3 U	spell			ChangeZone; Surveil					
+Undying Malice	528	u/undying_malice.txt	Instant	B	spell			Animate; ChangeZone	ChangesZone				
+Unflinching Courage	722	u/unflinching_courage.txt	Enchantment Aura	1 G W	static	Enchant	Lifelink; Trample		Continuous			attachment	
+Unsummon	599,750	u/unsummon.txt	Instant	U	spell			ChangeZone					real_forge_foundations_dwynens_elite_rechecks_for_another_elf_on_resolution; real_forge_foundations_unsummon_breaks_the_loop_but_the_pending_trigger_resolves
+Untamed Hunger	529	u/untamed_hunger.txt	Enchantment Aura	2 B	static	Enchant	Menace		Continuous			attachment	
+Valkyrie's Call	27,302,371,449	v/valkyries_call.txt	Enchantment	3 W W	trigger		Flying	ChangeZone	ChangesZone; Continuous				
+Valorous Stance	583	v/valorous_stance.txt	Instant	1 W	spell			Charm; Destroy; Pump					
+Vampire Gourmand	74	v/vampire_gourmand.txt	Creature Vampire	1 B	trigger			Draw; Effect	Attacks; CantBlockBy			choose a permanent to sacrifice as payment	
+Vampire Interloper	530,756	v/vampire_interloper.txt	Creature Vampire Scout	1 B	static	Flying			CantBlock				
+Vampire Neonate	531	v/vampire_neonate.txt	Creature Vampire	B	activated			GainLife; LoseLife					
+Vampire Nighthawk	186,757	v/vampire_nighthawk.txt	Creature Vampire Shaman	1 B B		Deathtouch; Flying; Lifelink							
+Vampire Soulcaller	75,758	v/vampire_soulcaller.txt	Creature Vampire Warlock	4 B	static; trigger	Flying		ChangeZone	CantBlock; ChangesZone				
+Vampire Spawn	532	v/vampire_spawn.txt	Creature Vampire	2 B	trigger			GainLife; LoseLife	ChangesZone				
+Vampiric Rites	615	v/vampiric_rites.txt	Enchantment	B	activated			Draw; GainLife				choose a permanent to sacrifice as payment	
+Vanguard Seraph	28	v/vanguard_seraph.txt	Creature Angel Warrior	3 W	trigger	Flying		Surveil	LifeGained				
+Vengeful Bloodwitch	76,325	v/vengeful_bloodwitch.txt	Creature Vampire Warlock	1 B	trigger			GainLife; LoseLife	ChangesZone				
+Venom Connoisseur	648	v/venom_connoisseur.txt	Creature Human Druid	1 G	trigger			Pump; PumpAll	ChangesZone				
+Viashino Pyromancer	634	v/viashino_pyromancer.txt	Creature Lizard Wizard	1 R	trigger			DealDamage	ChangesZone				
+Vile Entomber	616	v/vile_entomber.txt	Creature Zombie Warlock	2 B B	trigger	Deathtouch		ChangeZone	ChangesZone				
+Vivien Reid	234,361,421	v/vivien_reid.txt	Legendary Planeswalker Vivien	3 G G	activated		Indestructible; Trample; Vigilance	Destroy; Dig; Effect	Continuous			look at or move top cards; loyalty ability	
+Vizier of the Menagerie	649,769	v/vizier_of_the_menagerie.txt	Creature Snake Cleric	3 G	static				Continuous; ManaConvert			play permission from Library	
+Volley Veteran	550	v/volley_veteran.txt	Creature Goblin Warrior	3 R	trigger			DealDamage	ChangesZone				
+Voracious Greatshark	600	v/voracious_greatshark.txt	Creature Shark	3 U U	trigger	Flash		Counter	ChangesZone				
+Wardens of the Cycle	125	w/wardens_of_the_cycle.txt	Creature Elf Warlock	1 B G G	trigger			Charm; Draw; GainLife; LoseLife	Phase				
+Wary Thespian	235	w/wary_thespian.txt	Creature Cat Druid	1 G	trigger			Surveil	ChangesZone				
+Wildborn Preserver	650	w/wildborn_preserver.txt	Creature Elf Archer	1 G	trigger	Flash; Reach		ImmediateTrigger; PutCounter	ChangesZone			choose X on trigger resolution	real_forge_wildborn_preserver_chooses_payment_on_resolution_before_the_counter_trigger
+Wildheart Invoker	561	w/wildheart_invoker.txt	Creature Elf Shaman	2 G G	activated			Pump					
+Wildwood Scourge	236	w/wildwood_scourge.txt	Creature Hydra	X G	trigger	etbCounter		PutCounter	CounterAddedOnce			announce spell X	real_forge_foundations_wildwood_scourge_uses_chosen_x_and_triggers_once_for_kicked_colony
+Wilt-Leaf Liege	668	w/wilt_leaf_liege.txt	Creature Elf Knight	1 GW GW GW	replacement; static			ChangeZone	Continuous; Moved				
+Wind-Scarred Crag	271	w/wind_scarred_crag.txt	Land	no cost	activated; replacement; trigger			GainLife; Mana; Tap	ChangesZone; Moved				
+Wishclaw Talisman	617	w/wishclaw_talisman.txt	Artifact	1 B	activated	etbCounter		ChangeZone; ChoosePlayer; Cleanup; GainControl				choose a player	
+Witness Protection	168	w/witness_protection.txt	Enchantment Aura	U	static	Enchant			Continuous			attachment	
+Youthful Valkyrie	149,303	y/youthful_valkyrie.txt	Creature Angel	1 W	trigger	Flying		PutCounter	ChangesZone				
+Zetalpa, Primal Dawn	584	z/zetalpa_primal_dawn.txt	Legendary Creature Elder Dinosaur	6 W W		Double Strike; Flying; Indestructible; Trample; Vigilance							
+Zimone, Paradox Sculptor	126,351,412,483	z/zimone_paradox_sculptor.txt	Legendary Creature Human Wizard	2 G U	activated; trigger			MultiplyCounter; PutCounter	Phase				
+Zombify	187	z/zombify.txt	Sorcery	3 B	spell			ChangeZone					
+Zul Ashur, Lich Lord	77,326,389,464	z/zul_ashur_lich_lord.txt	Legendary Creature Zombie Warlock	1 B	activated	Ward		Effect	Continuous			play permission from Graveyard	

@@ -1,0 +1,124 @@
+import { invoke } from "@tauri-apps/api/core";
+import type { HistoryEntry, Match } from "./types";
+
+export type ForgeSeat = "player" | "opponent";
+
+export interface ForgeCard {
+  id: string;
+  name: string;
+  faceDown?: boolean;
+  tapped: boolean;
+  setCode?: string;
+  collectorNumber?: string;
+  attacking?: boolean;
+  blocking?: boolean;
+  power?: number;
+  toughness?: number;
+  target?: string;
+  description?: string;
+  oracleText?: string;
+  typeLine?: string;
+  chosenType?: string;
+  manaCost?: string;
+  damage?: number;
+  counters?: Record<string, number>;
+}
+
+export interface ForgeChoice {
+  id: string;
+  label: string;
+  kind:
+    | "card"
+    | "ability"
+    | "type"
+    | "target"
+    | "pass"
+    | "option"
+    | "attack"
+    | "block";
+  cardId?: string;
+  seat?: ForgeSeat;
+}
+
+interface ForgePlayer {
+  life: number;
+  mana: number;
+  libraryCount?: number;
+  handCount: number;
+  hand: ForgeCard[];
+  battlefield: ForgeCard[];
+  graveyard: ForgeCard[];
+  exile?: ForgeCard[];
+}
+
+export interface ForgeMatch {
+  history: HistoryEntry[];
+  canUndo: boolean;
+  revision: number;
+  sharedSeats: boolean;
+  stage: "decision" | "finished";
+  prompt: string;
+  active: ForgeSeat;
+  actor: ForgeSeat;
+  turn: number;
+  phase: string;
+  step?: string;
+  librarySearch?: { title: string; operation?: string; cards: ForgeCard[] };
+  revealedToYou?: string[];
+  players: Record<ForgeSeat, ForgePlayer>;
+  stack: ForgeCard[];
+  choices: ForgeChoice[];
+}
+
+export function startForge(
+  sessionId: string,
+  deckId: string,
+  opponentDeckId?: string,
+) {
+  return invoke<ForgeMatch>("start_game", {
+    sessionId,
+    deckId,
+    opponentDeckId,
+  });
+}
+
+export function chooseForge(
+  sessionId: string,
+  action: string,
+  viewer: ForgeSeat,
+  revision: number,
+) {
+  return invoke<ForgeMatch>("act_game", {
+    sessionId,
+    action,
+    viewer,
+    revision,
+  });
+}
+
+export function undoForge(
+  sessionId: string,
+  viewer: ForgeSeat,
+  revision: number,
+) {
+  return invoke<ForgeMatch>("undo_game_action", {
+    sessionId,
+    viewer,
+    revision,
+  });
+}
+
+export function viewForgeSeat(sessionId: string, viewer: ForgeSeat) {
+  return invoke<ForgeMatch>("view_game_seat", { sessionId, viewer });
+}
+
+export function stopForge(sessionId: string) {
+  return invoke<void>("end_game", { sessionId });
+}
+
+export function exportForgeManual(sessionId: string, revision: number) {
+  return invoke<{ match: Match; history: HistoryEntry[] }>(
+    "export_manual_game",
+    { sessionId, revision },
+  );
+}

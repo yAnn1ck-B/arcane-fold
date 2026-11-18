@@ -1553,8 +1553,7 @@ fn serialize_deck(name: &str, entries: &[DeckEntry], index: &ForgeIndex) -> Resu
     serialize_exact_printings(name, entries, index)
 }
 
-#[cfg(debug_assertions)]
-pub(crate) fn practice_snapshot(deck: &DeckDetail, install: &Path) -> Result<String, String> {
+pub(crate) fn game_deck_snapshot(deck: &DeckDetail, install: &Path) -> Result<String, String> {
     if !deck
         .cards
         .iter()

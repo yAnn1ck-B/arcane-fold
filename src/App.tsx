@@ -61,7 +61,7 @@ import type {
   Page,
 } from "@/lib/types";
 
-const Playtest = lazy(() => import("@/pages/Playtest"));
+const PlayPage = lazy(() => import("@/pages/Play"));
 
 type CatalogSetupError = {
   message: string;
@@ -439,7 +439,7 @@ export default function App() {
     { id: "dashboard" as const, label: "Overview", icon: LayoutDashboard },
     { id: "collection" as const, label: "Collection", icon: Library },
     { id: "decks" as const, label: "Deck builder", icon: Swords },
-    { id: "playtest" as const, label: "Playtest", icon: Layers },
+    { id: "play" as const, label: "Play", icon: Layers },
     { id: "boosters" as const, label: "Booster packs", icon: Package },
   ];
 
@@ -522,7 +522,7 @@ export default function App() {
                   settings: "Settings",
                   collection: "Collection",
                   decks: "Deck builder",
-                  playtest: "Playtest",
+                  play: "Play",
                   dashboard: "Overview",
                   boosters: "Booster packs",
                 }[page]
@@ -663,9 +663,9 @@ export default function App() {
                   />
                 </div>
               )}
-              {page === "playtest" && !updateBlocked && (
-                <Suspense fallback={<div role="status">Opening Playtest…</div>}>
-                  <Playtest
+              {page === "play" && !updateBlocked && (
+                <Suspense fallback={<div role="status">Opening game table…</div>}>
+                  <PlayPage
                     settings={settings}
                     canPlay={canUseLeague}
                     onDeckBuilder={() => navigate("decks")}

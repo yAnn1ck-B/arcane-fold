@@ -1,0 +1,41 @@
+.pt-zone-dialog.pt-opening-dialog[open] {
+  width: min(1040px, calc(100vw - 24px));
+}
+.pt-opening-dialog .pt-zone-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+.pt-opening-prompt {
+  margin: 0;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.pt-opening-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 104px), 1fr));
+  gap: 8px;
+  padding: 3px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pt-opening-cards .pt-piece {
+  width: 100%;
+  max-width: 146px;
+}
+.pt-opening-cards .pt-piece:has([aria-pressed="true"]) {
+  outline: 2px solid var(--tone-accent);
+  outline-offset: 1px;
+}
+.pt-opening-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.pt-opening-actions:empty {
+  display: none;
+}

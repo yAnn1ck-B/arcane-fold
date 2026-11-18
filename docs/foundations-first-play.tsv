@@ -1,0 +1,518 @@
+card	first_play	detail
+Abrade	spell resolved	
+Abyssal Harvester	spell resolved	
+Adamant Will	spell resolved	
+Adaptive Automaton	spell resolved	
+Adventuring Gear	spell resolved	
+Aegis Turtle	spell resolved	
+Aetherize	spell resolved	
+Affectionate Indrik	spell resolved	
+Aggressive Mammoth	spell resolved	
+Ajani's Pridemate	spell resolved	
+Ajani, Caller of the Pride	spell resolved	
+Alesha, Who Laughs at Fate	spell resolved	
+Ambush Wolf	spell resolved	
+An Offer You Can't Refuse	spell resolved	respond to opponent's targeted Giant Growth
+Ancestor Dragon	spell resolved	
+Angel of Finality	spell resolved	
+Angel of Vitality	spell resolved	
+Angelic Destiny	spell resolved	
+Angelic Edict	spell resolved	
+Anthem of Champions	spell resolved	
+Apothecary Stomper	spell resolved	
+Arahbo, the First Fang	spell resolved	
+Arbiter of Woe	spell resolved	
+Arcane Epiphany	spell resolved	
+Arcanis the Omnipotent	spell resolved	
+Archmage of Runes	spell resolved	
+Archway Angel	spell resolved	
+Armasaur Guide	spell resolved	
+Ashroot Animist	spell resolved	
+Aurelia, the Warleader	spell resolved	
+Authority of the Consuls	spell resolved	
+Axgard Cavalry	spell resolved	
+Ayli, Eternal Pilgrim	spell resolved	
+Azorius Guildgate	land played	
+Bake into a Pie	spell resolved	
+Ball Lightning	spell resolved	
+Ballyrush Banneret	spell resolved	
+Balmor, Battlemage Captain	spell resolved	
+Banishing Light	spell resolved	
+Banner of Kinship	spell resolved	
+Basilisk Collar	spell resolved	
+Battle-Rattle Shaman	spell resolved	
+Battlesong Berserker	spell resolved	
+Bear Cub	spell resolved	
+Beast-Kin Ranger	spell resolved	
+Bigfin Bouncer	spell resolved	
+Billowing Shriekmass	spell resolved	
+Biogenic Upgrade	exception	"java.lang.NullPointerException: Cannot invoke ""java.lang.Integer.intValue()"" because the return value of ""forge.game.spellability.SpellAbility.getDividedValue(forge.game.GameObject)"" is null"
+Bishop's Soldier	spell resolved	
+Bite Down	spell resolved	
+Blanchwood Armor	spell resolved	
+Blasphemous Edict	spell resolved	
+Bloodfell Caves	land played	
+Bloodthirsty Conqueror	spell resolved	
+Bloodtithe Collector	spell resolved	
+Blossoming Sands	land played	
+Bolt Bend	spell resolved	respond to opponent's targeted Giant Growth
+Boltwave	spell resolved	
+Boros Charm	spell resolved	
+Boros Guildgate	land played	
+Brass's Bounty	spell resolved	
+Brazen Scourge	spell resolved	
+Brineborn Cutthroat	spell resolved	
+Broken Wings	spell resolved	
+Bulk Up	spell resolved	
+Burglar Rat	spell resolved	
+Burnished Hart	spell resolved	
+Burrog Befuddler	spell resolved	
+Burst Lightning	spell resolved	
+Bushwhack	spell resolved	
+Cackling Prowler	spell resolved	
+Campus Guide	spell resolved	
+Cancel	spell resolved	respond to opponent's targeted Giant Growth
+Carnelian Orb of Dragonkind	spell resolved	
+Cat Collector	spell resolved	
+Cathar Commando	spell resolved	
+Celestial Armor	spell resolved	
+Cemetery Recruitment	spell resolved	
+Cephalid Inkmage	spell resolved	
+Chandra, Flameshaper	spell resolved	
+Charming Prince	spell resolved	
+Chart a Course	spell resolved	
+Circuitous Route	spell resolved	
+Claws Out	spell resolved	
+Clinquant Skymage	spell resolved	
+Cloudblazer	spell resolved	
+Confiscate	spell resolved	
+Consuming Aberration	spell resolved	
+Corsair Captain	spell resolved	
+Courageous Goblin	spell resolved	
+Crackling Cyclops	spell resolved	
+Crash Through	spell resolved	
+Crawling Barrens	land played	
+Crossway Troublemakers	spell resolved	
+Crow of Dark Tidings	spell resolved	
+Crusader of Odric	spell resolved	
+Crypt Feaster	spell resolved	
+Cryptic Caves	land played	
+Crystal Barricade	spell resolved	
+Cultivator's Caravan	spell resolved	
+Curator of Destinies	spell resolved	
+Darksteel Colossus	spell resolved	
+Dauntless Veteran	spell resolved	
+Dawnwing Marshal	spell resolved	
+Day of Judgment	spell resolved	
+Dazzling Angel	spell resolved	
+Deadly Brew	spell resolved	
+Deadly Plot	spell resolved	
+Deadly Riposte	spell resolved	first main with five of each basic and a tapped opposing Shivan Dragon
+Death Baron	spell resolved	
+Deathmark	spell resolved	
+Demolition Field	land played	
+Demonic Pact	spell resolved	
+Desecration Demon	spell resolved	
+Devout Decree	spell resolved	first main with five of each basic and a tapped opposing Shivan Dragon
+Diamond Mare	spell resolved	
+Dictate of Kruphix	spell resolved	
+Dimir Guildgate	land played	
+Diregraf Ghoul	spell resolved	
+Disenchant	spell resolved	
+Dismal Backwater	land played	
+Dive Down	spell resolved	
+Divine Resilience	spell resolved	
+Doubling Season	spell resolved	
+Dragon Fodder	spell resolved	
+Dragon Mage	spell resolved	
+Dragon Trainer	spell resolved	
+Dragonlord's Servant	spell resolved	
+Dragonmaster Outcast	spell resolved	
+Drake Hatcher	spell resolved	
+Drakuseth, Maw of Flames	spell resolved	
+Dread Summons	spell resolved	
+Dreadwing Scavenger	spell resolved	
+Driver of the Dead	spell resolved	
+Drogskol Reaver	spell resolved	
+Dropkick Bomber	spell resolved	
+Druid of the Cowl	spell resolved	
+Dryad Militant	spell resolved	
+Duress	spell resolved	
+Dwynen's Elite	spell resolved	
+Dwynen, Gilt-Leaf Daen	spell resolved	
+Eager Trufflesnout	spell resolved	
+Eaten Alive	spell resolved	
+Eaten by Piranhas	spell resolved	
+Electroduplicate	spell resolved	
+Elementalist Adept	spell resolved	
+Elenda, Saint of Dusk	spell resolved	
+Elfsworn Giant	spell resolved	
+Elspeth's Smite	spell resolved	opponent attacks with Shivan Dragon
+Elvish Archdruid	spell resolved	
+Elvish Regrower	spell resolved	
+Empyrean Eagle	spell resolved	
+Enigma Drake	spell resolved	
+Erudite Wizard	spell resolved	
+Essence Scatter	spell resolved	respond to opponent's Grizzly Bears spell
+Etali, Primal Storm	spell resolved	
+Evolving Wilds	land played	
+Exclusion Mage	spell resolved	
+Exemplar of Light	spell resolved	
+Expedition Map	spell resolved	
+Exsanguinate	spell resolved	
+Extravagant Replication	spell resolved	
+Faebloom Trick	spell resolved	
+Fake Your Own Death	spell resolved	
+Fanatical Firebrand	spell resolved	
+Feed the Swarm	spell resolved	
+Feldon's Cane	spell resolved	
+Felidar Cub	spell resolved	
+Felidar Retreat	spell resolved	
+Felidar Savior	spell resolved	
+Felling Blow	spell resolved	
+Fiendish Panda	spell resolved	
+Fierce Empath	spell resolved	
+Fiery Annihilation	spell resolved	
+Finale of Revelation	spell resolved	
+Fire Elemental	spell resolved	
+Firebrand Archer	spell resolved	
+Fireshrieker	spell resolved	
+Firespitter Whelp	spell resolved	
+Fishing Pole	spell resolved	
+Flamewake Phoenix	spell resolved	
+Flashfreeze	spell resolved	respond to opponent's targeted Giant Growth
+Fleeting Distraction	spell resolved	
+Fleeting Flight	spell resolved	
+Fog Bank	spell resolved	
+Forest	land played	
+Frenzied Goblin	spell resolved	
+Fumigate	spell resolved	
+Fynn, the Fangbearer	spell resolved	
+Garna, Bloodfist of Keld	spell resolved	
+Garruk's Uprising	spell resolved	
+Gate Colossus	spell resolved	
+Gatekeeper of Malakir	spell resolved	
+Gateway Sneak	spell resolved	
+Genesis Wave	spell resolved	
+Ghalta, Primal Hunger	spell resolved	
+Ghitu Lavarunner	spell resolved	
+Giada, Font of Hope	spell resolved	
+Giant Cindermaw	spell resolved	
+Giant Growth	spell resolved	
+Gigantosaurus	spell resolved	first main with five of each basic and a tapped opposing Shivan Dragon
+Gilded Lotus	spell resolved	
+Gleaming Barrier	spell resolved	
+Gnarlback Rhino	spell resolved	
+Gnarlid Colony	spell resolved	
+Goblin Boarders	spell resolved	
+Goblin Firebomb	spell resolved	
+Goblin Negotiation	spell resolved	
+Goblin Oriflamme	spell resolved	
+Goblin Smuggler	spell resolved	
+Goblin Surprise	spell resolved	
+Goldvein Pick	spell resolved	
+Golgari Guildgate	land played	
+Good-Fortune Unicorn	spell resolved	
+Gorehorn Raider	spell resolved	
+Grappling Kraken	spell resolved	
+Gratuitous Violence	spell resolved	
+Grow from the Ashes	spell resolved	
+Gruul Guildgate	land played	
+Guarded Heir	spell resolved	
+Gutless Plunderer	spell resolved	
+Guttersnipe	spell resolved	
+Halana and Alena, Partners	spell resolved	
+Harbinger of the Tides	spell resolved	
+Hare Apparent	spell resolved	
+Harmless Offering	spell resolved	
+Healer's Hawk	spell resolved	
+Heartfire Immolator	spell resolved	
+Hedron Archive	spell resolved	
+Helpful Hunter	spell resolved	
+Herald of Eternal Dawn	spell resolved	
+Herald of Faith	spell resolved	
+Heraldic Banner	spell resolved	
+Hero's Downfall	spell resolved	
+Heroes' Bane	spell resolved	
+Heroic Reinforcements	spell resolved	
+Hidetsugu's Second Rite	spell resolved	
+High Fae Trickster	spell resolved	
+High-Society Hunter	spell resolved	
+Highborn Vampire	spell resolved	
+Hinterland Sanctifier	spell resolved	
+Hoarding Dragon	spell resolved	
+Homunculus Horde	spell resolved	
+Hungry Ghoul	spell resolved	
+Icewind Elemental	spell resolved	
+Immersturm Predator	spell resolved	
+Impact Tremors	spell resolved	
+Imperious Perfect	spell resolved	
+Imprisoned in the Moon	spell resolved	
+Incinerating Blast	spell resolved	
+Infernal Vessel	spell resolved	
+Infestation Sage	spell resolved	
+Ingenious Leonin	spell resolved	
+Inspiration from Beyond	spell resolved	
+Inspiring Call	spell resolved	
+Inspiring Overseer	spell resolved	
+Inspiring Paladin	spell resolved	
+Into the Roil	spell resolved	
+Involuntary Employment	spell resolved	
+Island	land played	
+Izzet Guildgate	land played	
+Jazal Goldmane	spell resolved	
+Joraga Invocation	spell resolved	
+Joust Through	spell resolved	opponent attacks with Shivan Dragon
+Juggernaut	spell resolved	
+Jungle Hollow	land played	
+Kaito, Cunning Infiltrator	spell resolved	
+Kalastria Highborn	spell resolved	
+Kargan Dragonrider	spell resolved	
+Kellan, Planar Trailblazer	spell resolved	
+Kindled Fury	spell resolved	
+Kiora, the Rising Tide	spell resolved	
+Kitesail Corsair	spell resolved	
+Knight of Grace	spell resolved	
+Knight of Malice	spell resolved	
+Koma, World-Eater	spell resolved	
+Krenko, Mob Boss	spell resolved	
+Kykar, Zephyr Awakener	spell resolved	
+Lathliss, Dragon Queen	spell resolved	
+Lathril, Blade of the Elves	spell resolved	
+Leonin Skyhunter	spell resolved	
+Leonin Vanguard	spell resolved	
+Leyline Axe	spell resolved	
+Lightshell Duo	spell resolved	
+Liliana, Dreadhorde General	spell resolved	
+Linden, the Steadfast Queen	spell resolved	
+Llanowar Elves	spell resolved	
+Loot, Exuberant Explorer	spell resolved	
+Luminous Rebuke	spell resolved	
+Lunar Insight	spell resolved	
+Lyra Dawnbringer	spell resolved	
+Maalfeld Twins	spell resolved	
+Macabre Waltz	spell resolved	
+Maelstrom Pulse	spell resolved	
+Magnigoth Sentry	spell resolved	
+Make Your Move	spell resolved	
+Make a Stand	spell resolved	
+Marauding Blight-Priest	spell resolved	
+Massacre Wurm	spell resolved	
+Maze's End	land played	
+Mazemind Tome	spell resolved	
+Mentor of the Meek	spell resolved	
+Meteor Golem	spell resolved	
+Micromancer	spell resolved	
+Midnight Reaper	spell resolved	
+Midnight Snack	spell resolved	
+Mild-Mannered Librarian	spell resolved	
+Mindsparker	spell resolved	
+Mischievous Mystic	spell resolved	
+Mischievous Pup	spell resolved	
+Mocking Sprite	spell resolved	
+Mold Adder	spell resolved	
+Moment of Craving	spell resolved	
+Moment of Triumph	spell resolved	
+Mortify	spell resolved	
+Mossborn Hydra	spell resolved	
+Mountain	land played	
+Muldrotha, the Gravetide	spell resolved	
+Myojin of Night's Reach	spell resolved	
+Mystic Archaeologist	spell resolved	
+Mystical Teachings	spell resolved	
+Needletooth Pack	spell resolved	
+Negate	spell resolved	respond to opponent's targeted Giant Growth
+Nessian Hornbeetle	spell resolved	
+New Horizons	spell resolved	
+Nine-Lives Familiar	spell resolved	
+Niv-Mizzet, Visionary	spell resolved	
+Nullpriest of Oblivion	spell resolved	
+Obliterating Bolt	spell resolved	
+Offer Immortality	spell resolved	
+Omniscience	spell resolved	
+Opt	spell resolved	
+Ordeal of Nylea	spell resolved	
+Orzhov Guildgate	land played	
+Overrun	spell resolved	
+Ovika, Enigma Goliath	spell resolved	
+Pacifism	spell resolved	
+Painful Quandary	spell resolved	
+Pelakka Wurm	spell resolved	
+Perforating Artist	spell resolved	
+Phyrexian Arena	spell resolved	
+Pilfer	spell resolved	
+Pirate's Cutlass	spell resolved	
+Plains	land played	
+Prayer of Binding	spell resolved	
+Predator Ooze	spell resolved	
+Preposterous Proportions	spell resolved	
+Prideful Parent	spell resolved	
+Primal Might	spell resolved	
+Prime Speaker Zegana	spell resolved	
+Primeval Bounty	spell resolved	
+Progenitus	spell resolved	
+Pulse Tracker	spell resolved	
+Pyromancer's Goggles	spell resolved	
+Quakestrider Ceratops	spell resolved	
+Quick Study	spell resolved	
+Quick-Draw Katana	spell resolved	
+Quilled Greatwurm	spell resolved	
+Raging Redcap	spell resolved	
+Raise the Past	spell resolved	
+Rakdos Guildgate	land played	
+Ramos, Dragon Engine	spell resolved	
+Rampaging Baloths	spell resolved	
+Rapacious Dragon	spell resolved	
+Ravenous Amulet	spell resolved	
+Ravenous Giant	spell resolved	
+Reassembling Skeleton	spell resolved	
+Reclamation Sage	spell resolved	
+Redcap Gutter-Dweller	spell resolved	
+Refute	spell resolved	respond to opponent's targeted Giant Growth
+Regal Caracal	spell resolved	
+Release the Dogs	spell resolved	
+Resolute Reinforcements	spell resolved	
+Revenge of the Rats	spell resolved	
+Rise of the Dark Realms	spell resolved	
+Rite of Replication	spell resolved	
+Rite of the Dragoncaller	spell resolved	
+River's Rebuke	spell resolved	
+Rogue's Passage	land played	
+Ruby, Daring Tracker	spell resolved	
+Rugged Highlands	land played	
+Run Away Together	spell resolved	
+Rune-Scarred Demon	spell resolved	
+Rune-Sealed Wall	spell resolved	
+Sanguine Indulgence	spell resolved	
+Sanguine Syphoner	spell resolved	
+Savage Ventmaw	spell resolved	
+Savannah Lions	spell resolved	
+Scavenging Ooze	spell resolved	
+Scorching Dragonfire	spell resolved	
+Scoured Barrens	land played	
+Scrawling Crawler	spell resolved	
+Searslicer Goblin	spell resolved	
+Secluded Courtyard	land played	
+Seeker's Folly	spell resolved	
+Seismic Rupture	spell resolved	
+Seize the Spoils	spell resolved	
+Selesnya Guildgate	land played	
+Self-Reflection	spell resolved	
+Serra Angel	spell resolved	
+Shipwreck Dowser	spell resolved	
+Shivan Dragon	spell resolved	
+Simic Guildgate	land played	
+Sire of Seven Deaths	spell resolved	
+Skeleton Archer	spell resolved	
+Skyknight Squire	spell resolved	
+Skyraker Giant	spell resolved	
+Skyship Buccaneer	spell resolved	
+Slagstorm	spell resolved	
+Slumbering Cerberus	spell resolved	
+Snakeskin Veil	spell resolved	
+Solemn Simulacrum	spell resolved	
+Sorcerous Spyglass	spell resolved	
+Soul-Guide Lantern	spell resolved	
+Soul-Shackled Zombie	spell resolved	
+Soulstone Sanctuary	land played	
+Sower of Chaos	spell resolved	
+Spectral Sailor	spell resolved	
+Sphinx of Forgotten Lore	spell resolved	
+Sphinx of the Final Word	spell resolved	
+Spinner of Souls	spell resolved	
+Spitfire Lagac	spell resolved	
+Springbloom Druid	spell resolved	
+Squad Rallier	spell resolved	
+Stab	spell resolved	
+Starlight Snare	spell resolved	
+Stasis Snare	spell resolved	
+Steel Hellkite	spell resolved	
+Storm Fleet Spy	spell resolved	
+Strix Lookout	spell resolved	
+Stroke of Midnight	spell resolved	
+Stromkirk Bloodthief	spell resolved	
+Stromkirk Noble	spell resolved	
+Strongbox Raider	spell resolved	
+Sun-Blessed Healer	spell resolved	
+Sure Strike	spell resolved	
+Surrak, the Hunt Caller	spell resolved	
+Suspicious Shambler	spell resolved	
+Swab Goblin	spell resolved	
+Swamp	land played	
+Swiftblade Vindicator	spell resolved	
+Swiftfoot Boots	spell resolved	
+Swiftwater Cliffs	land played	
+Sylvan Scavenging	spell resolved	
+Syr Alin, the Lion's Claw	spell resolved	
+Tajuru Pathwarden	spell resolved	
+Tatyova, Benthic Druid	spell resolved	
+Taurean Mauler	spell resolved	
+Teach by Example	spell resolved	
+Tempest Djinn	spell resolved	
+Temple of Abandon	land played	
+Temple of Deceit	land played	
+Temple of Enlightenment	land played	
+Temple of Epiphany	land played	
+Temple of Malady	land played	
+Temple of Malice	land played	
+Temple of Mystery	land played	
+Temple of Plenty	land played	
+Temple of Silence	land played	
+Temple of Triumph	land played	
+Terror of Mount Velus	spell resolved	
+Think Twice	spell resolved	
+Thornweald Archer	spell resolved	
+Thornwood Falls	land played	
+Thousand-Year Storm	spell resolved	
+Thrashing Brontodon	spell resolved	
+Three Tree Mascot	spell resolved	
+Thrill of Possibility	spell resolved	
+Time Stop	spell resolved	
+Tinybones, Bauble Burglar	spell resolved	
+Tolarian Terror	spell resolved	
+Tragic Banshee	spell resolved	
+Tranquil Cove	land played	
+Treetop Snarespinner	spell resolved	
+Tribute to Hunger	spell resolved	
+Trygon Predator	spell resolved	
+Twinblade Blessing	spell resolved	
+Twinblade Paladin	spell resolved	
+Twinflame Tyrant	spell resolved	
+Uncharted Haven	land played	
+Uncharted Voyage	spell resolved	
+Undying Malice	spell resolved	
+Unflinching Courage	spell resolved	
+Unsummon	spell resolved	
+Untamed Hunger	spell resolved	
+Valkyrie's Call	spell resolved	
+Valorous Stance	spell resolved	
+Vampire Gourmand	spell resolved	
+Vampire Interloper	spell resolved	
+Vampire Neonate	spell resolved	
+Vampire Nighthawk	spell resolved	
+Vampire Soulcaller	spell resolved	
+Vampire Spawn	spell resolved	
+Vampiric Rites	spell resolved	
+Vanguard Seraph	spell resolved	
+Vengeful Bloodwitch	spell resolved	
+Venom Connoisseur	spell resolved	
+Viashino Pyromancer	spell resolved	
+Vile Entomber	spell resolved	
+Vivien Reid	spell resolved	
+Vizier of the Menagerie	spell resolved	
+Volley Veteran	spell resolved	
+Voracious Greatshark	spell resolved	
+Wardens of the Cycle	spell resolved	
+Wary Thespian	spell resolved	
+Wildborn Preserver	spell resolved	
+Wildheart Invoker	spell resolved	
+Wildwood Scourge	spell resolved	
+Wilt-Leaf Liege	spell resolved	
+Wind-Scarred Crag	land played	
+Wishclaw Talisman	spell resolved	
+Witness Protection	spell resolved	
+Youthful Valkyrie	spell resolved	
+Zetalpa, Primal Dawn	spell resolved	
+Zimone, Paradox Sculptor	spell resolved	
+Zombify	spell resolved	
+Zul Ashur, Lich Lord	spell resolved	

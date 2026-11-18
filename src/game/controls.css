@@ -1,0 +1,274 @@
+.ptc {
+  --ptc-edge: var(--tone-border, #c5cec7);
+  --ptc-soft: var(--tone-bg1, #f4f6f0);
+  --ptc-active: var(--tone-accent, #315640);
+  --ptc-ink: var(--tone-text, #24362c);
+  color: var(--ptc-ink);
+  font-size: calc(12px * var(--font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.ptc button,
+.ptc select,
+.ptc input {
+  font: inherit;
+  color: inherit;
+  min-width: 0;
+  min-height: 29px;
+  border: 1px solid var(--ptc-edge);
+  border-radius: 5px;
+  background: var(--tone-bg0, #fff);
+  padding: 3px 8px;
+}
+.ptc select {
+  max-width: 100%;
+}
+.ptc button,
+.ptc summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.ptc button:hover:enabled,
+.ptc summary:hover {
+  background: var(--tone-bg2, #e7ede7);
+}
+.ptc button.ptc-accent,
+.ptc button[aria-pressed="true"] {
+  background: var(--ptc-active);
+  border-color: var(--ptc-active);
+  color: var(--tone-accent-ink, #fff);
+}
+.ptc button.ptc-accent:hover:enabled,
+.ptc button[aria-pressed="true"]:hover {
+  background: var(--ptc-active);
+  filter: brightness(1.1);
+}
+.ptc button:disabled {
+  opacity: 0.48;
+}
+.ptc select:focus-visible,
+.ptc summary:focus-visible {
+  outline: 2px solid var(--ptc-active);
+  outline-offset: 2px;
+}
+.ptc summary {
+  cursor: pointer;
+  min-height: 27px;
+  font-weight: 600;
+  justify-content: start;
+  border-radius: 4px;
+}
+.ptc summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-bottom: 1.5px solid;
+  border-right: 1.5px solid;
+  transform: translateY(-1px) rotate(45deg);
+  margin: 0 4px;
+}
+.ptc details[open] > summary::after {
+  transform: translateY(2px) rotate(225deg);
+}
+.ptc-row,
+.ptc-turn,
+.ptc-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ptc-turn {
+  padding: 8px 12px;
+  border: 1px solid var(--ptc-edge);
+  border-radius: 8px;
+  background: var(--ptc-soft);
+}
+.ptc-turn-number {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ptc-turn-number strong {
+  font-family: Georgia, serif;
+  font-size: 1.6em;
+}
+.ptc-turn-player {
+  display: grid;
+  line-height: 1.2;
+  margin: 0 auto 0 5px;
+  min-width: 0;
+}
+.ptc-turn-player small {
+  color: var(--tone-muted, #516457);
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ptc-player {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.ptc-life,
+.ptc-mana-type {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--ptc-edge);
+  border-radius: 5px;
+  background: var(--tone-bg0, #fff);
+}
+.ptc-life strong {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0 6px;
+  font-size: 1.15em;
+  line-height: 27px;
+}
+.ptc-life strong svg {
+  color: #a14c46;
+}
+.ptc-life button,
+.ptc-mana-type button {
+  padding: 2px;
+  min-height: 26px;
+  width: 24px;
+  border: 0;
+}
+.ptc-mana > summary {
+  gap: 5px;
+}
+.ptc-mana > summary b {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: var(--tone-bg2, #e8eee7);
+  font-size: 0.91em;
+  font-weight: 650;
+}
+.ptc-mana[open] {
+  margin-bottom: 3px;
+}
+.ptc-mana-type {
+  gap: 3px;
+  padding: 0 3px;
+}
+.ptc-mana-type b {
+  min-width: 1ch;
+}
+.ptc-pip {
+  font:
+    700 10px/16px Georgia,
+    serif;
+  height: 16px;
+  width: 16px;
+  text-align: center;
+  border-radius: 50%;
+  color: #252b23;
+  border: 1px solid #0002;
+}
+.ptc-pip-W {
+  background: #f4ecc9;
+}
+.ptc-pip-U {
+  background: #a3cde0;
+}
+.ptc-pip-B {
+  background: #c0b5c2;
+}
+.ptc-pip-R {
+  background: #e6ab96;
+}
+.ptc-pip-G {
+  background: #a4c5a5;
+}
+.ptc-pip-C {
+  background: #c5c8c6;
+}
+.ptc-opening {
+  padding: 5px 0 3px;
+  border-top: 1px solid var(--ptc-edge);
+}
+.ptc-bottom {
+  border: 0;
+  padding: 4px 0;
+  margin: 4px 0 0;
+}
+.ptc-bottom legend,
+.ptc-stack-entry small {
+  color: var(--tone-secondary, #56665c);
+}
+.ptc-bottom button {
+  margin: 2px 4px 2px 0;
+}
+.ptc-stack {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+.ptc-compose {
+  border-top: 1px solid var(--ptc-edge);
+  padding-top: 4px;
+}
+.ptc-form {
+  align-items: end;
+  padding: 4px 0;
+}
+.ptc-form label {
+  display: grid;
+  gap: 3px;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 0.95em;
+}
+.ptc-form input {
+  width: 20ch;
+  max-width: 100%;
+}
+.ptc-form select {
+  max-width: min(32ch, 100%);
+}
+.ptc-stack-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+  list-style: none;
+}
+.ptc-stack-entry {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--ptc-edge);
+  border-radius: 5px;
+  background: var(--tone-bg0, #fff);
+  padding: 7px 9px;
+}
+.ptc-stack-entry:first-child {
+  border-left: 3px solid var(--ptc-active);
+}
+.ptc-stack-meta {
+  font-size: 0.9em;
+  color: var(--tone-secondary, #58695a);
+  text-transform: capitalize;
+}
+.ptc-stack-meta span {
+  font-weight: 700;
+}
+.ptc-stack-entry small {
+  font-size: 0.95em;
+}
+.ptc-stack-actions {
+  margin-top: 3px;
+}

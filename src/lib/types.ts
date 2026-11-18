@@ -1,5 +1,5 @@
 export type Page =
-  "dashboard" | "collection" | "decks" | "playtest" | "boosters" | "settings";
+  "dashboard" | "collection" | "decks" | "play" | "boosters" | "settings";
 
 export interface ForgePaths {
   dataDir: string;

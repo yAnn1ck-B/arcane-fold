@@ -15,7 +15,7 @@
     "test:release": "node --test scripts/release-version.test.mjs scripts/verify-release.test.mjs scripts/migration-policy.test.mjs",
     "test:updater": "node --test scripts/updater.test.mjs",
     "test:decks": "node --test scripts/deck-autosave.test.mjs",
-    "test:playtest": "node --test scripts/playtest-engine.test.mjs scripts/playtest-session.test.mjs",
+    "test:game": "node --test scripts/game-engine.test.mjs scripts/game-session.test.mjs",
     "test:forge": "node scripts/native-test.mjs --locked --lib real_forge -- --ignored --test-threads=2",
     "release:sign": "node scripts/release-sign.mjs",
     "release:attach": "node scripts/release-attach.mjs",
