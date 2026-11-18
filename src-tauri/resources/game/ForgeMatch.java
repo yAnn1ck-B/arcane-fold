@@ -10,6 +10,8 @@ class ForgeMatch {
     private final ForgeLibrary library = new ForgeLibrary(this);
     private CardCollectionView revealedHand;
     private int decision;
+    private final String[] priorityStops = {"auto", "auto"};
+    private static final String PRIORITY_STOP_PROMPT = "Your priority stop — choose a play or pass";
     private final boolean sharedSeats;
     private final String[] deckNames = {"Player 1", "Player 2"};
     private final boolean[] keptHands = {false, false};
@@ -161,7 +163,8 @@ class ForgeMatch {
                 var match = export.snapshot(opponent, deckNames,
                         opening ? keptHands : new boolean[]{true, true}, mulligans, openingBottom);
                 var waiting = opening ? List.<String>of() : export.pendingEffects();
-                if (!opening && (!prompt.equals("Choose a play") || !waiting.isEmpty())) {
+                boolean priority = prompt.equals("Choose a play") || prompt.equals(PRIORITY_STOP_PROMPT);
+                if (!opening && (!priority || !waiting.isEmpty())) {
                     // E.g. a private scry still in progress inside a resolving spell. This is
                     // retained in the private checkpoint and projected only to the choosing seat.
                     String text = waiting.isEmpty() ? prompt : prompt + ". Effects awaiting stack placement: " + String.join("; ", waiting);
@@ -171,6 +174,15 @@ class ForgeMatch {
                 return match;
             });
             if (selected == null) throw new EndInput();
+            if (selected.startsWith("PRIORITY ")) {
+                // Rust attaches both seats' pending settings to the move that resumes Forge.
+                // Everything following the settings is the original choice, including free text.
+                var parts = selected.split(" ", 4);
+                for (int i = 0; i < priorityStops.length; i++) {
+                    if (!parts[i + 1].equals("=")) priorityStops[i] = parts[i + 1];
+                }
+                selected = parts[3];
+            }
             for (int i = 0; i < choices.size(); i++) {
                 if (choices.get(i).kind().equals("name") && selected.startsWith(choiceId(i) + "|")) {
                     return new Choice(selected.substring(choiceId(i).length() + 1).strip(), "name", null, null, null);
@@ -189,6 +201,7 @@ class ForgeMatch {
 
     private String choiceId(int index) { return "p" + decision + "_" + index; }
     private String seatId(Player p) { return p == opponent ? "opponent" : "player"; }
+    private int seatIndex(Player p) { return p == opponent ? 1 : 0; }
     private String cardId(Card c) { return "c" + c.getId(); }
 
     static String publicName(Card card) {
@@ -339,6 +352,7 @@ class ForgeMatch {
                 "stack", stack, "choices", options));
         // Rust retains this snapshot and projects only the selected seat into the WebView.
         state.put("sharedSeats", sharedSeats);
+        state.put("priorityStops", Map.of("player", priorityStops[0], "opponent", priorityStops[1]));
         if (finished) history.add(prompt);
         state.put("history", history.entries);
         if (library.candidates() != null) {
@@ -471,6 +485,7 @@ class ForgeMatch {
         private final Player seat;
         private Boolean keepAfterRedraw;
         private SpellAbility manualMana;
+        private CardCollection shownForChoice;
 
         Controller(Game match, Player seat, LobbyPlayerAi lobby) {
             super(match, seat, lobby);
@@ -485,7 +500,7 @@ class ForgeMatch {
         }
 
         private boolean keep(int bottom) {
-            mulligans[seat == player ? 0 : 1] = bottom;
+            mulligans[seatIndex(seat)] = bottom;
             var keep = choice("Keep hand", "option", null, null, null);
             if (bottom >= seat.getMaxHandSize()) return true;
             var redraw = choice("Mulligan", "option", null, null, null);
@@ -499,7 +514,7 @@ class ForgeMatch {
         public boolean mulliganKeepHand(Player first, int count) {
             boolean answer = !human(seat) || (keepAfterRedraw == null ? keep(count) : keepAfterRedraw);
             keepAfterRedraw = null;
-            keptHands[seat == player ? 0 : 1] = answer;
+            keptHands[seatIndex(seat)] = answer;
             return answer;
         }
 
@@ -514,7 +529,7 @@ class ForgeMatch {
             try {
                 pickCards(hand, count, count, "Bottom", "Choose a card for the bottom of your library", picked);
                 // The London service tucks these immediately, before asking the other seat.
-                keptHands[seat == player ? 0 : 1] = true;
+                keptHands[seatIndex(seat)] = true;
                 return picked;
             } finally {
                 openingBottom.remove(seat);
@@ -583,7 +598,7 @@ class ForgeMatch {
             int required = optional && min == 1 ? 0 : min;
             if (required >= cards.size()) return cards;
             if (effect.getApi() == forge.game.ability.ApiType.TwoPiles) {
-                return library.showPileCards(cards, () -> pickCards(cards, required, max, "Choose", title));
+                return library.showCards("Separate piles", cards, () -> pickCards(cards, required, max, "Choose", title));
             }
             return pickCards(cards, required, max, "Choose", effect.getHostCard().getName() + " — " + title);
         }
@@ -596,6 +611,60 @@ class ForgeMatch {
             var a = choice(pileLabel("First", first, hideFirst), "option", null, null, null);
             var b = choice(pileLabel("Second", second, hideBoth), "option", null, null, null);
             return ask(seat, "Choose a pile for " + publicName(effect.getHostCard()), List.of(a, b)) == a;
+        }
+
+        @Override
+        public void tempShowCards(Iterable<Card> cards) {
+            super.tempShowCards(cards);
+            if (human(seat)) shownForChoice = new CardCollection(cards);
+        }
+
+        @Override
+        public void endTempShowCards() {
+            shownForChoice = null;
+            super.endTempShowCards();
+        }
+
+        @Override
+        public void notifyOfValue(SpellAbility effect, GameObject related, String message) {
+            super.notifyOfValue(effect, related, message);
+            // DigEffect skips the card picker when every card misses its filter. The controller still
+            // gets to look. Only reconstruct a look at this player's own top cards, before Forge moves them.
+            if (human(seat) && effect != null && effect.getActivatingPlayer() == seat
+                    && effect.getApi() == forge.game.ability.ApiType.Dig && !effect.usesTargeting()
+                    && "You".equals(effect.getParamOrDefault("Defined", "You"))
+                    && "Library".equals(effect.getParamOrDefault("SourceZone", "Library"))
+                    && !effect.hasParam("Chooser") && !effect.hasParam("NoLooking") && !effect.hasParam("FromBottom")
+                    && message.equals(Localizer.getInstance().getMessage("lblNoValidCards"))) {
+                int count = forge.game.ability.AbilityUtils.calculateAmount(effect.getHostCard(), effect.getParam("DigNum"), effect);
+                library.revealTo(seat, seat.getTopXCardsFromLibrary(count));
+            }
+        }
+
+        @Override
+        public <T extends forge.game.GameEntity> List<T> chooseEntitiesForEffect(forge.util.collect.FCollectionView<T> eligible,
+                int min, int max, forge.game.player.DelayedReveal reveal, SpellAbility effect, String title,
+                Player related, Map<String, Object> params) {
+            if (!human(seat) || effect == null || effect.getApi() != forge.game.ability.ApiType.Dig
+                    || !eligible.allMatch(Card.class::isInstance)) {
+                return super.chooseEntitiesForEffect(eligible, min, max, reveal, effect, title, related, params);
+            }
+            if (reveal != null) reveal(reveal);
+            if (min >= eligible.size()) return List.copyOf(eligible);
+            var cards = new CardCollection(eligible.stream().map(Card.class::cast).toList());
+            // Looking at four cards and being allowed to take two of them are distinct permissions.
+            var shown = shownForChoice == null ? cards : shownForChoice;
+            var selected = library.showCards("Look at cards", shown,
+                    () -> pickCards(cards, min, max, "Choose", publicName(effect.getHostCard()) + " — " + title));
+            return selected.stream().map(c -> eligible.get(eligible.indexOf(c))).toList();
+        }
+
+        @Override
+        public CardCollectionView orderMoveToZoneList(CardCollectionView cards, ZoneType zone, SpellAbility effect) {
+            if (human(seat) && zone == ZoneType.Library && effect != null && effect.getApi() == forge.game.ability.ApiType.Dig) {
+                return library.orderLibraryMoves(seat, cards);
+            }
+            return super.orderMoveToZoneList(cards, zone, effect);
         }
 
         private String pileLabel(String position, CardCollectionView cards, boolean hidden) {
@@ -859,6 +928,33 @@ class ForgeMatch {
             return replacement;
         }
 
+        private boolean continueManaStop;
+        private boolean continueManaResponse;
+
+        private boolean stopForPriority(Player actor) {
+            int index = seatIndex(actor);
+            String stop = priorityStops[index];
+            if (stop.equals("auto")) return false;
+            if (stop.equals("full")) return true;
+            String step = switch (phases.getPhase()) {
+                case UPKEEP -> "upkeep";
+                case DRAW -> "draw";
+                case MAIN1 -> "precombatMain";
+                case COMBAT_BEGIN -> "beginCombat";
+                case COMBAT_DECLARE_ATTACKERS -> "afterAttackers";
+                case COMBAT_DECLARE_BLOCKERS -> "afterBlockers";
+                case COMBAT_FIRST_STRIKE_DAMAGE -> "firstStrikeDamage";
+                case COMBAT_DAMAGE -> "combatDamage";
+                case COMBAT_END -> "endCombat";
+                case MAIN2 -> "postcombatMain";
+                case END_OF_TURN -> "endStep";
+                default -> "";
+            };
+            if (!stop.equals("next") && !stop.equals(step)) return false;
+            priorityStops[index] = "auto";
+            return true;
+        }
+
         @Override
         public List<SpellAbility> chooseSpellAbilityToPlay() {
             if (!human(seat)) return null;
@@ -888,15 +984,61 @@ class ForgeMatch {
                     }
                 }
             }
-            if (choices.isEmpty()) return null;
-            // A player with priority can float mana from a specific source before
-            // casting. Mana abilities alone do not create an extra priority stop.
+            boolean fullControl = priorityStops[seatIndex(seat)].equals("full");
+            boolean stopped = stopForPriority(seat) || continueManaStop;
+            continueManaStop = false;
+            boolean manaResponse = continueManaResponse || (!stopped && choices.isEmpty() && hasManaResponseToStack());
+            continueManaResponse = false;
+            if (choices.isEmpty() && !stopped && !manaResponse) return null;
+            // Once priority opens, players can sequence all of their legal mana abilities.
             for (Card card : seat.getCardsIn(ZoneType.Battlefield)) {
                 for (SpellAbility ability : card.getManaAbilities()) addActivation(card, ability, choices, plays);
             }
+            if (choices.isEmpty() && !stopped) return null;
             choices.add(choice("Pass priority", "pass", null, null, null));
-            Choice selected = ask(seat, "Choose a play", choices);
-            return plays.containsKey(selected) ? List.of(plays.get(selected)) : null;
+            Choice selected = ask(seat, stopped ? PRIORITY_STOP_PROMPT : "Choose a play", choices);
+            var play = plays.get(selected);
+            // Floating mana does not pass priority. A one-shot stop must leave room
+            // to activate a second mana source and actually spend the floated mana.
+            continueManaStop = stopped && !fullControl && play != null && play.isManaAbility();
+            continueManaResponse = manaResponse && play != null && play.isManaAbility();
+            return play == null ? null : List.of(play);
+        }
+
+        private boolean hasManaResponseToStack() {
+            if (game.getStack().isEmpty()) return false;
+            SpellAbility top = game.getStack().peekAbility();
+            if (top instanceof forge.game.trigger.WrappedAbility wrapped) top = wrapped.getWrappedAbility();
+            for (var effect = top; effect != null; effect = effect.getSubAbility()) {
+                if (effect.getApi() == forge.game.ability.ApiType.DestroyAll && massDestructionAffectsManaSource(effect)) return true;
+                if (!effect.usesTargeting()) continue;
+                // A hostile spell can remove a mana ability as well as the permanent itself.
+                // For the player's own effects, save the window before removal or tap/untap.
+                if (top.getActivatingPlayer() == seat && (effect.getApi() == null || !switch (effect.getApi()) {
+                    case Destroy, ChangeZone, DealDamage, Fight, GainControl, Tap, Untap, TapOrUntap -> true;
+                    default -> false;
+                })) continue;
+                for (Card target : effect.getTargets().getTargetCards()) {
+                    Card current = game.getCardState(target);
+                    if (current == null || !target.equalsWithGameTimestamp(current) || !current.isInPlay()
+                            || current.getController() != seat) continue;
+                    if (current.getManaAbilities().stream().anyMatch(this::canOfferPlay)) return true;
+                }
+            }
+            return false;
+        }
+
+        private boolean massDestructionAffectsManaSource(SpellAbility effect) {
+            // Match Forge's DestroyAllEffect target-player scope and ValidCards filter on the current battlefield.
+            var targetPlayer = effect.getTargets().getFirstTargetedPlayer();
+            if (targetPlayer != null && targetPlayer != seat) return false;
+            String valid = effect.getParamOrDefault("ValidCards", "");
+            if (valid.contains("X")) {
+                int x = forge.game.ability.AbilityUtils.calculateAmount(effect.getHostCard(), "X", effect);
+                valid = valid.replace("X", Integer.toString(x));
+            }
+            var affected = forge.game.ability.AbilityUtils.filterListByType(seat.getCardsIn(ZoneType.Battlefield), valid, effect);
+            return affected.stream().anyMatch(card -> card.canBeDestroyed() && card.getManaAbilities().stream().anyMatch(this::canOfferPlay));
         }
 
         @Override
@@ -978,12 +1120,16 @@ class ForgeMatch {
         }
 
         private void addPlay(Card card, SpellAbility sa, String label, List<Choice> choices, Map<Choice, SpellAbility> plays) {
-            sa.setActivatingPlayer(seat);
-            if (!sa.canPlay() || sa.isActivatedAbility() && !sa.checkRestrictions(seat) ||
-                    !sa.isLandAbility() && !canPayWithTargets(sa)) return;
+            if (!canOfferPlay(sa)) return;
             Choice c = choice(label, sa.isActivatedAbility() && !sa.isLandAbility() ? "ability" : "card", card, null, null);
             choices.add(c);
             plays.put(c, sa);
+        }
+
+        private boolean canOfferPlay(SpellAbility sa) {
+            sa.setActivatingPlayer(seat);
+            return sa.canPlay() && (!sa.isActivatedAbility() || sa.checkRestrictions(seat))
+                    && (sa.isLandAbility() || canPayWithTargets(sa));
         }
 
         private void addActivation(Card card, SpellAbility ability, List<Choice> choices, Map<Choice, SpellAbility> plays) {
@@ -994,7 +1140,14 @@ class ForgeMatch {
 
         private boolean canPayWithTargets(SpellAbility ability) {
             if (announcesManaX(ability)) return !payableXValues(ability, 0, 1, false).isEmpty();
-            return ComputerUtilCost.canPayCost(ability, seat, false) && hasTargets(ability, seat);
+            return forge.ai.ComputerUtilMana.canPayManaCost(ability, seat, 0, false)
+                    && payableAdditionalCosts(ability, false) && hasTargets(ability, seat);
+        }
+
+        private boolean payableAdditionalCosts(SpellAbility ability, boolean resolving) {
+            // The AI's canPayCost also rejects strategic choices, including spending
+            // a planeswalker's last loyalty, sometimes by a coin flip.
+            return forge.game.cost.CostPayment.canPayAdditionalCosts(ability.getPayCosts(), ability, resolving, seat);
         }
 
         private List<Integer> payableXValues(SpellAbility ability, int start, int limit, boolean resolving) {
@@ -1005,7 +1158,7 @@ class ForgeMatch {
             for (int x = Math.max(start, bounds.getMinimum()); x <= bounds.getMaximum(); x++) {
                 probe.setXManaCostPaid(x);
                 if (!forge.ai.ComputerUtilMana.canPayManaCost(probe, seat, x, resolving)) break;
-                if (ComputerUtilCost.canPayCost(probe, seat, resolving) && (resolving || hasTargets(probe, seat))) {
+                if (payableAdditionalCosts(probe, resolving) && (resolving || hasTargets(probe, seat))) {
                     values.add(x);
                     if (values.size() == limit) break;
                 }
@@ -1207,6 +1360,12 @@ class ForgeMatch {
         @Override
         public boolean confirmAction(SpellAbility effect, forge.game.player.PlayerActionConfirmMode mode, String message,
                 List<String> options, Card display, Map<String, Object> params) {
+            if (human(seat) && mode == null && effect != null && effect.getApi() == forge.game.ability.ApiType.Animate
+                    && effect.hasParam("Optional")) {
+                var animate = choice("Animate", "option", null, null, null);
+                var decline = choice("Decline", "option", null, null, null);
+                return ask(seat, message, List.of(animate, decline)) == animate;
+            }
             if (human(seat) && effect != null && effect.getApi() == forge.game.ability.ApiType.Play && display != null && mode == null) {
                 var play = choice("Play " + publicName(display), "card", display, null, null);
                 var decline = choice("Decline", "option", null, null, null);

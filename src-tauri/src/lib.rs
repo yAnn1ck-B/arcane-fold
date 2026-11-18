@@ -90,6 +90,7 @@ pub fn run() {
             play::start_game,
             play::act_game,
             play::view_game_seat,
+            play::set_game_priority_stop,
             play::undo_game_action,
             play::export_manual_game,
             play::end_game,

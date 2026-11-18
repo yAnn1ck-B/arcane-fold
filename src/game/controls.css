@@ -23,6 +23,16 @@
 .ptc select {
   max-width: 100%;
 }
+.pt-priority-control {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: center;
+  font-weight: 600;
+}
+.pt-priority-control select {
+  font-weight: normal;
+}
 .ptc button,
 .ptc summary {
   display: inline-flex;

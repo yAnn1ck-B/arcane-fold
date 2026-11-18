@@ -92,6 +92,17 @@ WITNESSES = {
     "foundations_keyword_harbinger_charges_for_instant_timing": ("Harbinger of the Tides",),
     "foundations_lathril_player_selects_ten_untapped_elves_to_pay_once": ("Lathril, Blade of the Elves",),
     "foundations_pyromancers_goggles_only_copies_shock_when_its_mana_is_spent": ("Pyromancer's Goggles",),
+    "foundations_crawling_barrens_can_keep_its_counters_without_animating": ("Crawling Barrens",),
+    "foundations_vivien_looks_privately_and_orders_the_cards_left_behind": ("Vivien Reid",),
+    "foundations_loot_and_squad_rallier_still_show_an_unsuccessful_look_privately": ("Loot, Exuberant Explorer", "Squad Rallier"),
+    "foundations_menace_skips_a_lone_blocker_and_preserves_a_legal_pair": ("Nullpriest of Oblivion",),
+    "foundations_juggernaut_skips_only_a_forced_attack_and_keeps_the_defenders_response": ("Juggernaut", "Elspeth's Smite"),
+    "priority_last_loyalty_can_be_spent_even_with_no_opposing_creatures": ("Chandra, Flameshaper",),
+    "priority_targeted_mana_creature_can_float_mana_before_destruction": ("Llanowar Elves", "Hero's Downfall"),
+    "priority_mana_floated_before_day_of_judgment_pays_for_lilianas_draw": ("Day of Judgment", "Llanowar Elves", "Liliana, Dreadhorde General", "Think Twice"),
+    "priority_skips_empty_steps_and_stops_when_a_counterspell_gains_a_target": ("Essence Scatter",),
+    "priority_can_respond_to_own_upkeep_trigger_and_own_spell": ("Phyrexian Arena", "Negate"),
+    "priority_graveyard_ability_is_available_in_opponents_end_step": ("Reassembling Skeleton",),
 }
 
 

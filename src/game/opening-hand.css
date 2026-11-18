@@ -39,3 +39,6 @@
 .pt-opening-actions:empty {
   display: none;
 }
+.pt-opening-actions .pt-priority-control {
+  margin-inline-end: auto;
+}

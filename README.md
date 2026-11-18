@@ -22,6 +22,8 @@ Use **Switch to manual play** during a game to take over both seats and resolve 
 
 Play offers casts from other zones when a card grants permission. Open the library counter to see its top card when your seat is allowed to look. The board also prompts for decisions such as dividing counters, assigning combat damage and choosing a card to discard as payment. [Foundations gameplay verification](docs/foundations-play-audit.md)
 
+**Your priority** defaults to **Automatic**. Play passes through empty response windows and pauses for legal plays, including responses to your own spells and triggers. To float mana or act at a particular time, choose **Stop at next priority**, select a step such as **Before attackers** or **After blockers**, or choose **Full control** to see every priority window for your seat. You can set a stop in your opening hand or while viewing the board before the other player acts. Each seat has its own setting.
+
 ## Run locally
 
 Use Windows with Node.js 20.19+ (or a supported newer LTS), Rust 1.90+, the MSVC C++ build tools and Windows SDK, and WebView2. See the [official Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).

@@ -38,10 +38,25 @@ impl GameSetup {
     }
 }
 
-// Only the choice and a digest of the original decision are retained for replay.
+pub(super) type PendingStops = [Option<String>; 2];
+
+pub(super) fn action_with_stops(action: &str, stops: &PendingStops) -> String {
+    if stops.iter().all(Option::is_none) {
+        return action.into();
+    }
+    format!(
+        "PRIORITY {} {} {action}",
+        stops[0].as_deref().unwrap_or("="),
+        stops[1].as_deref().unwrap_or("=")
+    )
+}
+
+// Retain the settings in force when the move resumed Forge. One-shot stops
+// can create extra decisions during replay even when the game state is identical.
 struct Move {
     action: String,
     before: [u8; 32],
+    stops: PendingStops,
 }
 
 fn fingerprint(snapshot: &Value) -> [u8; 32] {
@@ -55,6 +70,7 @@ pub(super) struct LiveGame {
     table: Table,
     moves: Vec<Move>,
     revision: u64,
+    pending_stops: PendingStops,
 }
 
 impl LiveGame {
@@ -65,17 +81,57 @@ impl LiveGame {
             table,
             moves: Vec::new(),
             revision: 0,
+            pending_stops: Default::default(),
         })
     }
 
-    fn annotate(&self, mut view: Value) -> Value {
+    fn annotate(&self, mut view: Value, viewer: Seat) -> Value {
         view["revision"] = self.revision.into();
         view["canUndo"] = (!self.moves.is_empty()).into();
+        if let Some(stop) = &self.pending_stops[viewer.index()] {
+            view["priorityStop"] = stop.as_str().into();
+        }
         view
     }
 
     pub(super) fn view(&self, viewer: Seat) -> Result<Value, String> {
-        Ok(self.annotate(self.table.view(viewer)?))
+        Ok(self.annotate(self.table.view(viewer)?, viewer))
+    }
+
+    pub(super) fn set_priority_stop(
+        &mut self,
+        viewer: Seat,
+        revision: u64,
+        stop: String,
+    ) -> Result<Value, String> {
+        self.check_revision(revision)?;
+        if !matches!(
+            stop.as_str(),
+            "auto"
+                | "next"
+                | "full"
+                | "upkeep"
+                | "draw"
+                | "precombatMain"
+                | "beginCombat"
+                | "afterAttackers"
+                | "afterBlockers"
+                | "firstStrikeDamage"
+                | "combatDamage"
+                | "endCombat"
+                | "postcombatMain"
+                | "endStep"
+        ) {
+            return Err("Unknown priority stop.".into());
+        }
+        let current = self.table.view(viewer)?;
+        if current["stage"] != "decision" || !current["priorityStop"].is_string() {
+            return Err("Priority stops are available during an active game.".into());
+        }
+        self.pending_stops[viewer.index()] = Some(stop);
+        // The table is still suspended on the very same decision. The other seat's
+        // outstanding action remains valid and will carry both players' latest settings.
+        Ok(self.annotate(current, viewer))
     }
 
     fn check_revision(&self, revision: u64) -> Result<(), String> {
@@ -108,13 +164,16 @@ impl LiveGame {
             self.check_revision(revision)?;
         }
         let before = fingerprint(self.table.snapshot()?);
-        let view = self.table.act(viewer, action, cancelled)?;
+        let view = self
+            .table
+            .act(viewer, action, &self.pending_stops, cancelled)?;
         self.moves.push(Move {
             action: action.to_owned(),
             before,
+            stops: std::mem::take(&mut self.pending_stops),
         });
         self.revision += 1;
-        Ok(self.annotate(view))
+        Ok(self.annotate(view, viewer))
     }
 
     pub(super) fn undo(
@@ -130,15 +189,19 @@ impl LiveGame {
         let mut engine = self.setup.open(cancelled)?;
         for step in earlier {
             verify_decision(&engine.current, step)?;
-            engine.next_state(Some(&step.action), cancelled)?;
+            engine.next_state(
+                Some(&action_with_stops(&step.action, &step.stops)),
+                cancelled,
+            )?;
         }
         verify_decision(&engine.current, last)?;
         let replacement = Table::Playing(engine);
         let view = replacement.view(viewer)?;
         self.table = replacement;
+        self.pending_stops = last.stops.clone();
         self.moves.pop();
         self.revision += 1;
-        Ok(self.annotate(view))
+        Ok(self.annotate(view, viewer))
     }
 }
 
@@ -154,6 +217,107 @@ mod tests {
     use super::*;
     use crate::play::tests::forge_install;
     use serde_json::json;
+
+    #[test]
+    #[ignore = "requires Forge Desktop 2.0.13 and JDK 17"]
+    fn real_forge_automatic_and_full_control_offer_the_same_nonmana_decisions() {
+        let scripts: &[(&str, &[&str])] = &[
+            (
+                "priority-counter",
+                &[
+                    "Cast Savannah Lions",
+                    "Cast Essence Scatter",
+                    "Target Savannah Lions",
+                    "Play Forest",
+                ],
+            ),
+            (
+                "priority-upkeep",
+                &[
+                    "Cast Burst Lightning",
+                    "Target Player 2",
+                    "Cast Negate",
+                    "Target Burst Lightning",
+                    "Play Forest",
+                ],
+            ),
+        ];
+        for &(scenario, script) in scripts {
+            let trace = |full: bool| {
+                let cancel = AtomicBool::new(false);
+                let setup = GameSetup {
+                    seed: 2401,
+                    ..GameSetup::new(forge_install(), Scenario::Position(scenario), None, None)
+                };
+                let mut game = LiveGame::start(setup, &cancel).unwrap();
+                if full {
+                    for seat in [Seat::Player, Seat::Opponent] {
+                        game.set_priority_stop(seat, game.revision, "full".into())
+                            .unwrap();
+                    }
+                }
+                let mut windows = Vec::new();
+                let mut empty_windows = 0;
+                let mut remaining = script.iter().copied().peekable();
+                for _ in 0..100 {
+                    let state = raw(&game);
+                    let actor = if state["actor"] == "player" {
+                        Seat::Player
+                    } else {
+                        Seat::Opponent
+                    };
+                    let choices = state["choices"].as_array().unwrap();
+                    // In these fixed positions the only activated abilities are basic land mana abilities.
+                    let actions: Vec<_> = choices
+                        .iter()
+                        .filter(|c| c["kind"] != "pass" && c["kind"] != "ability")
+                        .map(|c| c["label"].as_str().unwrap())
+                        .collect();
+                    if actions.is_empty() {
+                        empty_windows += 1;
+                    } else {
+                        let stack: Vec<_> = state["stack"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|c| &c["name"])
+                            .collect();
+                        windows.push(json!([
+                            state["turn"],
+                            state["phase"],
+                            state["step"],
+                            state["actor"],
+                            stack,
+                            actions
+                        ]));
+                    }
+                    let next = *remaining.peek().unwrap();
+                    if actions.contains(&next) {
+                        remaining.next();
+                        if remaining.peek().is_none() {
+                            return (windows, empty_windows, state["players"].clone());
+                        }
+                        play(&mut game, actor, next);
+                    } else {
+                        play(&mut game, actor, "Pass priority");
+                    }
+                }
+                panic!("Did not reach the final decision in {scenario}");
+            };
+            let (automatic, auto_empty, auto_players) = trace(false);
+            let (full, full_empty, full_players) = trace(true);
+            assert_eq!(auto_empty, 0, "{scenario}");
+            assert!(
+                full_empty > 0,
+                "{scenario} should exercise an automatic pass"
+            );
+            assert_eq!(automatic, full, "Different response windows in {scenario}");
+            assert_eq!(
+                auto_players, full_players,
+                "Different outcome in {scenario}"
+            );
+        }
+    }
 
     fn raw(game: &LiveGame) -> Value {
         game.table.snapshot().unwrap().clone()
@@ -171,6 +335,193 @@ mod tests {
             .unwrap();
         game.act(viewer, id, Some(game.revision), &AtomicBool::new(false))
             .unwrap()
+    }
+
+    #[test]
+    #[ignore = "requires Forge Desktop 2.0.13 and JDK 17"]
+    fn real_forge_priority_stops_are_private_apply_to_either_seat_and_replay() {
+        let cancel = AtomicBool::new(false);
+        let deck = "[Main]\n20 Island\n".to_string();
+        let setup = GameSetup::new(
+            forge_install(),
+            Scenario::Deck,
+            Some(deck.clone()),
+            Some(deck),
+        );
+        let mut game = LiveGame::start(setup, &cancel).unwrap();
+        let first = game
+            .set_priority_stop(Seat::Player, 0, "beginCombat".into())
+            .unwrap();
+        assert_eq!(first["canUndo"], false);
+        let other = game
+            .set_priority_stop(Seat::Opponent, 0, "next".into())
+            .unwrap();
+        assert_eq!(other["priorityStop"], "next");
+        assert_eq!(other["choices"], json!([]));
+        assert!(other.get("priorityStops").is_none());
+        assert_eq!(
+            game.view(Seat::Player).unwrap()["priorityStop"],
+            "beginCombat"
+        );
+        play(&mut game, Seat::Player, "Keep hand");
+        play(&mut game, Seat::Opponent, "Mulligan");
+        let manual = game.manual_position(game.revision, &cancel).unwrap();
+        let players = &manual["match"]["players"];
+        assert_eq!(players[0]["kept"], true);
+        assert_eq!(players[0]["mulligans"], 0);
+        assert_eq!(players[1]["kept"], false);
+        assert_eq!(players[1]["mulligans"], 1);
+        play(&mut game, Seat::Opponent, "Keep hand");
+        let upkeep = play(&mut game, Seat::Opponent, "Bottom Island");
+        assert_eq!(upkeep["actor"], "opponent");
+        assert_eq!(upkeep["step"], "Upkeep step");
+        assert_eq!(upkeep["priorityStop"], "auto");
+        assert_eq!(upkeep["choices"].as_array().unwrap().len(), 1);
+        assert_eq!(upkeep["choices"][0]["label"], "Pass priority");
+        assert!(game
+            .set_priority_stop(Seat::Opponent, 0, "full".into())
+            .is_err());
+        play(&mut game, Seat::Opponent, "Pass priority");
+        let combat = play(&mut game, Seat::Player, "Play Island");
+        assert_eq!(combat["step"], "Beginning of combat step");
+        assert_eq!(combat["priorityStop"], "auto");
+        assert!(combat["prompt"].as_str().unwrap().contains("priority stop"));
+        let mana = combat["choices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["kind"] == "ability")
+            .unwrap();
+        let tapped = play(&mut game, Seat::Player, mana["label"].as_str().unwrap());
+        assert_eq!(tapped["step"], combat["step"]);
+        assert_eq!(tapped["players"]["player"]["mana"], 1);
+        assert_eq!(tapped["choices"][0]["label"], "Pass priority");
+        let before = raw(&game);
+        let revision = game.revision;
+        game.set_priority_stop(Seat::Opponent, revision, "endStep".into())
+            .unwrap();
+        play(&mut game, Seat::Player, "Pass priority");
+        let end = raw(&game);
+        assert_eq!(end["actor"], "opponent");
+        assert_eq!(end["step"], "End step");
+        assert_eq!(end["players"]["player"]["mana"], 0);
+        let waiting = game.undo(Seat::Opponent, game.revision, &cancel).unwrap();
+        assert_eq!(raw(&game), before);
+        assert_eq!(waiting["priorityStop"], "endStep");
+        assert_eq!(waiting["choices"], json!([]));
+        play(&mut game, Seat::Player, "Pass priority");
+        assert_eq!(raw(&game), end);
+    }
+
+    #[test]
+    #[ignore = "requires Forge Desktop 2.0.13 and JDK 17"]
+    fn real_forge_named_combat_stops_distinguish_blockers_damage_and_end_of_combat() {
+        let cancel = AtomicBool::new(false);
+        let setup = GameSetup::new(
+            forge_install(),
+            Scenario::Position("board-trample"),
+            None,
+            None,
+        );
+        let mut game = LiveGame::start(setup, &cancel).unwrap();
+        game.set_priority_stop(Seat::Opponent, game.revision, "afterBlockers".into())
+            .unwrap();
+        play(&mut game, Seat::Player, "Pass priority");
+        play(
+            &mut game,
+            Seat::Player,
+            "Attack Player 2 with Rampaging Baloths",
+        );
+        play(&mut game, Seat::Player, "Confirm attackers");
+        let blocks = play(&mut game, Seat::Opponent, "No blocks");
+        assert_eq!(blocks["actor"], "opponent");
+        assert_eq!(blocks["step"], "Declare blockers step");
+        assert_eq!(blocks["players"]["opponent"]["life"], 20);
+        game.set_priority_stop(Seat::Opponent, game.revision, "combatDamage".into())
+            .unwrap();
+        let damage = play(&mut game, Seat::Opponent, "Pass priority");
+        assert_eq!(damage["actor"], "opponent");
+        assert_eq!(damage["step"], "Combat damage step");
+        assert_eq!(damage["players"]["opponent"]["life"], 14);
+        game.set_priority_stop(Seat::Player, game.revision, "endCombat".into())
+            .unwrap();
+        let end = play(&mut game, Seat::Opponent, "Pass priority");
+        assert_eq!(end["actor"], "player");
+        assert_eq!(end["step"], "End of combat step");
+        assert_eq!(
+            play(&mut game, Seat::Player, "Pass priority")["phase"],
+            "Postcombat main phase"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires Forge Desktop 2.0.13 and JDK 17"]
+    fn real_forge_full_control_holds_after_floating_mana_and_casting_own_spell() {
+        let cancel = AtomicBool::new(false);
+        let setup = GameSetup::new(
+            forge_install(),
+            Scenario::Position("target-goggles"),
+            None,
+            None,
+        );
+        let mut game = LiveGame::start(setup, &cancel).unwrap();
+        let opening = game.view(Seat::Player).unwrap();
+        assert_eq!(opening["actor"], "player");
+        game.set_priority_stop(Seat::Player, game.revision, "full".into())
+            .unwrap();
+        let mountain = opening["players"]["player"]["battlefield"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|card| card["name"] == "Mountain")
+            .unwrap();
+        let tap = opening["choices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["kind"] == "ability" && c["cardId"] == mountain["id"])
+            .unwrap();
+        game.act(
+            Seat::Player,
+            tap["id"].as_str().unwrap(),
+            Some(game.revision),
+            &cancel,
+        )
+        .unwrap();
+        assert_eq!(raw(&game)["players"]["player"]["mana"], 1);
+        play(&mut game, Seat::Player, "Cast Shock");
+        let casting = play(&mut game, Seat::Player, "Target Player 2");
+        assert_eq!(casting["actor"], "player");
+        assert_eq!(casting["priorityStop"], "full");
+        assert_eq!(casting["stack"][0]["name"], "Shock");
+        assert_eq!(casting["players"]["opponent"]["life"], 20);
+        let goggles = casting["players"]["player"]["battlefield"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "Pyromancer's Goggles")
+            .unwrap();
+        let mana = casting["choices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["cardId"] == goggles["id"] && c["kind"] == "ability")
+            .unwrap();
+        game.set_priority_stop(Seat::Player, game.revision, "auto".into())
+            .unwrap();
+        let responding = play(&mut game, Seat::Player, mana["label"].as_str().unwrap());
+        assert_eq!(responding["actor"], "opponent");
+        assert_eq!(responding["players"]["player"]["mana"], 1);
+        assert_eq!(responding["stack"][0]["name"], "Shock");
+        let other = game.view(Seat::Opponent).unwrap();
+        assert_eq!(other["priorityStop"], "auto");
+        assert!(other["choices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["label"] == "Cast Burst Lightning"));
+        play(&mut game, Seat::Opponent, "Pass priority");
+        assert_eq!(raw(&game)["players"]["opponent"]["life"], 18);
     }
 
     #[test]

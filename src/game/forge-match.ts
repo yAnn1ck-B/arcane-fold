@@ -3,6 +3,21 @@ import type { HistoryEntry, Match } from "./types";
 
 export type ForgeSeat = "player" | "opponent";
 
+export const prioritySteps = {
+  upkeep: "Upkeep",
+  draw: "After the draw",
+  precombatMain: "First main phase",
+  beginCombat: "Before attackers",
+  afterAttackers: "After attackers",
+  afterBlockers: "After blockers",
+  firstStrikeDamage: "After first-strike damage",
+  combatDamage: "After combat damage",
+  endCombat: "End of combat",
+  postcombatMain: "Second main phase",
+  endStep: "End step",
+} as const;
+export type PriorityStop = "auto" | "next" | "full" | keyof typeof prioritySteps;
+
 export interface ForgeCard {
   id: string;
   name: string;
@@ -62,6 +77,7 @@ export interface ForgeMatch {
   history: HistoryEntry[];
   canUndo: boolean;
   revision: number;
+  priorityStop: PriorityStop;
   sharedSeats: boolean;
   stage: "decision" | "finished";
   prompt: string;
@@ -117,6 +133,15 @@ export function undoForge(
 
 export function viewForgeSeat(sessionId: string, viewer: ForgeSeat) {
   return invoke<ForgeMatch>("view_game_seat", { sessionId, viewer });
+}
+
+export function setForgePriorityStop(
+  sessionId: string,
+  viewer: ForgeSeat,
+  revision: number,
+  stop: PriorityStop,
+) {
+  return invoke<ForgeMatch>("set_game_priority_stop", { sessionId, viewer, revision, stop });
 }
 
 export function stopForge(sessionId: string) {

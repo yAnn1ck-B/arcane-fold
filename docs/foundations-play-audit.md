@@ -9,11 +9,19 @@ This report covers local Play on `experiment/playtest` with Forge Desktop 2.0.13
 | Printing and script inventory | The saved-deck loader constructed all 771 exact collector numbers. All 517 names mapped to a Forge script, and all 30 explicitly referenced token scripts were present. |
 | First play for every name | 473 spells resolved and 44 lands were played. Each position used the production controller and ran through the resulting stack. Twelve cards needed a different position with suitable mana, an attacking creature or an opposing spell to respond to. |
 | Activated abilities | The sweep exercised 151 activation routes across 125 cards. Forge resolved 94 abilities on the stack and recorded mana from the selected source in 57 cases. The other names comprise 276 permanents with no activation in the surveyed position and 116 instants or sorceries. Conditions included ten other untapped Elves, an attacking creature, counters on the source, a legal opposing nonbasic land and two creatures activating from their owner's graveyard. |
-| Focused regressions | The inventory links 60 specific card names to 58 named tests. These check which seat gets a decision, what it can see, and what happens to the cards, stack, mana and life totals. |
+| Focused regressions | The inventory links 71 specific card names to 69 named tests. These check which seat gets a decision, what it can see, and what happens to the cards, stack, mana and life totals. |
 
 Read the first-play table as an observation of one route through each card. A permanent can enter successfully while its end-step trigger, alternate activation or interaction with a second card needs its own position. The activation table records the source, cost, engine event and decisions in each position. The focused tests supply assertions about specific outcomes. Other combinations of cards, replacement effects and timing windows remain open to playtesting. [Printing, ability and test inventory](foundations-card-audit.tsv) · [First-play results](foundations-first-play.tsv) · [Activation results](foundations-activations.tsv)
 
-Play automatically passes priority when the only available action would be to produce mana. At an open priority decision, players can tap a particular source before casting. The activation sweep gives each position an open decision so it can exercise the selected source.
+## Automatic passes and priority stops
+
+Play checks which actions the player can legally take at each priority window. A counterspell in hand becomes a reason to stop when a legal target reaches the stack. An available graveyard activation also counts. Players can respond during their own upkeep and to their own spells or triggers. In paired runs of the same two positions, Automatic and Full control offered the same nonmana decisions and reached the same resulting board.
+
+Mana alone usually passes automatically. Play pauses for a usable mana source threatened by a direct target or an applicable mass-destruction effect. The player can tap another source first. In the Day of Judgment test, Llanowar Elves floats green before dying, Liliana draws Think Twice, and the green mana plus an Island pays for the spell that phase. An already-tapped Elf and an unaffected Island pass through the same spell. The activation sweep supplies an open priority window so the pilot can select each mana source.
+
+**Your priority** can reserve the next priority, the next matching step on either turn, or every priority for that seat. A stop after blockers happens before combat damage. A stop after damage happens after damage has been dealt. Players can set a stop during their opening hand or from their own view while another decision is pending. The installed regressions cover seat privacy, retaining priority after producing mana or casting a spell, and reproducing stops through Undo.
+
+Automatic priority cannot infer every reason to float mana before an untargeted effect resolves. For a planned interaction, set a stop in advance. Wizards describes a similar tradeoff in Arena, where the default shortcuts have exceptions for particular game states and players can set stops or use Full Control. [Arena's guide to smart priority](https://magic.wizards.com/en/news/mtg-arena/announcements-october-27-2025) · [Priority regressions](../src-tauri/src/play/priority_tests.rs) · [Full-control and replay tests](../src-tauri/src/play/replay.rs)
 
 ## Targeting, casting and paying costs
 
@@ -43,11 +51,14 @@ Play automatically passes priority when the only available action would be to pr
 | Sorcerous Spyglass and Heraldic Banner | Spyglass privately reveals the opponent's hand and accepts a legal printed name, including a name outside the decks. Naming Reassembling Skeleton disables its graveyard activation. Banner retains the chosen color and its bonus applies to the matching creature. |
 | Perforating Artist | The opponent chooses whether to discard, sacrifice or lose 3 life. The chosen payment or life loss appears on the correct side of the table. |
 | Multiple blockers and trample | The attacker can choose which one-toughness blocker takes the Elf's single damage. Rampaging Baloths can assign damage to the defending player once both blockers have been assigned lethal damage. |
+| Menace and forced attacks | A lone eligible blocker passes against Nullpriest of Oblivion. Two eligible blockers can block together. A lone Juggernaut with one required attack proceeds to the defender's response window. Alternate defenders and other possible attackers stay player choices. |
+| Chandra, Flameshaper and Crawling Barrens | Chandra can spend exactly her last four loyalty counters to damage an opposing planeswalker. The ability stays on the stack after Chandra dies. Crawling Barrens gains its counters whether its controller chooses to turn it into a creature or keep it a land. |
+| Vivien Reid, Loot and Squad Rallier | Vivien's controller sees all four cards, can choose an eligible card or decline, and chooses the order of the cards put on the bottom. Looking at cards that miss a filter still shows those cards privately to the player. |
 | Goldvein Pick and Healer's Hawk | The board identifies the equipped Hawk and its equipment. The Hawk gets the bonus, deals combat damage and creates a Treasure token. |
 | Chandra's Hawk copy | The token is visibly distinct from the original. Its inspector includes haste and the sacrifice ability. It can attack immediately and leaves the battlefield at the end step. |
 | Existing interactions | Separate positions cover scry, surveil, library search, flashback, Elf tokens, counters, simultaneous triggers, undo and the Bloodthirsty Conqueror loop, including interrupting that loop with Unsummon. |
 
-[Private choices and costs](../src-tauri/src/play/decision_tests.rs) · [Battlefield and combat regressions](../src-tauri/src/play/board_tests.rs) · [Lifegain combo regressions](../src-tauri/src/play/lifegain_combo_tests.rs) · [Foundations combat rules](https://magic.wizards.com/en/news/announcements/foundations-update-bulletin)
+[Private choices and costs](../src-tauri/src/play/decision_tests.rs) · [Library and forced-combat decisions](../src-tauri/src/play/integrity_tests.rs) · [Battlefield and combat regressions](../src-tauri/src/play/board_tests.rs) · [Lifegain combo regressions](../src-tauri/src/play/lifegain_combo_tests.rs) · [Foundations combat rules](https://magic.wizards.com/en/news/announcements/foundations-update-bulletin)
 
 ## Repeat the checks
 

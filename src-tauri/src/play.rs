@@ -35,11 +35,15 @@ mod graveyard_tests;
 #[cfg(test)]
 mod history_tests;
 #[cfg(test)]
+mod integrity_tests;
+#[cfg(test)]
 mod library_tests;
 #[cfg(test)]
 mod lifegain_combo_tests;
 #[cfg(test)]
 mod permission_tests;
+#[cfg(test)]
+mod priority_tests;
 #[cfg(test)]
 mod target_tests;
 #[cfg(test)]
@@ -121,6 +125,13 @@ impl Seat {
             Self::Opponent => Self::Player,
         }
     }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Player => 0,
+            Self::Opponent => 1,
+        }
+    }
 }
 
 fn seat_view(snapshot: &Value, viewer: Seat) -> Result<Value, String> {
@@ -131,6 +142,9 @@ fn seat_view(snapshot: &Value, viewer: Seat) -> Result<Value, String> {
     let mut view = snapshot.clone();
     if let Some(fields) = view.as_object_mut() {
         fields.remove("replayState");
+        if let Some(stops) = fields.remove("priorityStops") {
+            fields.insert("priorityStop".into(), stops[viewer.id()].clone());
+        }
     }
     if view.get("players").is_some() {
         view["players"][viewer.other().id()]["hand"] = Value::Array(Vec::new());
@@ -219,6 +233,10 @@ impl Engine {
                 include_str!("../test-fixtures/TargetPosition.java"),
                 "\n",
                 include_str!("../test-fixtures/PermissionPosition.java"),
+                "\n",
+                include_str!("../test-fixtures/PriorityPosition.java"),
+                "\n",
+                include_str!("../test-fixtures/IntegrityPosition.java"),
                 "\n",
                 include_str!("../test-fixtures/DecisionPosition.java"),
                 "\n",
@@ -441,7 +459,13 @@ impl Table {
         seat_view(self.snapshot()?, viewer)
     }
 
-    fn act(&mut self, viewer: Seat, action: &str, cancelled: &AtomicBool) -> Result<Value, String> {
+    fn act(
+        &mut self,
+        viewer: Seat,
+        action: &str,
+        stops: &replay::PendingStops,
+        cancelled: &AtomicBool,
+    ) -> Result<Value, String> {
         let Self::Playing(engine) = self else {
             return Err(CLOSED.into());
         };
@@ -454,7 +478,7 @@ impl Table {
         if !can_act || !offered_action(snapshot, action) {
             return Err("That choice is no longer available to this player.".into());
         }
-        match engine.next_state(Some(action), cancelled) {
+        match engine.next_state(Some(&replay::action_with_stops(action, stops)), cancelled) {
             Ok(snapshot) => {
                 let view = seat_view(snapshot, viewer)?;
                 if matches!(snapshot["stage"].as_str(), Some("resolved" | "finished")) {
@@ -580,6 +604,28 @@ pub async fn act_game(
             Some(revision),
             &session.cancelled,
         )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_game_priority_stop(
+    games: State<'_, Games>,
+    session_id: String,
+    viewer: Seat,
+    revision: u64,
+    stop: String,
+) -> Result<Value, String> {
+    let session = games.get(&session_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        session
+            .table
+            .lock()
+            .unwrap()
+            .as_mut()
+            .ok_or(CLOSED)?
+            .set_priority_stop(viewer, revision, stop)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1040,7 +1086,9 @@ mod tests {
         assert_eq!(other["players"]["player"]["hand"], json!([]));
         assert_eq!(other["players"]["opponent"]["hand"][0]["name"], "Mountain");
         let keep = first["choices"][0]["id"].as_str().unwrap();
-        assert!(table.act(Seat::Opponent, keep, &cancelled).is_err());
+        assert!(table
+            .act(Seat::Opponent, keep, &Default::default(), &cancelled)
+            .is_err());
         assert_eq!(table.view(Seat::Player).unwrap(), first);
 
         let play = |table: &mut Table, viewer: Seat, label: &str| {
@@ -1053,13 +1101,17 @@ mod tests {
                 .unwrap()["id"]
                 .as_str()
                 .unwrap();
-            table.act(viewer, id, &cancelled).unwrap()
+            table
+                .act(viewer, id, &Default::default(), &cancelled)
+                .unwrap()
         };
         let waiting = play(&mut table, Seat::Player, "Keep hand");
         assert_eq!(waiting["actor"], "opponent");
         assert_eq!(waiting["choices"], json!([]));
         assert_eq!(waiting["players"]["opponent"]["hand"], json!([]));
-        assert!(table.act(Seat::Opponent, keep, &cancelled).is_err());
+        assert!(table
+            .act(Seat::Opponent, keep, &Default::default(), &cancelled)
+            .is_err());
         let waiting = play(&mut table, Seat::Opponent, "Keep hand");
         assert_eq!(waiting["phase"], "Precombat main phase");
         assert_eq!(
@@ -1132,11 +1184,21 @@ mod tests {
         assert_eq!(observer["players"]["opponent"]["hand"][0]["name"], "Forest");
         assert_eq!(observer["choices"], json!([]));
         assert!(table
-            .act(Seat::Opponent, bolt_id, &AtomicBool::new(false))
+            .act(
+                Seat::Opponent,
+                bolt_id,
+                &Default::default(),
+                &AtomicBool::new(false)
+            )
             .is_err());
         assert_eq!(table.view(Seat::Player).unwrap(), player);
         let targets = table
-            .act(Seat::Player, bolt_id, &AtomicBool::new(false))
+            .act(
+                Seat::Player,
+                bolt_id,
+                &Default::default(),
+                &AtomicBool::new(false),
+            )
             .unwrap();
         assert_eq!(targets["prompt"], "Choose a target for Lightning Bolt");
         assert_eq!(targets["active"], "opponent");

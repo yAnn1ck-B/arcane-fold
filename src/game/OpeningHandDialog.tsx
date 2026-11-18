@@ -65,6 +65,7 @@ export function ForgeOpeningHand({
   onChoose,
   locked,
   switchSeat,
+  priorityControl,
   error,
 }: {
   seat: ForgeSeat;
@@ -74,6 +75,7 @@ export function ForgeOpeningHand({
   onChoose: (choice: ForgeChoice) => void;
   locked: boolean;
   switchSeat?: ReactNode;
+  priorityControl: ReactNode;
   error?: ReactNode;
 }) {
   return (
@@ -83,20 +85,23 @@ export function ForgeOpeningHand({
       prompt={prompt}
       switchSeat={switchSeat}
       error={error}
-      actions={choices.map((choice) => (
-        <button
-          type="button"
-          key={choice.id}
-          className={
-            choice.label === "Keep hand" ? "pt-btn pt-primary" : "pt-btn"
-          }
-          disabled={locked}
-          onClick={() => onChoose(choice)}
-        >
-          {choice.label === "Mulligan" && <Shuffle size={15} aria-hidden />}
-          {choice.label}
-        </button>
-      ))}
+      actions={
+        <>
+          {priorityControl}
+          {choices.map((choice) => (
+            <button
+              type="button"
+              key={choice.id}
+              className={choice.label === "Keep hand" ? "pt-btn pt-primary" : "pt-btn"}
+              disabled={locked}
+              onClick={() => onChoose(choice)}
+            >
+              {choice.label === "Mulligan" && <Shuffle size={15} aria-hidden />}
+              {choice.label}
+            </button>
+          ))}
+        </>
+      }
     />
   );
 }

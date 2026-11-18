@@ -72,6 +72,11 @@ final class ForgeCombat {
                 String label = combat.getAttackers().isEmpty() ? "No attacks" : "Confirm attackers";
                 confirm = practice.choice(label, "option", null, null, () -> {});
                 choices.add(confirm);
+            } else if (combat.getAttackers().isEmpty() && player.getCreaturesInPlay().size() == 1 && choices.size() == 1) {
+                // Forge requires an attack. This is the only creature and the only legal defender.
+                choices.get(0).run();
+                if (CombatUtil.validateAttackers(combat)) return;
+                continue;
             }
             var selected = practice.ask(player, "Declare attackers", choices);
             if (selected == confirm) return;
@@ -83,9 +88,15 @@ final class ForgeCombat {
         if (!practice.human(defender) && CombatUtil.validateBlocks(combat, defender) == null) return;
         while (true) {
             List<ForgeMatch.Choice> choices = new ArrayList<>();
+            var attackers = combat.getAttackers().stream().filter(attacker -> {
+                if (combat.getDefenderPlayerByAttacker(attacker) != defender) return false;
+                int minimum = CombatUtil.getMinNumBlockersForAttacker(attacker, defender);
+                // An individually eligible creature cannot start a menace block with no possible partner.
+                return minimum <= 1 || !combat.getBlockers(attacker).isEmpty()
+                        || defender.getCreaturesInPlay().stream().filter(b -> CombatUtil.canBlock(attacker, b)).limit(minimum).count() >= minimum;
+            }).toList();
             for (Card blocker : defender.getCreaturesInPlay()) {
-                for (Card attacker : combat.getAttackers()) {
-                    if (combat.getDefenderPlayerByAttacker(attacker) != defender) continue;
+                for (Card attacker : attackers) {
                     if (combat.isBlocking(blocker, attacker)) {
                         choices.add(practice.choice("Remove block on " + ForgeMatch.publicName(attacker) + " by " + ForgeMatch.publicName(blocker),
                                 "block", blocker, null, () -> combat.removeBlockAssignment(attacker, blocker)));

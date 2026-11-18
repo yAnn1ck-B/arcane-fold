@@ -11,12 +11,14 @@ import type { Session } from "./session";
 import type { Seat } from "./types";
 import {
   chooseForge,
+  setForgePriorityStop,
   startForge,
   stopForge,
   undoForge,
   viewForgeSeat,
   type ForgeMatch,
   type ForgeSeat,
+  type PriorityStop,
 } from "./forge-match";
 
 function needsHandoff(match: ForgeMatch, viewer: ForgeSeat) {
@@ -133,7 +135,7 @@ export default function Game({
   }
 
   async function updateTable(
-    request: { action: string } | { switchTo: ForgeSeat } | "undo",
+    request: { action: string } | { switchTo: ForgeSeat } | { stop: PriorityStop } | "undo",
   ) {
     const id = session.current;
     if (
@@ -147,29 +149,30 @@ export default function Game({
       return;
     const undo = request === "undo";
     const switching = !undo && "switchTo" in request;
+    const settingStop = !undo && "stop" in request;
     const nextViewer = switching ? request.switchTo : viewer;
     if (switching && !state.sharedSeats) return;
     if (undo && !state.canUndo) return;
     if (
       !switching &&
       !undo &&
-      (recipient || state.stage !== "decision" || needsHandoff(state, viewer))
+      (recipient || state.stage !== "decision" || (!settingStop && needsHandoff(state, viewer)))
     )
       return;
     pending.current = true;
     setBusy(switching ? "switch" : undo ? "undo" : "play");
     setError(undefined);
     try {
-      const result = switching
-        ? await viewForgeSeat(id, nextViewer)
-        : undo
-          ? await undoForge(id, viewer, state.revision)
-          : await chooseForge(id, request.action, viewer, state.revision);
+      let result: ForgeMatch;
+      if (switching) result = await viewForgeSeat(id, nextViewer);
+      else if (settingStop) result = await setForgePriorityStop(id, viewer, state.revision, request.stop);
+      else if (undo) result = await undoForge(id, viewer, state.revision);
+      else result = await chooseForge(id, request.action, viewer, state.revision);
       if (session.current !== id) return;
       setState(result);
       setViewer(nextViewer);
       setRecipient(
-        !switching && needsHandoff(result, nextViewer) ? result.actor : null,
+        !switching && !settingStop && needsHandoff(result, nextViewer) ? result.actor : null,
       );
       if (undo) setRewinds((n) => n + 1);
     } catch (cause) {
@@ -178,7 +181,7 @@ export default function Game({
           message: switching
             ? `Couldn’t switch seats. Use the switch to retry. ${String(cause)}`
             : String(cause),
-          restart: !switching && !undo,
+          restart: !switching && !undo && !settingStop,
         });
     } finally {
       if (session.current === id) {
@@ -383,6 +386,7 @@ export default function Game({
           }
           locked={!!busy || !!error?.restart}
           onChoose={(action) => void updateTable({ action })}
+          onPriorityStop={(stop) => void updateTable({ stop })}
           replay={() => void start()}
           imageCacheDir={imageCacheDir}
         />

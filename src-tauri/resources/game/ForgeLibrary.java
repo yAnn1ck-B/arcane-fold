@@ -18,8 +18,8 @@ final class ForgeLibrary {
         return operation;
     }
 
-    CardCollection showPileCards(CardCollectionView cards, java.util.function.Supplier<CardCollection> choose) {
-        operation = "Separate piles";
+    CardCollection showCards(String title, CardCollectionView cards, java.util.function.Supplier<CardCollection> choose) {
+        operation = title;
         candidates = List.copyOf(cards);
         try {
             return choose.get();
@@ -27,6 +27,22 @@ final class ForgeLibrary {
             candidates = null;
             operation = "Library search";
         }
+    }
+
+    CardCollection orderLibraryMoves(Player actor, CardCollectionView cards) {
+        var remaining = new CardCollection(cards);
+        var ordered = new CardCollection();
+        return showCards("Order library cards", remaining, () -> {
+            while (remaining.size() > 1) {
+                Card next = pickFromTop(actor, remaining, "Place ", " next",
+                        "Keep this order", "Choose the order in which to move the cards.");
+                if (next == null) break;
+                remaining.remove(next);
+                ordered.add(next);
+            }
+            ordered.addAll(remaining);
+            return ordered;
+        });
     }
 
     // Forge consumes (top in next-draw order, cards moved away in selection order).

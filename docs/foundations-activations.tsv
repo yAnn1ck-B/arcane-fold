@@ -97,7 +97,7 @@ Corsair Captain			no battlefield ability
 Courageous Goblin			no battlefield ability	
 Crackling Cyclops			no battlefield ability	
 Crash Through			not a permanent	
-Crawling Barrens	{4}: Put two +1/+1 counters on Crawling Barrens. Then you may have it become a 0/0 Elemental creature until end of turn. It's still a land.	{4}	resolved	
+Crawling Barrens	{4}: Put two +1/+1 counters on Crawling Barrens. Then you may have it become a 0/0 Elemental creature until end of turn. It's still a land.	{4}	resolved	Decline
 Crawling Barrens	{T}: Add {C}.	{T}	produced mana	Produced 1 mana from the source
 Crossway Troublemakers			no battlefield ability	
 Crow of Dark Tidings			no battlefield ability	
@@ -302,7 +302,7 @@ Liliana, Dreadhorde General	-4: Each player sacrifices two creatures.	-4	resolve
 Liliana, Dreadhorde General	-9: Each opponent chooses a permanent they control of each permanent type and sacrifices the rest.	-9	resolved	Choose Grizzly Bears
 Linden, the Steadfast Queen			no battlefield ability	
 Llanowar Elves	{T}: Add {G}.	{T}	produced mana	Produced 1 mana from the source
-Loot, Exuberant Explorer	{4}{G}{G}, {T}: Look at the top six cards of your library. You may reveal a creature card with mana value less than or equal to the number of lands you control from among them and put it onto the battlefield. Put the rest on the bottom in a random order.	{T}, {4}{G}{G}	resolved	
+Loot, Exuberant Explorer	{4}{G}{G}, {T}: Look at the top six cards of your library. You may reveal a creature card with mana value less than or equal to the number of lands you control from among them and put it onto the battlefield. Put the rest on the bottom in a random order.	{T}, {4}{G}{G}	resolved	Finish selection
 Luminous Rebuke			not a permanent	
 Lunar Insight			not a permanent	
 Lyra Dawnbringer			no battlefield ability	
@@ -445,7 +445,7 @@ Sphinx of the Final Word			no battlefield ability
 Spinner of Souls			no battlefield ability	
 Spitfire Lagac			no battlefield ability	
 Springbloom Druid			no battlefield ability	
-Squad Rallier	{2}{W}: Look at the top four cards of your library. You may reveal a creature card with power 2 or less from among them and put it into your hand. Put the rest on the bottom of your library in a random order.	{2}{W}	resolved	
+Squad Rallier	{2}{W}: Look at the top four cards of your library. You may reveal a creature card with power 2 or less from among them and put it into your hand. Put the rest on the bottom of your library in a random order.	{2}{W}	resolved	Finish selection
 Stab			not a permanent	
 Starlight Snare			no battlefield ability	
 Stasis Snare			no battlefield ability	
@@ -522,7 +522,7 @@ Vengeful Bloodwitch			no battlefield ability
 Venom Connoisseur			no battlefield ability	
 Viashino Pyromancer			no battlefield ability	
 Vile Entomber			no battlefield ability	
-Vivien Reid	+1: Look at the top four cards of your library. You may reveal a creature or land card from among them and put it into your hand. Put the rest on the bottom of your library in any order.	+1	resolved	
+Vivien Reid	+1: Look at the top four cards of your library. You may reveal a creature or land card from among them and put it into your hand. Put the rest on the bottom of your library in any order.	+1	resolved	Finish selection / Place Forest next / Place Grizzly Bears next / Place Forest next
 Vivien Reid	-3: Destroy target artifact, enchantment or creature with flying.	-3	resolved	Target Ornithopter
 Vivien Reid	"-8: You get an emblem with ""Creatures you control get +2/+2 and have vigilance, trample, and indestructible."""	-8	resolved	
 Vizier of the Menagerie			no battlefield ability	

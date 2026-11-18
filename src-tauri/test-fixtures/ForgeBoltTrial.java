@@ -270,7 +270,9 @@ final class GuidedPosition extends ForgeMatch {
 
     private void setupPosition() {
         if (mode.startsWith("target-")) TargetPosition.setup(this, mode);
+        else if (mode.startsWith("priority-")) PriorityPosition.setup(this, mode);
         else if (mode.startsWith("permission-")) PermissionPosition.setup(this, mode);
+        else if (mode.startsWith("integrity-")) IntegrityPosition.setup(this, mode);
         else if (mode.startsWith("decision-")) DecisionPosition.setup(this, mode);
         else if (mode.startsWith("board-")) {
             put("Forest", player, ZoneType.Hand); // Inspect the board at the next main phase.

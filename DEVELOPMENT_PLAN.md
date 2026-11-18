@@ -24,6 +24,8 @@ Other cases check when a choice takes effect. Dwynen's Elite checks for another 
 
 Wildborn Preserver's controller chooses whether and how much to pay as its trigger resolves. Declining ends the effect. Paying any legal amount, including zero, puts a second ability on the stack. Players can respond before it adds the counters. [Wildborn Preserver ruling](https://magic.wizards.com/en/news/feature/throne-eldraine-release-notes-2019-09-20)
 
+Automatic priority checks each seat's legal plays. A player can also request their next priority, a specific step on either turn, or every priority window. These settings are private to the seat. Installed-engine tests compare automatic and full-control decisions for the same positions, including responses to one's own spells and triggers.
+
 **Technology:**
 
 - Tauri 2 for the Windows desktop application

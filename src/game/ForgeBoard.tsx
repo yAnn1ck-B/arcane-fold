@@ -23,6 +23,7 @@ import { ForgeOpeningHand } from "./OpeningHandDialog";
 import { TableCard } from "./TableCards";
 import { CardReading, StackCardName } from "./CardPreview";
 import { TableDialog } from "./TableDialog";
+import { prioritySteps, type PriorityStop } from "./forge-match";
 import type {
   ForgeCard,
   ForgeChoice,
@@ -222,6 +223,7 @@ export default function ForgeBoard({
   state,
   locked,
   onChoose,
+  onPriorityStop,
   replay,
   imageCacheDir,
   viewer,
@@ -231,6 +233,7 @@ export default function ForgeBoard({
   state: ForgeMatch;
   locked: boolean;
   onChoose: (id: string) => void;
+  onPriorityStop: (stop: PriorityStop) => void;
   replay: () => void;
   imageCacheDir: string;
   viewer: ForgeSeat;
@@ -242,6 +245,7 @@ export default function ForgeBoard({
   const [deferredSearch, setDeferredSearch] = useState<string>();
   const [cardFilter, setCardFilter] = useState("");
   const firstButton = useRef<HTMLButtonElement>(null);
+  const focusedRevision = useRef<number | undefined>(undefined);
   const cache = useRef<ArtCache>(new Map());
   const { actor, players, stack, choices, librarySearch, sharedSeats } = state;
   const searchId = librarySearch ? choices[0]?.id : undefined;
@@ -320,16 +324,18 @@ export default function ForgeBoard({
     const button = firstButton.current;
     if (
       !locked &&
+      focusedRevision.current !== state.revision &&
       button &&
       !button.closest("[hidden]") &&
       !document.querySelector("dialog[open]")
     ) {
       // Advance keyboard focus without opening a card reading over a new decision.
+      focusedRevision.current = state.revision;
       button.dataset.autoFocus = "";
       button.focus({ preventScroll: true });
       delete button.dataset.autoFocus;
     }
-  }, [state, locked]);
+  }, [state.revision, locked]);
 
   useEffect(() => {
     setCardFilter("");
@@ -522,6 +528,26 @@ export default function ForgeBoard({
     );
   }
 
+  const priorityControl = state.stage === "decision" && (
+    <label className="ptc pt-priority-control">
+      Your priority
+      <select
+        value={state.priorityStop}
+        disabled={locked}
+        onChange={(event) => onPriorityStop(event.currentTarget.value as PriorityStop)}
+      >
+        <option value="auto">Automatic</option>
+        <option value="next">Stop at next priority</option>
+        <option value="full">Full control</option>
+        <optgroup label="Stop once at the next matching step">
+          {Object.entries(prioritySteps).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </optgroup>
+      </select>
+    </label>
+  );
+
   return (
     <TableBoard
       label="Forge game"
@@ -548,6 +574,7 @@ export default function ForgeBoard({
               )}
             </span>
           </div>
+          {!opening && priorityControl}
           {!opening && (
             <div className="pt-forge-prompt">
               {state.stage === "decision" &&
@@ -589,6 +616,7 @@ export default function ForgeBoard({
                 onChoose={choose}
                 locked={locked}
                 error={matchTools.openingRecovery}
+                priorityControl={priorityControl}
                 switchSeat={
                   <>
                     {switchButton()}
