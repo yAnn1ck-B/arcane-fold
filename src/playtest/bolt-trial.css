@@ -1,0 +1,145 @@
+.bolt-launch p,
+.bolt-card small,
+.bolt-zone-cards > span,
+.bolt-piles dt {
+  color: var(--tone-secondary, var(--muted));
+  font-size: 0.86em;
+}
+.bolt-launch p {
+  margin-top: 0.3rem;
+}
+.bolt-trial {
+  display: grid;
+  gap: 1rem;
+}
+.bolt-position {
+  overflow: hidden;
+}
+.bolt-totals,
+.bolt-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.bolt-life,
+.bolt-card,
+.bolt-loading,
+.bolt-prompt,
+.bolt-prompt p,
+.bolt-life strong {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.bolt-life {
+  justify-content: space-between;
+  margin: 1rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
+  color: var(--foreground);
+}
+.bolt-life strong {
+  margin-left: auto;
+  font-size: 1.4rem;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.bolt-target,
+.bolt-playable {
+  background: var(--tone-bg2, var(--background));
+  border-color: var(--tone-border-strong, var(--primary));
+}
+.bolt-target:hover:enabled,
+.bolt-playable:hover:enabled {
+  background: var(--tone-bg3, var(--background));
+}
+.bolt-prompt {
+  min-height: 4.3rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  background: var(--tone-bg2, var(--background));
+  border-block: 1px solid var(--border);
+}
+.bolt-zone,
+.bolt-prompt,
+.bolt-piles,
+.bolt-loading {
+  padding: 1rem 1.5rem;
+}
+.bolt-zone + .bolt-zone {
+  border-left: 1px solid var(--border);
+}
+.bolt-zone h3,
+.bolt-piles dt {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+.bolt-zone-cards {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  min-height: 7.75rem;
+}
+.bolt-card {
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  width: 100%;
+}
+.bolt-card span {
+  display: grid;
+}
+.bolt-card > svg:first-child {
+  color: var(--tone-secondary, var(--muted));
+}
+.bolt-card > svg:last-child {
+  margin-left: auto;
+}
+.bolt-card.bolt-playable {
+  border-color: var(--tone-border-strong, var(--primary));
+}
+.bolt-piles {
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.75rem 3rem;
+  flex-wrap: wrap;
+  margin: 0;
+}
+.bolt-piles dt {
+  margin-bottom: 0.12rem;
+}
+.bolt-piles dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.bolt-stack-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.45rem;
+  color: var(--tone-secondary, var(--muted));
+}
+.bolt-loading svg {
+  animation: bolt-loading 1.4s linear infinite;
+}
+@keyframes bolt-loading {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bolt-loading svg {
+    animation: none;
+  }
+}
+@media (max-width: 900px) {
+  .bolt-zone,
+  .bolt-prompt,
+  .bolt-piles {
+    padding: 0.8rem;
+  }
+  .bolt-life {
+    margin: 0.6rem;
+  }
+}

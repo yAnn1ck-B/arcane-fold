@@ -13,6 +13,7 @@ import {
 } from "@/playtest/session";
 import { loadSession, saveSession } from "@/playtest/storage";
 import Table from "@/playtest/Table";
+import ForgeBoltTrial from "@/playtest/ForgeBoltTrial";
 import type { Seat } from "@/playtest/types";
 import "@/styles/playtest.css";
 
@@ -41,6 +42,7 @@ export default function Playtest({
   const [deckListReady, setDeckListReady] = useState(false);
   const [reload, setReload] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [trialOpen, setTrialOpen] = useState(false);
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -125,7 +127,15 @@ export default function Playtest({
 
   return (
     <section className="playtest-page">
-      {error && (
+      {import.meta.env.DEV && !playing && (
+        <ForgeBoltTrial
+          open={trialOpen}
+          onOpenChange={setTrialOpen}
+          canPlay={canPlay}
+          disabled={working}
+        />
+      )}
+      {error && !trialOpen && (
         <div className="notice notice-error" role="alert">
           {error}
           {(!loaded || !deckListReady) && (
@@ -135,7 +145,7 @@ export default function Playtest({
           )}
         </div>
       )}
-      {playing && session ? (
+      {trialOpen ? null : playing && session ? (
         <>
           <div className="pt-match-toolbar">
             <div>

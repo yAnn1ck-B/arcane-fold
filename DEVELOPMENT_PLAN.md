@@ -8,13 +8,17 @@ Build a Windows desktop application that works alongside **MTG Forge**.
 
 The application manages a permanent Magic: The Gathering card collection. Users open booster packs, collect cards, earn wildcards, craft specific cards, and build decks that can be played in Forge.
 
-Forge handles rules-enforced gameplay. The development build also offers local manual playtesting from the existing deck and card catalog.
+Forge handles rules-enforced gameplay. The development build offers a manual table for saved decks and an experimental Forge-backed Lightning Bolt scenario.
 
 ### Manual playtest (unreleased)
 
 The Playtest page supports solo practice and two seats controlled on one device. It snapshots main decks, keeps a private hand and library for each seat, and tracks zones, stack entries, mana, life, counters, tokens, attachments, combat markers, turns, and steps. The player resolves card effects and chooses when to advance.
 
 Table actions update an independent match model. A local checkpoint records shuffle outcomes and recent actions for resuming and undoing moves. Each seat renders a filtered view of the table. Future network play can put the full match and action validation on a host and send only the appropriate view to each client. Future rules automation can use the same actions. Player authentication, remote connections, AI, and automated rules enforcement are outside this trial.
+
+### Forge-backed Lightning Bolt trial (unreleased)
+
+The debug Playtest page also offers a fixed two-player position with Mountain and Lightning Bolt in hand. The player plays the land, casts the spell, chooses a target and passes as the opponent. Forge supplies the card abilities and match state. The trial runs in memory and can be replayed independently of the saved manual table or league collection.
 
 **Technology:**
 
@@ -52,7 +56,7 @@ Deck edits save automatically to the app and Forge, with serialized writes and t
 
 Owned incomplete decks may be saved to Forge as drafts. Nonbasic quantities across both sections must stay within pooled Oracle ownership, and every selected printing must be eligible and globally unlocked; collection ownership is pooled across expansions. Report sync failures honestly. There is no separate Export to Forge button or automatic-export preference.
 
-The application does not need to launch or control Forge.
+The companion uses Forge files directly for its catalog and deck integration. Starting the experimental Lightning Bolt trial also starts a local Java process for that match.
 
 ## 3. Local Database
 

@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+mod bolt_trial;
 mod card_policy;
 mod catalog;
 mod decks;
@@ -14,6 +16,15 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
+    #[cfg(debug_assertions)]
+    let builder = builder
+        .manage(bolt_trial::Trials::default())
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                use tauri::Manager;
+                window.state::<bolt_trial::Trials>().close(None);
+            }
+        });
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -78,6 +89,12 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            #[cfg(debug_assertions)]
+            bolt_trial::start_bolt_trial,
+            #[cfg(debug_assertions)]
+            bolt_trial::act_bolt_trial,
+            #[cfg(debug_assertions)]
+            bolt_trial::stop_bolt_trial,
             forge::detect_forge_paths,
             forge::test_forge_integration,
             forge::read_cached_image,

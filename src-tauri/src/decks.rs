@@ -385,7 +385,9 @@ async fn duplicate_pool(pool: &SqlitePool, id: &str) -> Result<DeckDetail, Strin
     save_pool(pool, copied_draft(source)).await
 }
 
-async fn saved_forge_paths(pool: &SqlitePool) -> Result<crate::forge::ForgePaths, String> {
+pub(crate) async fn saved_forge_paths(
+    pool: &SqlitePool,
+) -> Result<crate::forge::ForgePaths, String> {
     let value: String = sqlx::query_scalar("SELECT value FROM settings WHERE key='app'")
         .fetch_optional(pool)
         .await

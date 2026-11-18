@@ -10,7 +10,8 @@ const local = path.join(cargoHome, 'bin', 'cargo.exe');
 if (existsSync(local)) {
   env.CARGO_HOME = cargoHome;
   env.RUSTUP_HOME = path.join(root, '.tools', 'rustup');
-  env.PATH = `${path.dirname(local)}${path.delimiter}${env.PATH}`;
+  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
+  env[pathKey] = [path.dirname(local), env[pathKey]].filter(Boolean).join(path.delimiter);
 }
 const child = spawn(existsSync(local) ? local : 'cargo', ['test', '--manifest-path', 'src-tauri/Cargo.toml', ...process.argv.slice(2)], { cwd: root, env, stdio: 'inherit' });
 child.on('error', (error) => { console.error(`Could not run Rust tests: ${error.message}`); process.exitCode = 1; });

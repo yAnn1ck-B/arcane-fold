@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - Add a local Playtest table for saved decks, with manual zones, a shared stack, mana pools and resumable matches.
+- Add a replayable Lightning Bolt trial in the development app. Installed Forge 2.0.13 handles targeting, mana payment, priority and damage on the Playtest table.
 
 ## [0.4.0] - 2026-11-18
 
