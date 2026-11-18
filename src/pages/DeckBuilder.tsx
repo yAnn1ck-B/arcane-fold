@@ -1713,6 +1713,11 @@ export default function DeckBuilder({
                         owned: chosen.owned,
                       }
                     : original;
+                  const unlimited = isUnlimitedBasic(card);
+                  const remaining = Math.max(
+                    0,
+                    ownedCount(card) - (allocated[card.oracleId] ?? 0),
+                  );
                   const reason = blockedReason(card, section);
                   return (
                     <article className="deck-browser-card" key={card.oracleId}>
@@ -1732,6 +1737,12 @@ export default function DeckBuilder({
                           onDetails={() => setSelectedCard(card)}
                         />
                         <div className="deck-browser-card-actions">
+                          <span
+                            className="deck-browser-card-remaining"
+                            title={unlimited ? "Unlimited basic land copies" : "Owned copies remaining"}
+                          >
+                            {unlimited ? "∞" : remaining}
+                          </span>
                           <Button
                             size="icon"
                             variant="secondary"
