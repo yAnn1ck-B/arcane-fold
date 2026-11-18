@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   Circle,
   Eye,
@@ -58,6 +58,55 @@ function CardArt({
   );
 }
 
+export function TableCard({
+  name,
+  label,
+  art,
+  tapped,
+  flags,
+  quickAction,
+  onClick,
+  disabled,
+  focusRef,
+}: {
+  name: string;
+  label: string;
+  art: ReactNode;
+  tapped?: boolean;
+  flags?: ReactNode;
+  quickAction?: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  focusRef?: Ref<HTMLButtonElement>;
+}) {
+  return (
+    <div className={`pt-piece ${tapped ? "is-tapped" : ""}`} title={label}>
+      {art}
+      <div className="pt-piece-flags" aria-hidden="true">
+        {tapped && <RotateCw size={14} />}
+        {flags}
+      </div>
+      {onClick ? (
+        <button
+          ref={focusRef}
+          type="button"
+          className="pt-piece-select"
+          onClick={onClick}
+          disabled={disabled}
+          aria-label={label}
+        >
+          <span>{name}</span>
+        </button>
+      ) : (
+        <span className="pt-piece-select" aria-label={label}>
+          <span>{name}</span>
+        </span>
+      )}
+      {quickAction}
+    </div>
+  );
+}
+
 export function CardTile(
   props: CardProps & {
     onClick: () => void;
@@ -81,39 +130,38 @@ export function CardTile(
     .filter(Boolean)
     .join(", ");
   return (
-    <div className={`pt-piece ${piece.tapped ? "is-tapped" : ""}`}>
-      <CardArt {...props} />
-      <div className="pt-piece-flags" aria-hidden="true">
-        {piece.tapped && <RotateCw size={14} />}
-        {piece.combat && <Swords size={14} />}
-        {piece.attachedTo && <Link2 size={14} />}
-        {piece.revealed && <Eye size={14} />}
-        {Object.values(piece.counters).length > 0 && (
-          <span>
-            ◆ {Object.values(piece.counters).reduce((a, b) => a + b, 0)}
-          </span>
-        )}
-      </div>
-      <button
-        type="button"
-        className="pt-piece-select"
-        onClick={onClick}
-        title={stateLabels ? `${name} · ${stateLabels}` : name}
-        aria-label={stateLabels ? `${name}, ${stateLabels}` : name}
-      >
-        <span>{name}</span>
-      </button>
-      {piece.controller === view.viewer && zone === "battlefield" && (
-        <button
-          type="button"
-          className="pt-quick"
-          onClick={() => dispatch({ type: "tap", id })}
-          aria-label={`${piece.tapped ? "Untap" : "Tap"} ${name}`}
-        >
-          {piece.tapped ? "Untap" : "Tap"}
-        </button>
-      )}
-    </div>
+    <TableCard
+      name={name}
+      label={stateLabels ? `${name}, ${stateLabels}` : name}
+      art={<CardArt {...props} />}
+      onClick={onClick}
+      tapped={piece.tapped}
+      flags={
+        <>
+          {piece.combat && <Swords size={14} />}
+          {piece.attachedTo && <Link2 size={14} />}
+          {piece.revealed && <Eye size={14} />}
+          {Object.values(piece.counters).length > 0 && (
+            <span>
+              ◆ {Object.values(piece.counters).reduce((a, b) => a + b, 0)}
+            </span>
+          )}
+        </>
+      }
+      quickAction={
+        piece.controller === view.viewer &&
+        zone === "battlefield" && (
+          <button
+            type="button"
+            className="pt-quick"
+            onClick={() => dispatch({ type: "tap", id })}
+            aria-label={`${piece.tapped ? "Untap" : "Tap"} ${name}`}
+          >
+            {piece.tapped ? "Untap" : "Tap"}
+          </button>
+        )
+      }
+    />
   );
 }
 

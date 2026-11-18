@@ -9,7 +9,7 @@ export default function CardImage({
   className = "",
   face = "front",
 }: {
-  card: CatalogCard;
+  card: Pick<CatalogCard, "id" | "name">;
   imageCacheDir: string;
   className?: string;
   face?: "front" | "back";

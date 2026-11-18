@@ -133,6 +133,7 @@ export default function Playtest({
           onOpenChange={setTrialOpen}
           canPlay={canPlay}
           disabled={working}
+          imageCacheDir={settings.forge.imageCacheDir}
         />
       )}
       {error && !trialOpen && (

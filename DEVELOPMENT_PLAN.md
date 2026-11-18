@@ -18,7 +18,7 @@ Table actions update an independent match model. A local checkpoint records shuf
 
 ### Forge-backed Lightning Bolt trial (unreleased)
 
-The debug Playtest page also offers a fixed two-player position with Mountain and Lightning Bolt in hand. The player plays the land, casts the spell, chooses a target and passes as the opponent. Forge supplies the card abilities and match state. The trial runs in memory and can be replayed independently of the saved manual table or league collection.
+The debug Playtest page also offers a fixed two-player position with Mountain and Lightning Bolt in hand. The player plays the land, casts the spell, chooses a target and passes as the opponent. Both modes render the same playtest table. Manual games use the saved match model and its editing controls. In the Bolt trial, Forge supplies the card abilities, match state and legal targets, and the table forwards player choices to Forge. The trial is replayable in memory.
 
 **Technology:**
 

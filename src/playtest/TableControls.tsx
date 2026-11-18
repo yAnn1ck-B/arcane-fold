@@ -7,8 +7,6 @@ import {
   ChevronsRight,
   Copy,
   Droplet,
-  Heart,
-  Layers,
   Minus,
   Plus,
   Shield,
@@ -25,7 +23,7 @@ import {
   type StackEntry,
   type Zone,
 } from "./types";
-import "./controls.css";
+import { LifeValue, StackPanel } from "./TableBoard";
 
 interface ControlProps {
   view: MatchView;
@@ -179,9 +177,7 @@ export function PlayerControls(props: ControlProps & PlayerOptions) {
               <Minus size={13} />
             </button>
           )}
-          <strong aria-label={`${player.life} life`}>
-            <Heart size={15} /> {player.life}
-          </strong>
+          <LifeValue life={player.life} />
           {own && (
             <button
               type="button"
@@ -591,12 +587,7 @@ export function StackControls(props: ControlProps) {
   const { view, viewer } = props;
   const targetList = useId();
   return (
-    <section className="ptc ptc-stack" aria-label="Shared stack">
-      <div className="ptc-row ptc-stack-title">
-        <Layers size={18} />
-        <h3>Stack</h3>
-        <span>{view.stack.length}</span>
-      </div>
+    <StackPanel count={view.stack.length}>
       <datalist id={targetList}>
         {targetSuggestions(view).map((text) => (
           <option key={text} value={text} />
@@ -616,6 +607,6 @@ export function StackControls(props: ControlProps) {
         </ol>
       )}
       <StackComposer key={viewer} {...props} targetList={targetList} />
-    </section>
+    </StackPanel>
   );
 }

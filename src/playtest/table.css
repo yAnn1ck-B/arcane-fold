@@ -216,7 +216,7 @@
   padding: 5px 6px;
   font-weight: 600;
 }
-.pt-piece-select::after {
+button.pt-piece-select::after {
   content: "";
   position: absolute;
   inset: 0;

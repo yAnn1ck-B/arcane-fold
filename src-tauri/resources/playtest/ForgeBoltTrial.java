@@ -196,6 +196,7 @@ public class ForgeBoltTrial {
         state.put("opponentLife", opponent.getLife());
         state.put("hand", names(ZoneType.Hand));
         state.put("battlefield", names(ZoneType.Battlefield));
+        state.put("opponentBattlefield", opponent.getCardsIn(ZoneType.Battlefield).stream().map(Card::getName).toList());
         state.put("graveyard", names(ZoneType.Graveyard));
         state.put("stack", stack);
         state.put("mountainTapped", player.getCardsIn(ZoneType.Battlefield).stream().anyMatch(Card::isTapped));

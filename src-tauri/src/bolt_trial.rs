@@ -298,6 +298,7 @@ mod tests {
             assert!(hand.contains(&json!("Mountain")) && hand.contains(&json!("Lightning Bolt")));
             assert_eq!(ready["playerLife"], 20);
             assert_eq!(ready["opponentLife"], 20);
+            assert_eq!(ready["opponentBattlefield"], json!([]));
             let land = engine.next_state(Some("playMountain"), &cancelled).unwrap();
             assert_eq!(land["stage"], "landPlayed");
             assert_eq!(land["hand"], json!(["Lightning Bolt"]));

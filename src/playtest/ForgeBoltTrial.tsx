@@ -1,18 +1,19 @@
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowRight,
-  Check,
-  Heart,
+  Droplet,
   LoaderCircle,
-  Mountain,
   RotateCcw,
   Target,
-  Zap,
+  ImageOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { appLifecycle } from "@/lib/app-lifecycle";
-import "./bolt-trial.css";
+import CardImage from "@/components/CardImage";
+import { database } from "@/services/database";
+import { LifeValue, StackPanel, TableBoard, TableSeat } from "./TableBoard";
+import { TableCard } from "./TableCards";
 
 type Stage =
   | "ready"
@@ -34,6 +35,7 @@ interface TrialState {
   opponentLife: number;
   hand: string[];
   battlefield: string[];
+  opponentBattlefield?: string[];
   stack: string[];
   graveyard: string[];
   mountainTapped: boolean;
@@ -56,88 +58,23 @@ function stopTrial(sessionId: string) {
   return invoke<void>("stop_bolt_trial", { sessionId });
 }
 
-function LifeTotal({
-  label,
-  life,
-  canTarget,
-  targetLabel,
-  choose,
-  disabled,
-  focusRef,
-}: {
-  label: string;
-  life: number;
-  canTarget: boolean;
-  targetLabel: string;
-  choose: () => void;
-  disabled: boolean;
-  focusRef?: Ref<HTMLButtonElement>;
-}) {
-  const content = (
-    <>
-      <span>{label}</span>
-      <strong aria-label={`${life} life`}>
-        <Heart size={18} aria-hidden />
-        {life}
-      </strong>
-      {canTarget && <Target size={16} aria-hidden />}
-    </>
-  );
-  return canTarget ? (
-    <button
-      ref={focusRef}
-      type="button"
-      aria-label={targetLabel}
-      className="bolt-life bolt-target"
-      disabled={disabled}
-      onClick={choose}
-    >
-      {content}
-    </button>
-  ) : (
-    <div className="bolt-life">{content}</div>
-  );
-}
+type Artwork = { id: string; name: string };
 
-function TrialCard({
-  name,
-  action,
-  tapped,
-  focusRef,
-}: {
-  name: string;
-  action?: { label: string; disabled: boolean; activate: () => void };
-  tapped?: boolean;
-  focusRef?: Ref<HTMLButtonElement>;
-}) {
-  const land = name === "Mountain";
-  const Icon = land ? Mountain : Zap;
-  const content = (
-    <>
-      <Icon aria-hidden size={21} strokeWidth={1.6} />
-      <span>
-        <strong>{name}</strong>
-        <small>
-          {land ? "Basic land" : "Instant · One red mana"}
-          {tapped !== undefined && (tapped ? " · Tapped" : " · Untapped")}
-        </small>
-      </span>
-      {action && <ArrowRight aria-hidden size={16} />}
-    </>
+async function loadTrialArtwork() {
+  const db = await database();
+  const cards = await Promise.all(
+    ["Mountain", "Lightning Bolt"].map(async (name) => {
+      // The fixed position uses representative art from Magic 2010 when available.
+      const [card] = await db.select<Artwork[]>(
+        `SELECT id, name FROM cards WHERE name = ? COLLATE NOCASE AND image_uri IS NOT NULL
+       ORDER BY (set_code = 'm10' COLLATE NOCASE) DESC, set_code, collector_number, id LIMIT 1`,
+        [name],
+      );
+      return card;
+    }),
   );
-  return action ? (
-    <button
-      ref={focusRef}
-      type="button"
-      className="bolt-card bolt-playable"
-      disabled={action.disabled}
-      onClick={action.activate}
-      aria-label={action.label}
-    >
-      {content}
-    </button>
-  ) : (
-    <div className="bolt-card">{content}</div>
+  return Object.fromEntries(
+    cards.filter((card) => !!card).map((card) => [card.name, card]),
   );
 }
 
@@ -146,13 +83,17 @@ export default function ForgeBoltTrial({
   onOpenChange,
   canPlay,
   disabled,
+  imageCacheDir,
 }: {
   open: boolean;
   onOpenChange: (value: boolean) => void;
   canPlay: () => boolean;
   disabled: boolean;
+  imageCacheDir: string;
 }) {
   const [state, setState] = useState<TrialState | null>(null);
+  const [art, setArt] = useState<Record<string, Artwork>>({});
+  const [showGraveyard, setShowGraveyard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const session = useRef<string | null>(null);
@@ -160,6 +101,21 @@ export default function ForgeBoltTrial({
   const nextButton = useRef<HTMLButtonElement>(null);
   const startButton = useRef<HTMLButtonElement>(null);
   const restoreLauncherFocus = useRef(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void loadTrialArtwork()
+      .then((cards) => {
+        if (active) setArt(cards);
+      })
+      .catch(() => {
+        // The fixture can be played while the local artwork catalog is unavailable.
+      });
+    return () => {
+      active = false;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (open && !busy) nextButton.current?.focus();
@@ -186,6 +142,7 @@ export default function ForgeBoltTrial({
     requestPending.current = true;
     setBusy(true);
     setState(null);
+    setShowGraveyard(false);
     setError("");
     onOpenChange(true);
     try {
@@ -245,7 +202,7 @@ export default function ForgeBoltTrial({
 
   if (!open)
     return (
-      <section className="panel pt-resume bolt-launch">
+      <section className="panel pt-resume">
         <div>
           <small>Forge playtest</small>
           <h2>Lightning Bolt trial</h2>
@@ -265,8 +222,47 @@ export default function ForgeBoltTrial({
     );
 
   const locked = busy || !!error;
+  function tableCard(
+    name: string,
+    action?: "playMountain" | "castBolt",
+    tapped?: boolean,
+  ) {
+    const card = art[name];
+    const label =
+      action === "playMountain"
+        ? "Play Mountain"
+        : action === "castBolt"
+          ? "Cast Lightning Bolt"
+          : tapped === undefined
+            ? name
+            : `${name}, ${tapped ? "Tapped" : "Untapped"}`;
+    return (
+      <TableCard
+        key={name}
+        name={name}
+        label={label}
+        tapped={tapped}
+        disabled={locked}
+        focusRef={action && !error ? nextButton : undefined}
+        onClick={action ? () => void act(action) : undefined}
+        art={
+          card ? (
+            <CardImage card={card} imageCacheDir={imageCacheDir} />
+          ) : (
+            <div className="card-image">
+              <div className="card-image-placeholder">
+                <ImageOff size={20} aria-hidden />
+                <span>{name}</span>
+              </div>
+            </div>
+          )
+        }
+      />
+    );
+  }
+
   return (
-    <section className="bolt-trial" aria-label="Forge Lightning Bolt trial">
+    <section className="playtest-page" aria-label="Forge Lightning Bolt trial">
       <div className="pt-match-toolbar">
         <div>
           <small>Forge playtest</small>
@@ -292,42 +288,17 @@ export default function ForgeBoltTrial({
         </div>
       )}
       {!state && !error && (
-        <div className="panel bolt-loading" role="status">
+        <div className="panel pt-launch" role="status">
           <LoaderCircle size={17} aria-hidden />
           Loading Forge and the starting position…
         </div>
       )}
       {state && (
-        <>
-          <div className="bolt-position panel">
-            <header className="bolt-totals">
-              <LifeTotal
-                label="You"
-                life={state.playerLife}
-                canTarget={
-                  state.stage === "chooseTarget" &&
-                  state.legalTargets.includes("player")
-                }
-                targetLabel="Target yourself"
-                choose={() => void act("targetPlayer")}
-                disabled={locked}
-              />
-              <LifeTotal
-                label="Opponent"
-                life={state.opponentLife}
-                canTarget={
-                  state.stage === "chooseTarget" &&
-                  state.legalTargets.includes("opponent")
-                }
-                targetLabel="Target opponent"
-                choose={() => void act("targetOpponent")}
-                disabled={locked}
-                focusRef={error ? undefined : nextButton}
-              />
-            </header>
-            <div className="bolt-prompt">
-              <p role="status">
-                {state.stage === "resolved" && <Check size={18} aria-hidden />}
+        <TableBoard
+          label="Forge playtest table"
+          toolbar={
+            <>
+              <p className="ptc ptc-turn" role="status">
                 {prompts[state.stage]}
               </p>
               {state.stage === "opponentPriority" && (
@@ -349,79 +320,135 @@ export default function ForgeBoltTrial({
                   <RotateCcw size={15} /> Replay trial
                 </Button>
               )}
-            </div>
-            <div className="bolt-row">
-              <section className="bolt-zone" aria-label="Your hand">
-                <h3>Your hand</h3>
-                <div className="bolt-zone-cards">
-                  {state.hand.length === 0 && <span>Empty</span>}
-                  {state.hand.map((name) => {
-                    const canPlayLand =
-                      name === "Mountain" && state.stage === "ready";
-                    const canCastBolt =
-                      name === "Lightning Bolt" && state.stage === "landPlayed";
-                    const action =
-                      canPlayLand || canCastBolt
-                        ? {
-                            label: canPlayLand
-                              ? "Play Mountain"
-                              : "Cast Lightning Bolt",
-                            disabled: locked,
-                            activate: () =>
-                              void act(
-                                canPlayLand ? "playMountain" : "castBolt",
-                              ),
+            </>
+          }
+          seats={(["opponent", "player"] as const).map((seat) => {
+            const own = seat === "player";
+            const life = (
+              <LifeValue life={own ? state.playerLife : state.opponentLife} />
+            );
+            const canTarget =
+              state.stage === "chooseTarget" &&
+              state.legalTargets.includes(seat);
+            return (
+              <TableSeat
+                key={seat}
+                own={own}
+                label={own ? "Player 1" : "Player 2"}
+                title={own ? "You" : "Opponent"}
+                piles={
+                  own && (
+                    <button
+                      type="button"
+                      aria-label={`Your graveyard, ${state.graveyard.length} ${state.graveyard.length === 1 ? "card" : "cards"}`}
+                      aria-expanded={showGraveyard}
+                      onClick={() => setShowGraveyard(!showGraveyard)}
+                    >
+                      Graveyard <b>{state.graveyard.length}</b>
+                    </button>
+                  )
+                }
+                resources={
+                  <div className="ptc ptc-player">
+                    <div className="ptc-row">
+                      {canTarget ? (
+                        <button
+                          type="button"
+                          className="ptc-accent"
+                          ref={!own && !error ? nextButton : undefined}
+                          aria-label={
+                            own ? "Target yourself" : "Target opponent"
                           }
-                        : undefined;
-                    return (
-                      <TrialCard
-                        key={name}
-                        name={name}
-                        action={action}
-                        focusRef={action && !error ? nextButton : undefined}
-                      />
-                    );
-                  })}
-                </div>
-              </section>
-              <section className="bolt-zone" aria-label="Your battlefield">
-                <h3>Your battlefield</h3>
-                <div className="bolt-zone-cards">
-                  {state.battlefield.length === 0 && <span>Empty</span>}
-                  {state.battlefield.map((name) => (
-                    <TrialCard
-                      key={name}
-                      name={name}
-                      tapped={state.mountainTapped}
-                    />
+                          disabled={locked}
+                          onClick={() =>
+                            void act(own ? "targetPlayer" : "targetOpponent")
+                          }
+                        >
+                          <Target size={14} /> Target{" "}
+                          {own ? "yourself" : "opponent"} · {life}
+                        </button>
+                      ) : (
+                        <div className="ptc-life">{life}</div>
+                      )}
+                      {own && (
+                        <span className="pt-subtle">
+                          <Droplet size={14} /> Mana pool <b>{state.mana}</b>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                }
+                cards={
+                  own
+                    ? state.battlefield.map((name) =>
+                        tableCard(name, undefined, state.mountainTapped),
+                      )
+                    : state.opponentBattlefield?.map((name) => tableCard(name))
+                }
+              />
+            );
+          })}
+          handCount={state.hand.length}
+          hand={state.hand.map((name) =>
+            tableCard(
+              name,
+              state.stage === "ready" && name === "Mountain"
+                ? "playMountain"
+                : state.stage === "landPlayed" && name === "Lightning Bolt"
+                  ? "castBolt"
+                  : undefined,
+            ),
+          )}
+          stack={
+            <StackPanel count={state.stack.length}>
+              {state.stack.length > 0 && (
+                <ol className="ptc-stack-list">
+                  {state.stack.map((name) => (
+                    <li className="ptc-stack-entry" key={name}>
+                      <div className="ptc-stack-meta">
+                        <span>Top</span> · spell · P1
+                      </div>
+                      <strong>{name}</strong>
+                      {state.target && (
+                        <small>
+                          Targeting{" "}
+                          {state.target === "opponent" ? "opponent" : "you"}
+                        </small>
+                      )}
+                    </li>
                   ))}
+                </ol>
+              )}
+            </StackPanel>
+          }
+        >
+          {showGraveyard && (
+            <section className="pt-pile-panel" aria-label="Your graveyard">
+              <header className="pt-pile-heading">
+                <div>
+                  <small>Player 1</small>
+                  <h3>
+                    Graveyard <small>{state.graveyard.length}</small>
+                  </h3>
                 </div>
-              </section>
-            </div>
-            <dl className="bolt-piles">
-              <div>
-                <dt>Stack</dt>
-                <dd>
-                  {state.stack.join(", ") || "Empty"}
-                  {state.target && state.stack.length > 0 && (
-                    <small className="bolt-stack-target">
-                      <Target size={13} aria-hidden />
-                      {state.target === "opponent" ? "Opponent" : "You"}
-                    </small>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>Your graveyard</dt>
-                <dd>{state.graveyard.join(", ") || "Empty"}</dd>
-              </div>
-              <div>
-                <dt>Mana pool</dt>
-                <dd>{state.mana}</dd>
-              </div>
-            </dl>
-          </div>
-        </>
+                <button
+                  type="button"
+                  className="pt-btn"
+                  onClick={() => setShowGraveyard(false)}
+                >
+                  Close zone
+                </button>
+              </header>
+              {state.graveyard.length ? (
+                <div className="pt-field">
+                  {state.graveyard.map((name) => tableCard(name))}
+                </div>
+              ) : (
+                <p className="pt-subtle">This zone is empty.</p>
+              )}
+            </section>
+          )}
+        </TableBoard>
       )}
     </section>
   );

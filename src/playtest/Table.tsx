@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ArrowLeftRight, Eye, Layers, Library, Search, X } from "lucide-react";
+import { ArrowLeftRight, Eye, Library, Search, X } from "lucide-react";
 import type { AppSettings } from "@/lib/types";
 import { prepareShuffle, projectMatch } from "./engine";
 import {
@@ -17,7 +17,7 @@ import {
   type Seat,
   type Zone,
 } from "./types";
-import "./table.css";
+import { TableBoard, TableSeat } from "./TableBoard";
 
 type Dispatch = (action: Action) => void;
 const pileZones = ["library", "hand", "graveyard", "exile"] as const;
@@ -144,128 +144,94 @@ function TableView({
   );
 
   return (
-    <section className="pt-table" aria-label="Manual playtest table">
-      <div className="pt-turnbar">
-        <TurnControls {...common} />
-        <button type="button" className="pt-seat-switch" onClick={changeSeat}>
-          <ArrowLeftRight size={16} /> Switch to Player {other + 1}
-        </button>
-      </div>
-      <div className="pt-table-layout">
-        <div className="pt-arena">
-          {([other, viewer] as const).map((seat) => {
-            const player = view.players[seat];
-            return (
-              <section
-                className={`pt-seat ${seat === viewer ? "pt-own" : "pt-opponent"}`}
-                key={seat}
-                aria-label={`Player ${seat + 1} battlefield`}
+    <TableBoard
+      label="Manual playtest table"
+      toolbar={
+        <>
+          <TurnControls {...common} />
+          <button type="button" className="pt-seat-switch" onClick={changeSeat}>
+            <ArrowLeftRight size={16} /> Switch to Player {other + 1}
+          </button>
+        </>
+      }
+      seats={([other, viewer] as const).map((seat) => {
+        const player = view.players[seat];
+        return (
+          <TableSeat
+            key={seat}
+            own={seat === viewer}
+            label={`Player ${seat + 1}`}
+            title={player.deckName}
+            piles={pileZones.map((zone) => (
+              <button
+                type="button"
+                key={zone}
+                onClick={() => showPile(seat, zone)}
+                aria-label={`Player ${seat + 1} ${zone}, ${player.counts[zone]} cards`}
               >
-                <header className="pt-seat-heading">
-                  <div className="pt-seat-title">
-                    <span>
-                      Player {seat + 1}
-                      {seat === viewer ? " · Your seat" : ""}
-                    </span>
-                    <h2>{player.deckName}</h2>
-                  </div>
-                  <div
-                    className="pt-piles"
-                    aria-label={`Player ${seat + 1} zones`}
-                  >
-                    {pileZones.map((zone) => (
-                      <button
-                        type="button"
-                        key={zone}
-                        onClick={() => showPile(seat, zone)}
-                        aria-label={`Player ${seat + 1} ${zone}, ${player.counts[zone]} cards`}
-                      >
-                        {zoneNames[zone]} <b>{player.counts[zone]}</b>
-                      </button>
-                    ))}
-                  </div>
-                </header>
-                <PlayerControls
-                  {...common}
-                  seat={seat}
-                  onShuffle={(target, mulligan) => {
-                    closePile();
-                    onShuffle(target, mulligan);
+                {zoneNames[zone]} <b>{player.counts[zone]}</b>
+              </button>
+            ))}
+            resources={
+              <PlayerControls
+                {...common}
+                seat={seat}
+                onShuffle={(target, mulligan) => {
+                  closePile();
+                  onShuffle(target, mulligan);
+                }}
+              />
+            }
+            battlefieldAction={
+              seat === viewer && (
+                <button
+                  type="button"
+                  className="pt-link"
+                  aria-expanded={addingToken}
+                  onClick={() => setAddingToken((current) => !current)}
+                >
+                  Create token
+                </button>
+              )
+            }
+            battlefieldForm={
+              seat === viewer &&
+              addingToken && (
+                <form
+                  className="pt-token-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const name = tokenName.trim();
+                    if (!name) return;
+                    dispatch({ type: "token", name, seat });
+                    setTokenName("");
+                    setAddingToken(false);
                   }}
-                />
-                <div className="pt-zone-header">
-                  <h3>Battlefield</h3>
-                  {seat === viewer && (
-                    <button
-                      type="button"
-                      className="pt-link"
-                      aria-expanded={addingToken}
-                      onClick={() => setAddingToken((current) => !current)}
-                    >
-                      Create token
-                    </button>
-                  )}
-                </div>
-                {seat === viewer && addingToken && (
-                  <form
-                    className="pt-token-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const name = tokenName.trim();
-                      if (!name) return;
-                      dispatch({ type: "token", name, seat });
-                      setTokenName("");
-                      setAddingToken(false);
-                    }}
-                  >
-                    <input
-                      aria-label="Token name"
-                      autoFocus
-                      maxLength={80}
-                      placeholder="Token name, e.g. 1/1 Soldier"
-                      value={tokenName}
-                      onChange={(event) => setTokenName(event.target.value)}
-                    />
-                    <button className="pt-btn" disabled={!tokenName.trim()}>
-                      Create
-                    </button>
-                  </form>
-                )}
-                <div className="pt-field">
-                  {player.zones.battlefield.length ? (
-                    player.zones.battlefield.map((id) =>
-                      renderTile(id, "battlefield"),
-                    )
-                  ) : (
-                    <span className="pt-empty">
-                      <Layers size={19} /> Empty battlefield
-                    </span>
-                  )}
-                </div>
-              </section>
-            );
-          })}
-          <section className="pt-hand" aria-label="Your hand">
-            <div className="pt-zone-header">
-              <h3>
-                Your hand <small>{view.players[viewer].counts.hand}</small>
-              </h3>
-            </div>
-            <div className="pt-field">
-              {view.players[viewer].zones.hand.length ? (
-                view.players[viewer].zones.hand.map((id) =>
-                  renderTile(id, "hand"),
-                )
-              ) : (
-                <span className="pt-empty">No cards in hand</span>
-              )}
-            </div>
-          </section>
-        </div>
-        <aside className="pt-stack-rail" aria-label="Shared stack">
-          <StackControls {...common} />
-        </aside>
-      </div>
+                >
+                  <input
+                    aria-label="Token name"
+                    autoFocus
+                    maxLength={80}
+                    placeholder="Token name, e.g. 1/1 Soldier"
+                    value={tokenName}
+                    onChange={(event) => setTokenName(event.target.value)}
+                  />
+                  <button className="pt-btn" disabled={!tokenName.trim()}>
+                    Create
+                  </button>
+                </form>
+              )
+            }
+            cards={player.zones.battlefield.map((id) =>
+              renderTile(id, "battlefield"),
+            )}
+          />
+        );
+      })}
+      handCount={view.players[viewer].counts.hand}
+      hand={view.players[viewer].zones.hand.map((id) => renderTile(id, "hand"))}
+      stack={<StackControls {...common} />}
+    >
       {pile && (
         <section
           className="pt-pile-panel"
@@ -383,6 +349,6 @@ function TableView({
             )}
         </CardInspector>
       )}
-    </section>
+    </TableBoard>
   );
 }
