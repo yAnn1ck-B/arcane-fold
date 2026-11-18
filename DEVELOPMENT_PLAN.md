@@ -26,7 +26,9 @@ Foundations is the first set for interaction coverage. The installed Forge 2.0.1
 
 The suite covers alternate activations, private scry and surveil ordering, discards, sacrifices and flashback. Combo tests cover Tatyova with Temple of Mystery in either trigger order, Wildwood Scourge with a kicked Gnarlid Colony, and Mossborn Hydra with Doubling Season and Evolving Wilds. Bloodthirsty Conqueror and Marauding Blight-Priest can drain an opponent to zero, and the opponent can interrupt the loop with Unsummon. [Documented Conqueror combo](https://commanderspellbook.com/combo/110-6191/)
 
-Other cases check when a choice takes effect. Dwynen's Elite checks for another Elf again on resolution. Felidar Savior can target up to two distinct creatures, and Affectionate Indrik chooses its target before its controller decides whether to fight. Paying X while a trigger resolves, as with Wildborn Preserver, remains a coverage gap. [Foundations release notes](https://magic.wizards.com/en/news/feature/foundations-release-notes)
+Other cases check when a choice takes effect. Dwynen's Elite checks for another Elf again on resolution. Felidar Savior can target up to two distinct creatures, and Affectionate Indrik chooses its target before its controller decides whether to fight. [Foundations release notes](https://magic.wizards.com/en/news/feature/foundations-release-notes)
+
+Wildborn Preserver's controller chooses whether and how much to pay as its trigger resolves. Declining ends the effect. Paying any legal amount, including zero, puts a second ability on the stack. Players can respond before it adds the counters. [Wildborn Preserver ruling](https://magic.wizards.com/en/news/feature/throne-eldraine-release-notes-2019-09-20)
 
 **Technology:**
 

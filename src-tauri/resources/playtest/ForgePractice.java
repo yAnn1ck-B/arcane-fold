@@ -275,8 +275,13 @@ final class ForgePractice {
                 out.put("id", "s" + instance.getId());
                 if (!instance.getSourceCard().isFaceDown()) out.put("description", spell.getStackDescription());
             }
-            if (spell.getXManaCostPaid() != null && announcesManaX(spell)) {
-                String announcement = "X = " + spell.getXManaCostPaid();
+            SpellAbility payment = spell;
+            if (spell.isTrigger() && spell.getTrigger().getMode() == forge.game.trigger.TriggerType.Immediate) {
+                // Forge records the specific ability that created this reflexive trigger.
+                payment = spell.getTrigger().getSpawningAbility();
+            }
+            if (payment != null && payment.getXManaCostPaid() != null && announcesManaX(payment)) {
+                String announcement = "X = " + payment.getXManaCostPaid();
                 out.put("description", out.containsKey("description") ? out.get("description") + " (" + announcement + ")" : announcement);
             }
             var targets = new ArrayList<String>();
@@ -551,6 +556,13 @@ final class ForgePractice {
 
         @Override
         public boolean confirmTrigger(forge.game.trigger.WrappedAbility ability) {
+            SpellAbility effect = ability.getWrappedAbility();
+            if (human(seat) && seat == effect.getActivatingPlayer()
+                    && announcesManaX(effect) && effect.getPayCosts().isOnlyManaCost()) {
+                // Forge pays this cost and runs the effect only if the decider accepts.
+                // Paying zero can still create a separate "when you do" trigger.
+                return chooseManaX(effect, true);
+            }
             if (!human(seat) || !optionalEffect(ability) || ability.getAllTargetChoices().isEmpty()) {
                 return super.confirmTrigger(ability);
             }
@@ -637,19 +649,19 @@ final class ForgePractice {
         }
 
         private boolean canPayWithTargets(SpellAbility ability) {
-            if (announcesManaX(ability)) return !payableXValues(ability, 0, 1).isEmpty();
+            if (announcesManaX(ability)) return !payableXValues(ability, 0, 1, false).isEmpty();
             return ComputerUtilCost.canPayCost(ability, seat, false) && hasTargets(ability, seat);
         }
 
-        private List<Integer> payableXValues(SpellAbility ability, int start, int limit) {
+        private List<Integer> payableXValues(SpellAbility ability, int start, int limit, boolean resolving) {
             // Probe a copy. Activated abilities on permanents are reused across priority windows.
             SpellAbility probe = ability.copy();
             var bounds = forge.game.ability.AbilityUtils.getAnnouncementBounds(probe, "X");
             List<Integer> values = new ArrayList<>();
             for (int x = Math.max(start, bounds.getMinimum()); x <= bounds.getMaximum(); x++) {
                 probe.setXManaCostPaid(x);
-                if (!forge.ai.ComputerUtilMana.canPayManaCost(probe, seat, x, false)) break;
-                if (ComputerUtilCost.canPayCost(probe, seat, false) && hasTargets(probe, seat)) {
+                if (!forge.ai.ComputerUtilMana.canPayManaCost(probe, seat, x, resolving)) break;
+                if (ComputerUtilCost.canPayCost(probe, seat, resolving) && (resolving || hasTargets(probe, seat))) {
                     values.add(x);
                     if (values.size() == limit) break;
                 }
@@ -658,25 +670,28 @@ final class ForgePractice {
             return values;
         }
 
-        private void chooseManaX(SpellAbility play) {
+        private boolean chooseManaX(SpellAbility play, boolean optionalPayment) {
             // Show one page at a time even if a mana engine can pay a very large X.
             int pageSize = 10;
             var starts = new ArrayList<>(List.of(0));
             while (true) {
-                List<Integer> values = payableXValues(play, starts.get(starts.size() - 1), pageSize + 1);
+                List<Integer> values = payableXValues(play, starts.get(starts.size() - 1), pageSize + 1, optionalPayment);
                 List<Choice> options = new ArrayList<>();
                 values.stream().limit(pageSize).forEach(x -> options.add(
                         choice("X = " + x, "option", null, null, () -> play.setXManaCostPaid(x))));
                 Choice lower = choice("Lower X values", "option", null, null, null);
                 Choice higher = choice("Higher X values", "option", null, null, null);
+                Choice decline = choice("Decline", "option", null, null, null);
                 if (starts.size() > 1) options.add(lower);
                 if (values.size() > pageSize) options.add(higher);
+                if (optionalPayment) options.add(decline);
                 Choice answer = ask(seat, "Choose X for " + publicName(play.getHostCard()), options);
+                if (answer == decline) return false;
                 if (answer == higher) starts.add(values.get(pageSize));
                 else if (answer == lower) starts.remove(starts.size() - 1);
                 else {
                     answer.run();
-                    return;
+                    return true;
                 }
             }
         }
@@ -695,7 +710,7 @@ final class ForgePractice {
                 }
             }
             final var play = withCosts;
-            if (announcesManaX(play)) chooseManaX(play);
+            if (announcesManaX(play)) chooseManaX(play, false);
             if (play.isManaAbility()) {
                 manualMana = play;
                 play.getManaPart().clearExpressChoice();
