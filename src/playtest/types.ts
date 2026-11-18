@@ -1,0 +1,103 @@
+import type { CatalogCard } from "../lib/types";
+
+export type Seat = 0 | 1;
+export const seats = [0, 1] as const;
+export const manaTypes = ["W", "U", "B", "R", "G", "C"] as const;
+export type Mana = (typeof manaTypes)[number];
+export const zones = [
+  "library",
+  "hand",
+  "battlefield",
+  "graveyard",
+  "exile",
+] as const;
+export type Zone = (typeof zones)[number];
+export const steps = [
+  "Untap",
+  "Upkeep",
+  "Draw",
+  "First main",
+  "Beginning of combat",
+  "Declare attackers",
+  "Declare blockers",
+  "Combat damage",
+  "End of combat",
+  "Second main",
+  "End step",
+  "Cleanup",
+] as const;
+export type Combat = "attacking" | "blocking" | null;
+export interface Piece {
+  id: string;
+  printing: string | null;
+  tokenName: string | null;
+  owner: Seat;
+  controller: Seat;
+  tapped: boolean;
+  back: boolean;
+  faceDown: boolean;
+  revealed: boolean;
+  counters: Record<string, number>;
+  attachedTo: string | null;
+  combat: Combat;
+}
+export interface Player {
+  deckName: string;
+  life: number;
+  mana: Record<Mana, number>;
+  zones: Record<Zone, string[]>; // Library top is index 0.
+  mulligans: number;
+  kept: boolean;
+}
+export interface StackEntry {
+  id: string;
+  kind: "spell" | "ability" | "copy";
+  label: string;
+  controller: Seat;
+  card: string | null;
+  source: string | null;
+  targets: string; // Player-supplied target description.
+  copyPrinting: string | null; // Retained if the original spell leaves the stack.
+  copyKind: "spell" | "ability" | null;
+  copyBack: boolean;
+  copyFaceDown: boolean;
+}
+export interface Match {
+  version: 1;
+  players: [Player, Player];
+  pieces: Record<string, Piece>;
+  catalog: Record<string, CatalogCard>;
+  stack: StackEntry[]; // Top is index 0.
+  turn: number;
+  active: Seat;
+  step: number;
+  nextId: number;
+}
+export interface PlayerView extends Player {
+  counts: Record<Zone, number>;
+}
+export type MatchView = Omit<Match, "players" | "nextId"> & {
+  viewer: Seat;
+  players: [PlayerView, PlayerView];
+};
+export type Action =
+  | { type: "draw"; seat: Seat; count?: number }
+  | { type: "shuffle" | "mulligan"; seat: Seat; order: string[] }
+  | { type: "keep"; seat: Seat; bottom: string[] }
+  | { type: "move"; id: string; zone: Zone; position?: "top" | "bottom" }
+  | { type: "tap" | "flip" | "faceDown" | "reveal" | "control"; id: string }
+  | { type: "untapAll" | "clearMana"; seat: Seat }
+  | { type: "combat"; id: string; mark: Combat }
+  | { type: "attach"; id: string; to: string | null }
+  | { type: "counter"; id: string; name: string; delta: number }
+  | { type: "token"; seat: Seat; name: string }
+  | { type: "life"; seat: Seat; delta: number }
+  | { type: "mana"; seat: Seat; mana: Mana; delta: number }
+  | { type: "cast"; id: string; targets?: string }
+  | { type: "ability"; id: string; label: string; targets?: string }
+  | { type: "copy"; entry: string; seat: Seat; targets?: string }
+  | { type: "targets"; entry: string; targets: string }
+  | { type: "reorderStack"; entry: string; direction: "up" | "down" }
+  | { type: "resolve" | "counterSpell"; entry: string; zone?: Zone }
+  | { type: "nextStep" | "nextTurn" }
+  | { type: "setStep"; step: number };

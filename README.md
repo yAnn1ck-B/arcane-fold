@@ -1,6 +1,6 @@
 # Eternal League
 
-A desktop companion to MTG Forge. Forge handles gameplay; Eternal League manages your permanent collection, decks, booster packs, and wildcards. Progress stays on your device.
+A desktop companion to MTG Forge. Eternal League manages your permanent collection, decks, booster packs, and wildcards. Forge provides rules-enforced games and computer opponents. Progress stays on your device.
 
 Download [Eternal League 0.4.0](https://github.com/yAnn1ck-B/eternal-league/releases/tag/v0.4.0) for Windows or Linux. Published on 18 November 2026, it adds Discovery wildcards for first copies, restricts ordinary wildcards to owned-card copies, alternates mythic and Discovery rewards, and matches crafting controls to wildcard colors. Existing earned/spent progress is preserved, with missing Discovery entitlements credited once. Both signed installers and the public update endpoint passed cryptographic verification. See [release evidence](docs/phase-5-release.md#current-release-040).
 
@@ -13,6 +13,10 @@ From 0.3.3 onward, rechecks retain an already-verified session while the request
 Published **0.3.0 still has optional updates** and needs one ordinary upgrade to adopt this behavior. These client-side checks do not guarantee that every device changes version at the same instant. This policy first shipped in 0.3.1.
 
 ## Run locally
+
+The development build includes **Playtest** in the sidebar. Choose one saved deck to practice opening hands, or choose a second deck and switch seats to play a matchup on one device. Both seats use copies of their main decks and the existing Forge-backed catalog. You handle timing, card text, payments, and combat.
+
+Select a card to move it, cast it, change its face, mark combat, or add counters and attachments. Open a library to search or look at the top cards. The shared stack holds spells, abilities, copies, and target notes. Each action saves to one local table in the app profile's WebView storage. Choose **Resume** to continue, or **Undo** to take back one of the last 128 actions. Starting a replacement table asks for confirmation.
 
 Use Windows with Node.js 20.19+ (or a supported newer LTS), Rust 1.90+, the MSVC C++ build tools and Windows SDK, and WebView2. See the [official Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 

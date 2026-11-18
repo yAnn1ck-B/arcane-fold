@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -13,6 +15,7 @@ import { migrateForgeDecks } from "@/services/decks";
 import {
   AlertCircle,
   ArrowRight,
+  Layers,
   LayoutDashboard,
   Library,
   LoaderCircle,
@@ -57,6 +60,8 @@ import type {
   LeagueStatus,
   Page,
 } from "@/lib/types";
+
+const Playtest = lazy(() => import("@/pages/Playtest"));
 
 type CatalogSetupError = {
   message: string;
@@ -434,6 +439,7 @@ export default function App() {
     { id: "dashboard" as const, label: "Overview", icon: LayoutDashboard },
     { id: "collection" as const, label: "Collection", icon: Library },
     { id: "decks" as const, label: "Deck builder", icon: Swords },
+    { id: "playtest" as const, label: "Playtest", icon: Layers },
     { id: "boosters" as const, label: "Booster packs", icon: Package },
   ];
 
@@ -516,6 +522,7 @@ export default function App() {
                   settings: "Settings",
                   collection: "Collection",
                   decks: "Deck builder",
+                  playtest: "Playtest",
                   dashboard: "Overview",
                   boosters: "Booster packs",
                 }[page]
@@ -655,6 +662,15 @@ export default function App() {
                     }}
                   />
                 </div>
+              )}
+              {page === "playtest" && !updateBlocked && (
+                <Suspense fallback={<div role="status">Opening Playtest…</div>}>
+                  <Playtest
+                    settings={settings}
+                    canPlay={canUseLeague}
+                    onDeckBuilder={() => navigate("decks")}
+                  />
+                </Suspense>
               )}
               {visited.boosters && (
                 <div hidden={repairing || page !== "boosters"}>

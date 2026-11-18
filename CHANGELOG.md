@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add a local Playtest table for saved decks, with manual zones, a shared stack, mana pools and resumable matches.
+
 ## [0.4.0] - 2026-11-18
 
 - Match copy-crafting buttons and panels to common, uncommon, rare, and mythic wildcard colors, with readable text and matching hover/focus states.

@@ -1,0 +1,71 @@
+.playtest-page {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.pt-table-inputs {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.pt-resume,
+.pt-match-toolbar,
+.pt-match-toolbar > div:last-child,
+.pt-launch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+.pt-resume,
+.pt-setup {
+  padding: clamp(1rem, 2.5vw, 2rem);
+}
+.pt-setup {
+  display: grid;
+  justify-items: start;
+  gap: 1rem;
+}
+.pt-resume small,
+.pt-match-toolbar small,
+.pt-setup p {
+  color: var(--muted);
+}
+.pt-resume h2,
+.pt-match-toolbar h2,
+.pt-setup h2 {
+  font-size: 1.2rem;
+  font-weight: 650;
+}
+.pt-resume h2 span,
+.pt-match-toolbar h2 span {
+  font-size: 0.8em;
+  font-weight: 400;
+  color: var(--muted);
+}
+.pt-seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1.25rem;
+  width: min(46rem, 100%);
+}
+.pt-setup label {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.pt-setup select {
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.5rem;
+  max-width: 100%;
+}
+.pt-launch {
+  justify-content: flex-start;
+  align-items: flex-end;
+}

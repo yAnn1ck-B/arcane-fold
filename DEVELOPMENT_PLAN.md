@@ -8,7 +8,13 @@ Build a Windows desktop application that works alongside **MTG Forge**.
 
 The application manages a permanent Magic: The Gathering card collection. Users open booster packs, collect cards, earn wildcards, craft specific cards, and build decks that can be played in Forge.
 
-Forge handles gameplay. Our application handles everything related to collecting cards and building decks.
+Forge handles rules-enforced gameplay. The development build also offers local manual playtesting from the existing deck and card catalog.
+
+### Manual playtest (unreleased)
+
+The Playtest page supports solo practice and two seats controlled on one device. It snapshots main decks, keeps a private hand and library for each seat, and tracks zones, stack entries, mana, life, counters, tokens, attachments, combat markers, turns, and steps. The player resolves card effects and chooses when to advance.
+
+Table actions update an independent match model. A local checkpoint records shuffle outcomes and recent actions for resuming and undoing moves. Each seat renders a filtered view of the table. Future network play can put the full match and action validation on a host and send only the appropriate view to each client. Future rules automation can use the same actions. Player authentication, remote connections, AI, and automated rules enforcement are outside this trial.
 
 **Technology:**
 
