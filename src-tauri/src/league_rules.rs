@@ -81,6 +81,7 @@ pub struct WildcardRewardIntervals {
     pub uncommon: i64,
     pub rare: i64,
     pub mythic: i64,
+    pub discovery: i64,
 }
 
 impl Default for WildcardRewardIntervals {
@@ -90,6 +91,7 @@ impl Default for WildcardRewardIntervals {
             uncommon: 1,
             rare: 1,
             mythic: 1,
+            discovery: 4,
         }
     }
 }
@@ -103,6 +105,8 @@ pub struct LeagueRules {
     pub weekly_packs: i64,
     pub weekly_wildcards: WildcardBalances,
     pub wildcard_reward_intervals: WildcardRewardIntervals,
+    /// Additive phase shift: floor((week + offset) / interval).
+    pub wildcard_reward_offsets: WildcardBalances,
     pub mythic_probability: f64,
     pub enabled_sets: Vec<String>,
     pub booster: BoosterConfig,
@@ -122,10 +126,12 @@ impl Default for LeagueRules {
                 uncommon: 5,
                 rare: 2,
                 mythic: 1,
+                discovery: 0,
             },
             weekly_packs: 6,
             weekly_wildcards: WildcardBalances::default(),
             wildcard_reward_intervals: WildcardRewardIntervals::default(),
+            wildcard_reward_offsets: WildcardBalances::default(),
             mythic_probability: 0.125,
             enabled_sets: Vec::new(),
             booster: BoosterConfig::default(),

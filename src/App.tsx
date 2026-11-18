@@ -164,7 +164,7 @@ export default function App() {
   const [league, setLeague] = useState<LeagueStatus>({
     started: false,
     availablePacks: 0,
-    wildcards: { common: 0, uncommon: 0, rare: 0, mythic: 0 },
+    wildcards: { common: 0, uncommon: 0, rare: 0, mythic: 0, discovery: 0 },
     enabledSets: [],
     nextRewardAt: null,
     canClaimWeekly: false,

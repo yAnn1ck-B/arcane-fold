@@ -20,10 +20,20 @@ DEADLINE_SECONDS = 60
 REWARD_LEDGER_KEY = 'league_reward_entitlements_v1'
 WEEK_SECONDS = 604800
 RARITIES = ('common', 'uncommon', 'rare', 'mythic')
+CURRENCIES = (*RARITIES, 'discovery')
 
 
 def reward_period(rules, now):
     return max(0, (now - rules['startedAt']) // WEEK_SECONDS)
+
+
+def wildcard_entitlements(rules, credited):
+    offsets = rules.get('wildcardRewardOffsets', {})
+    return {
+        kind: rules['startingWildcards'][kind] + rules['weeklyWildcards'][kind]
+        * ((credited + offsets.get(kind, 0)) // rules['wildcardRewardIntervals'][kind])
+        for kind in CURRENCIES
+    }
 
 
 def pack_set(rules, week):
@@ -50,7 +60,7 @@ def validate_fresh_profile(db, rules, first_period, now):
     claims = db.execute('SELECT set_code,week,quantity,claimed_at FROM expansion_reward_claims ORDER BY set_code').fetchall()
     saved = db.execute('SELECT value FROM settings WHERE key=?', (REWARD_LEDGER_KEY,)).fetchone()
     if not states:
-        if (wildcards != dict.fromkeys(RARITIES, 0) or queue or balances or claims or saved):
+        if (wildcards != dict.fromkeys(CURRENCIES, 0) or queue or balances or claims or saved):
             raise RuntimeError('Uninitialized production profile contains unexpected reward data.')
         return None
     if len(states) != 1 or states[0][0:2] != (1, rules['startedAt']):
@@ -58,14 +68,11 @@ def validate_fresh_profile(db, rules, first_period, now):
     _, _, general_packs, credited = states[0]
     if now < rules['startedAt'] or not first_period <= credited <= reward_period(rules, now):
         raise RuntimeError('First-use rewards contain an unexpected credited period.')
-    expected_wildcards = {
-        rarity: rules['startingWildcards'][rarity] + rules['weeklyWildcards'][rarity]
-        * (credited // rules['wildcardRewardIntervals'][rarity])
-        for rarity in RARITIES
-    }
+    expected_wildcards = wildcard_entitlements(rules, credited)
     expected_ledger = {
         'version': 1, 'startingPacks': rules['startingPacks'],
         'weeklyPacks': rules['weeklyPacks'], 'startingWildcards': rules['startingWildcards'],
+        'alternatingRewardsApplied': True,
     }
     ledger = json.loads(saved[0]) if saved else None
     if wildcards != expected_wildcards or ledger != expected_ledger:
@@ -281,55 +288,79 @@ def run(source):
 
 def self_test():
     rules = json.loads(Path('src-tauri/league-rules.json').read_text(encoding='utf-8'))
-    now = rules['startedAt'] + 4 * WEEK_SECONDS
-    with sqlite3.connect(':memory:') as db:
-        for name in ['001_initial.sql', '003_progression.sql', '005_expansion_rewards.sql', '007_pack_queue.sql']:
-            db.executescript((Path('src-tauri/migrations') / name).read_text(encoding='utf-8-sig'))
-        assert validate_fresh_profile(db, rules, 4, now) is None
-        db.execute('INSERT INTO league_state VALUES(1,?,44,4)', (rules['startedAt'],))
-        for rarity, amount in zip(RARITIES, [26, 13, 4, 2]):
-            db.execute('UPDATE wildcards SET quantity=? WHERE rarity=?', (amount, rarity))
-        ledger = {'version': 1, 'startingPacks': 20, 'weeklyPacks': 6,
-                  'startingWildcards': dict(zip(RARITIES, [10, 5, 2, 1]))}
-        db.execute('INSERT INTO settings VALUES(?,?)', (REWARD_LEDGER_KEY, json.dumps(ledger)))
-        db.execute("INSERT INTO set_booster_balances VALUES('blb',8)")
-        db.execute("INSERT INTO expansion_reward_claims VALUES('blb',4,8,'fixture')")
-        db.executemany('INSERT INTO booster_pack_queue VALUES(?,?,?,?,?,?)', [
-            ('starting', 'fdn', 'general', 0, 0, 20),
-            ('weeklies-fdn', 'fdn', 'general', 1, 1, 18),
-            ('weeklies-blb', 'blb', 'general', 4, 1, 6),
-            ('bonus-blb', 'blb', 'bonus', 4, 0, 8),
-        ])
-        baseline = validate_fresh_profile(db, rules, 4, now)
-        assert baseline['period'] == 4
-        assert validate_fresh_profile(db, rules, 4, now) == baseline
-        corruptions = [
-            "UPDATE wildcards SET quantity=quantity+10 WHERE rarity='common'",
-            'UPDATE league_state SET available_packs=45',
-            'UPDATE league_state SET last_claimed_period=5',
-            "UPDATE league_state SET started_at=1",
-            "UPDATE booster_pack_queue SET set_code='woe' WHERE id='weeklies-blb'",
-            "UPDATE booster_pack_queue SET remaining=9 WHERE id='bonus-blb'",
-            "UPDATE booster_pack_queue SET priority=1 WHERE id='bonus-blb'",
-            "DELETE FROM expansion_reward_claims",
-            "UPDATE set_booster_balances SET quantity=16",
-            "DELETE FROM settings WHERE key='league_reward_entitlements_v1'",
-            "INSERT INTO booster_history(id,set_code,contents_json) VALUES('inherited','fdn','[]')",
-        ]
-        for sql in corruptions:
-            db.execute('SAVEPOINT invalid_reward_fixture')
-            db.execute(sql)
-            try:
-                validate_fresh_profile(db, rules, 4, now)
-            except RuntimeError:
-                pass
-            else:
-                raise AssertionError('Invalid first-use reward fixture was accepted.')
-            finally:
-                db.execute('ROLLBACK TO invalid_reward_fixture')
-                db.execute('RELEASE invalid_reward_fixture')
-        assert validate_fresh_profile(db, rules, 4, now) == baseline
-    print('PASS: gate-waiting profile, week-four first-use rewards, repeat preservation, and 11 invalid reward/progress fixtures.')
+    periods = [0, 1, 2, 3, 4, 6, 8, 13]
+    checked_corruptions = 0
+    for week in periods:
+        now = rules['startedAt'] + week * WEEK_SECONDS
+        with sqlite3.connect(':memory:') as db:
+            for name in ['001_initial.sql', '003_progression.sql', '005_expansion_rewards.sql',
+                         '007_pack_queue.sql', '008_discovery_wildcards.sql']:
+                db.executescript((Path('src-tauri/migrations') / name).read_text(encoding='utf-8-sig'))
+            assert validate_fresh_profile(db, rules, week, now) is None
+            db.execute('INSERT INTO league_state VALUES(1,?,?,?)',
+                       (rules['startedAt'], 20 + 6 * week, week))
+            # Explicit expected values independently exercise the shifted cadence.
+            expected = {'common': 10 + 4 * week, 'uncommon': 5 + 2 * week,
+                        'rare': 2 + week // 2, 'mythic': 1 + (week + 2) // 4,
+                        'discovery': 1 + week // 4}
+            for kind, amount in expected.items():
+                db.execute('UPDATE wildcards SET quantity=? WHERE rarity=?', (amount, kind))
+            ledger = {'version': 1, 'startingPacks': 20, 'weeklyPacks': 6,
+                      'startingWildcards': {'common': 10, 'uncommon': 5, 'rare': 2,
+                                           'mythic': 1, 'discovery': 1},
+                      'alternatingRewardsApplied': True}
+            db.execute('INSERT INTO settings VALUES(?,?)', (REWARD_LEDGER_KEY, json.dumps(ledger)))
+            db.execute('INSERT INTO booster_pack_queue VALUES(?,?,?,?,?,?)',
+                       ('starting', pack_set(rules, 0), 'general', 0, 0, 20))
+            for earned in range(1, week + 1):
+                db.execute('INSERT INTO booster_pack_queue VALUES(?,?,?,?,?,?)',
+                           (f'weekly-{earned}', pack_set(rules, earned), 'general', earned, 1, 6))
+            for entry in rules['expansionSchedule']:
+                if entry['week'] <= week and entry['bonusPacks'] > 0:
+                    code, earned, amount = entry['code'].lower(), entry['week'], entry['bonusPacks']
+                    db.execute('INSERT INTO set_booster_balances VALUES(?,?)', (code, amount))
+                    db.execute('INSERT INTO expansion_reward_claims VALUES(?,?,?,?)',
+                               (code, earned, amount, 'fixture'))
+                    db.execute('INSERT INTO booster_pack_queue VALUES(?,?,?,?,?,?)',
+                               (f'bonus-{code}', code, 'bonus', earned, 0, amount))
+            baseline = validate_fresh_profile(db, rules, week, now)
+            assert baseline['wildcards'] == expected
+            assert validate_fresh_profile(db, rules, week, now) == baseline
+            corruptions = [
+                "UPDATE wildcards SET quantity=quantity+10 WHERE rarity='common'",
+                "UPDATE wildcards SET quantity=quantity+1 WHERE rarity='mythic'",
+                "UPDATE wildcards SET quantity=quantity-1 WHERE rarity='discovery'",
+                "DELETE FROM wildcards WHERE rarity='discovery'",
+                'UPDATE league_state SET available_packs=available_packs+1',
+                'UPDATE league_state SET last_claimed_period=last_claimed_period+1',
+                'UPDATE league_state SET started_at=1',
+                "UPDATE booster_pack_queue SET set_code='future' WHERE id='starting'",
+                "UPDATE booster_pack_queue SET remaining=remaining+1 WHERE id='starting'",
+                "UPDATE booster_pack_queue SET priority=1 WHERE id='starting'",
+                "DELETE FROM settings WHERE key='league_reward_entitlements_v1'",
+                "UPDATE settings SET value=json_remove(value,'$.alternatingRewardsApplied') WHERE key='league_reward_entitlements_v1'",
+                "INSERT INTO booster_history(id,set_code,contents_json) VALUES('inherited','fdn','[]')",
+            ]
+            if week >= 4:
+                corruptions.extend([
+                    "DELETE FROM expansion_reward_claims",
+                    "UPDATE set_booster_balances SET quantity=quantity+8",
+                    "UPDATE booster_pack_queue SET priority=1 WHERE source='bonus'",
+                ])
+            for sql in corruptions:
+                db.execute('SAVEPOINT invalid_reward_fixture')
+                db.execute(sql)
+                try:
+                    validate_fresh_profile(db, rules, week, now)
+                except RuntimeError:
+                    checked_corruptions += 1
+                else:
+                    raise AssertionError('Invalid first-use reward fixture was accepted.')
+                finally:
+                    db.execute('ROLLBACK TO invalid_reward_fixture')
+                    db.execute('RELEASE invalid_reward_fixture')
+            assert validate_fresh_profile(db, rules, week, now) == baseline
+    print(f'PASS: schema-eight gate waiting, first-use/alternating rewards at {periods}, repeat preservation, and {checked_corruptions} invalid reward/progress fixtures.')
 
 
 if __name__ == '__main__':

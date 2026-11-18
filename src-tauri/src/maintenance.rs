@@ -184,6 +184,7 @@ fn migration_sql(version: i64) -> Result<&'static str, String> {
         5 => Ok(include_str!("../migrations/005_expansion_rewards.sql")),
         6 => Ok(include_str!("../migrations/006_catalog_eligibility.sql")),
         7 => Ok(include_str!("../migrations/007_pack_queue.sql")),
+        8 => Ok(include_str!("../migrations/008_discovery_wildcards.sql")),
         _ => {
             Err("This backup requires a database migration unavailable in this app version.".into())
         }
@@ -632,6 +633,77 @@ mod tests {
             .await
             .unwrap();
         }
+    }
+
+    #[test]
+    fn discovery_migration_preserves_existing_game_tables_and_balances() {
+        tauri::async_runtime::block_on(async {
+            let directory = tempfile::tempdir().unwrap();
+            let pool = fixture(&directory.path().join("upgrade.sqlite"), 7).await;
+            seed(&pool).await;
+            sqlx::query("UPDATE wildcards SET quantity=CASE rarity WHEN 'common' THEN 7 WHEN 'uncommon' THEN 4 WHEN 'rare' THEN 2 ELSE 1 END")
+                .execute(&pool).await.unwrap();
+            // Fingerprint every existing game table, including settings, receipts,
+            // queues and saved deck allocations, before applying the new schema.
+            let mut snapshots = Vec::new();
+            for table in TABLES {
+                let columns: Vec<String> = sqlx::query(&format!("PRAGMA table_info({table})"))
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap()
+                    .iter()
+                    .map(|row| format!("quote(\"{}\")", row.get::<String, _>("name")))
+                    .collect();
+                let query = format!("SELECT group_concat(snapshot, char(10)) FROM (SELECT {} AS snapshot FROM {table} ORDER BY snapshot)", columns.join(" || '|' || "));
+                let before: Option<String> =
+                    sqlx::query_scalar(&query).fetch_one(&pool).await.unwrap();
+                snapshots.push((*table, query, before));
+            }
+            let mut transaction = pool.begin().await.unwrap();
+            sqlx::raw_sql(migration_sql(8).unwrap())
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+            transaction.commit().await.unwrap();
+            for (table, query, before) in snapshots {
+                // The sole new row is the empty Discovery balance. All old rows
+                // and all unrelated tables must match their exact prior values.
+                let query = if table == "wildcards" {
+                    query.replace(
+                        "FROM wildcards ORDER",
+                        "FROM wildcards WHERE rarity <> 'discovery' ORDER",
+                    )
+                } else {
+                    query
+                };
+                let after: Option<String> =
+                    sqlx::query_scalar(&query).fetch_one(&pool).await.unwrap();
+                assert_eq!(after, before, "Migration changed {table}");
+            }
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT quantity FROM wildcards WHERE rarity='discovery'"
+                )
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+                0
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                "ok"
+            );
+            assert!(
+                sqlx::query("UPDATE wildcards SET quantity=-1 WHERE rarity='discovery'")
+                    .execute(&pool)
+                    .await
+                    .is_err()
+            );
+            pool.close().await;
+        });
     }
 
     #[test]

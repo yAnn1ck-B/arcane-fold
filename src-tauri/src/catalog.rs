@@ -248,17 +248,10 @@ fn append_filters<'a>(
 ) -> QueryBuilder<'a, Sqlite> {
     sql.push(" FROM cards c LEFT JOIN collection o ON o.card_id=c.id WHERE ")
         .push("c.league_eligible=1");
-    // Basic-land artwork is free only in globally unlocked expansions. The
-    // owned/deck views also select unlocked artwork for pooled card identities.
-    sql.push(" AND (NOT ")
-        .push(UNLIMITED_BASIC_SQL)
-        .push(" OR ");
+    // Every browse scope, including All Cards and its facets/counts, uses only
+    // globally unlocked expansions. Stored ownership remains pooled separately.
+    sql.push(" AND ");
     push_sets(&mut sql, unlocked);
-    sql.push(")");
-    if query.owned_only || query.available_only {
-        sql.push(" AND ");
-        push_sets(&mut sql, unlocked);
-    }
     // Every term must appear in the name or rules text. Keeping terms separate
     // lets searches such as "gain life" find "gain 3 life" as well.
     for term in query.search.split_whitespace() {
@@ -2141,7 +2134,7 @@ mod tests {
             assert_eq!(available.total, 1);
             assert_eq!(available.cards[0].id, "basic");
             let all = query_pool(&pool, CardQuery::default()).await.unwrap();
-            assert!(all.cards.iter().any(|card| card.id == "locked"));
+            assert!(!all.cards.iter().any(|card| card.id == "locked"));
             assert!(!all.cards.iter().any(|card| card.id == "locked-basic"));
             assert_eq!(
                 get_card_pool(&pool, "locked-basic").await.unwrap().set_code,
@@ -2159,6 +2152,220 @@ mod tests {
             .unwrap();
             assert_eq!(grouped_all.total, 1);
             assert_eq!(grouped_all.cards[0].id, "owned");
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn all_cards_counts_filters_and_suggestions_follow_unlocks_without_changing_ownership() {
+        let (_directory, pool) = pool();
+        tauri::async_runtime::block_on(async {
+            let mut first = fixture("first", "A Shared Elf");
+            first["oracle_id"] = "shared".into();
+            first["type_line"] = "Creature — Elf".into();
+            let mut alternate = first.clone();
+            alternate["id"] = "alternate".into();
+            alternate["collector_number"] = "2".into();
+            let mut locked_shared = first.clone();
+            locked_shared["id"] = "locked-shared".into();
+            locked_shared["set"] = "future".into();
+            locked_shared["set_name"] = "Future Set".into();
+            let mut locked_only = fixture("locked-only", "B Future Basilisk");
+            locked_only["set"] = "future".into();
+            locked_only["set_name"] = "Future Set".into();
+            locked_only["rarity"] = "mythic".into();
+            locked_only["colors"] = serde_json::json!(["B"]);
+            locked_only["cmc"] = 7.into();
+            locked_only["type_line"] = "Creature — Basilisk".into();
+            let mut locked_artifact = locked_only.clone();
+            locked_artifact["id"] = "locked-artifact".into();
+            locked_artifact["oracle_id"] = "artifact".into();
+            locked_artifact["name"] = "C Future Artifact".into();
+            locked_artifact["type_line"] = "Artifact".into();
+            let mut locked_basic = fixture("locked-basic", "Forest");
+            locked_basic["set"] = "future".into();
+            locked_basic["set_name"] = "Future Set".into();
+            locked_basic["type_line"] = "Basic Land — Forest".into();
+            append_values(
+                &pool,
+                vec![
+                    first,
+                    alternate,
+                    locked_shared,
+                    locked_only,
+                    locked_artifact,
+                    locked_basic,
+                ],
+            )
+            .await
+            .unwrap();
+            change_quantity(&pool, "locked-shared", 3).await.unwrap();
+            change_quantity(&pool, "locked-only", 2).await.unwrap();
+            let owned_before: Vec<(String, i64)> =
+                sqlx::query_as("SELECT card_id,quantity FROM collection ORDER BY card_id")
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+            let all = CardQuery {
+                group_by_oracle: true,
+                ..Default::default()
+            };
+            let grouped = query_pool(&pool, all.clone()).await.unwrap();
+            assert_eq!(grouped.total, 1);
+            assert_eq!(grouped.cards[0].set_code, "tst");
+            assert_eq!(grouped.cards[0].oracle_owned, 3);
+            assert_eq!(grouped.cards[0].owned, 0);
+            // Unlocked reprints still use ownership held in a locked expansion.
+            assert_eq!(
+                query_pool(
+                    &pool,
+                    CardQuery {
+                        owned_only: true,
+                        ..all.clone()
+                    }
+                )
+                .await
+                .unwrap()
+                .total,
+                1
+            );
+            for page in 0..2 {
+                let result = query_pool(
+                    &pool,
+                    CardQuery {
+                        page,
+                        page_size: 1,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+                assert_eq!(result.total, 2);
+                assert_eq!(result.cards.len(), 1);
+                assert_eq!(result.cards[0].set_code, "tst");
+            }
+            for group_by_oracle in [false, true] {
+                assert_eq!(
+                    query_pool(
+                        &pool,
+                        CardQuery {
+                            set_code: "future".into(),
+                            group_by_oracle,
+                            ..Default::default()
+                        }
+                    )
+                    .await
+                    .unwrap()
+                    .total,
+                    0
+                );
+            }
+            assert_eq!(
+                query_pool(
+                    &pool,
+                    CardQuery {
+                        search: "Basilisk".into(),
+                        ..all.clone()
+                    }
+                )
+                .await
+                .unwrap()
+                .total,
+                0
+            );
+            let options = filter_options_pool(&pool, all.clone()).await.unwrap();
+            assert_eq!(
+                options
+                    .sets
+                    .iter()
+                    .map(|set| (set.code.as_str(), set.count))
+                    .collect::<Vec<_>>(),
+                vec![("tst", 1)]
+            );
+            assert_eq!(options.colors, vec!["G"]);
+            assert_eq!(options.mana_values, vec![1]);
+            assert_eq!(options.rarities, vec!["common"]);
+            assert_eq!(options.card_types, vec!["Creature"]);
+            assert!(creature_types_pool(&pool, all.clone(), "ba")
+                .await
+                .unwrap()
+                .is_empty());
+            assert_eq!(printings_pool(&pool, "shared").await.unwrap().len(), 2);
+            assert_eq!(get_card_pool(&pool, "locked-only").await.unwrap().owned, 2);
+            // The next unlock exposes existing catalog rows without an import.
+            sqlx::query(
+                "UPDATE settings SET value='[\"tst\",\"future\"]' WHERE key='test.unlocked-sets'",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            assert_eq!(query_pool(&pool, all.clone()).await.unwrap().total, 4);
+            assert_eq!(
+                query_pool(&pool, CardQuery::default()).await.unwrap().total,
+                6
+            );
+            let options = filter_options_pool(&pool, all.clone()).await.unwrap();
+            assert_eq!(
+                options
+                    .sets
+                    .iter()
+                    .map(|set| set.code.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["future", "tst"]
+            );
+            assert!(options.rarities.contains(&"mythic".to_string()));
+            assert!(options.card_types.contains(&"Artifact".to_string()));
+            assert_eq!(
+                creature_types_pool(&pool, all, "ba").await.unwrap(),
+                vec!["Basilisk"]
+            );
+            assert_eq!(printings_pool(&pool, "shared").await.unwrap().len(), 3);
+            let owned_after: Vec<(String, i64)> =
+                sqlx::query_as("SELECT card_id,quantity FROM collection ORDER BY card_id")
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(owned_after, owned_before);
+            assert_eq!(status_pool(&pool).await.unwrap().count, 6);
+            pool.close().await;
+        });
+    }
+
+    #[test]
+    fn empty_unlock_pool_hides_all_browse_results_but_keeps_stored_card_details() {
+        let (_directory, pool) = pool();
+        tauri::async_runtime::block_on(async {
+            let mut card = fixture("owned", "Stored Elf");
+            card["type_line"] = "Creature — Elf".into();
+            append_values(&pool, vec![card]).await.unwrap();
+            change_quantity(&pool, "owned", 1).await.unwrap();
+            sqlx::query("UPDATE settings SET value='[]' WHERE key='test.unlocked-sets'")
+                .execute(&pool)
+                .await
+                .unwrap();
+            for owned_only in [false, true] {
+                let query = CardQuery {
+                    owned_only,
+                    group_by_oracle: true,
+                    include_basic_lands: true,
+                    ..Default::default()
+                };
+                let result = query_pool(&pool, query.clone()).await.unwrap();
+                assert_eq!(result.total, 0);
+                assert!(result.cards.is_empty());
+                assert!(filter_options_pool(&pool, query.clone())
+                    .await
+                    .unwrap()
+                    .sets
+                    .is_empty());
+                assert!(creature_types_pool(&pool, query, "el")
+                    .await
+                    .unwrap()
+                    .is_empty());
+            }
+            assert!(printings_pool(&pool, "owned").await.unwrap().is_empty());
+            assert_eq!(get_card_pool(&pool, "owned").await.unwrap().owned, 1);
+            assert_eq!(status_pool(&pool).await.unwrap().count, 1);
             pool.close().await;
         });
     }
@@ -2379,7 +2586,7 @@ mod tests {
                     0
                 );
             }
-            // Locked regular cards remain visible in the all-cards preview.
+            // All Cards follows the same global expansion unlocks.
             assert_eq!(
                 query_pool(
                     &pool,
@@ -2391,7 +2598,7 @@ mod tests {
                 .await
                 .unwrap()
                 .total,
-                1
+                0
             );
             change_quantity(&pool, "set-b-first", 1).await.unwrap();
             let after = printings_pool(&pool, "elf").await.unwrap();

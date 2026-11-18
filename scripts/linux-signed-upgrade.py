@@ -29,7 +29,9 @@ IDENTIFIER = 'com.eternalleague.desktop'
 OLD_VERSION = '0.2.1'
 OLD_FILENAME = 'Eternal.League_0.2.1_amd64.AppImage'
 OLD_SHA256 = '115090fb3757f1940246a7fa7a0f91a7ff2ae42ae3cd1a4a58c582f5a17084ee'
+OLD_SCHEMA = 7
 REWARD_LEDGER_KEY = 'league_reward_entitlements_v1'
+RARITIES = ('common', 'uncommon', 'rare', 'mythic')
 MAX_BYTES = 512 * 1024 * 1024
 TABLES = ['collection', 'decks', 'deck_cards', 'wildcards', 'booster_history',
           'league_state', 'progression_operations', 'booster_pack_queue',
@@ -59,11 +61,30 @@ def current_reward_ledger(rules):
     ledger = {'version': 1, 'startingPacks': rules['startingPacks'],
               'weeklyPacks': rules['weeklyPacks'],
               'startingWildcards': {rarity: rules['startingWildcards'][rarity]
-                                   for rarity in ['common', 'uncommon', 'rare', 'mythic']}}
+                                   for rarity in (*RARITIES, 'discovery')},
+              'alternatingRewardsApplied': True}
     quantities = [ledger['startingPacks'], ledger['weeklyPacks'], *ledger['startingWildcards'].values()]
     if any(type(value) is not int or value < 0 for value in quantities):
         raise ValueError('Current reward entitlements must be nonnegative integer amounts.')
     return ledger
+
+
+def preservation_wildcards(rows, *, discovery_schema):
+    """Normalize only migration eight's expected new zero-balance currency.
+
+    The fixture pre-records all current entitlements as granted/spent. Its old
+    schema cannot store Discovery; the new schema must add exactly one zero row.
+    No earned quantity or missing currency is otherwise ignored.
+    """
+    balances = dict(rows)
+    expected = {*RARITIES, 'discovery'} if discovery_schema else set(RARITIES)
+    if len(rows) != len(balances) or set(balances) != expected:
+        raise RuntimeError('The upgrade fixture contains unexpected wildcard currencies.')
+    if any(type(amount) is not int or amount < 0 for amount in balances.values()):
+        raise RuntimeError('The upgrade fixture contains invalid wildcard quantities.')
+    if not discovery_schema:
+        balances['discovery'] = 0
+    return sorted(balances.items())
 
 
 def runner_temp():
@@ -233,7 +254,7 @@ def exercise(args):
               'privateSigningMaterialUsed': False,
               'rewardCompensationExercised': False,
               'normalUseVerificationExercised': False,
-              'preservationScope': 'Current reward entitlements are pre-recorded; verify native artifact replacement and fixture preservation, not online-gate UI or compensation.'}
+              'preservationScope': 'Current reward entitlements are pre-recorded as granted/spent; allow only the new zero-balance Discovery schema row while verifying native artifact replacement and fixture preservation, not online-gate UI or compensation.'}
     with tempfile.TemporaryDirectory(prefix='eternal-signed-linux-upgrade-', dir=runner_temp()) as temporary:
         root = Path(temporary).resolve()
         install = root / 'install'
@@ -318,7 +339,7 @@ def exercise(args):
         def connection():
             return sqlite3.connect(f'file:{quote(str(database))}?mode=ro', uri=True, timeout=2)
 
-        def launch(label):
+        def launch(label, schema):
             nonlocal running, output, database
             file = root / f'{label}.log'
             logs.append(file)
@@ -336,7 +357,8 @@ def exercise(args):
                     try:
                         with sqlite3.connect(f'file:{quote(str(candidate))}?mode=ro', uri=True, timeout=1) as db:
                             rows = db.execute('SELECT version,success FROM _sqlx_migrations ORDER BY version').fetchall()
-                            ready = len(rows) == expected_schema and rows[-1] == (expected_schema, 1)
+                            ready = (len(rows) == schema and rows[-1] == (schema, 1)
+                                     and all(success == 1 for _, success in rows))
                         if ready:
                             database = candidate
                             break
@@ -351,9 +373,10 @@ def exercise(args):
                 time.sleep(0.2)
             raise RuntimeError(f'{label} did not reach the expected production schema.')
 
-        def snapshot():
+        def snapshot(*, discovery_schema=False):
             with connection() as db:
                 value = {table: db.execute(f'SELECT * FROM {table} ORDER BY 1,2').fetchall() for table in TABLES}
+                value['wildcards'] = preservation_wildcards(value['wildcards'], discovery_schema=discovery_schema)
                 value['card'] = db.execute("SELECT id,oracle_id,name,set_code,collector_number,rarity FROM cards WHERE id='linux-upgrade-elf'").fetchall()
                 value['settings'] = db.execute("SELECT key,value FROM settings WHERE key IN ('linux-signed-upgrade-probe',?) OR key LIKE 'forge_export:%' ORDER BY key", (REWARD_LEDGER_KEY,)).fetchall()
                 if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
@@ -378,7 +401,7 @@ def exercise(args):
             return values[-1]
 
         try:
-            launch('official-old-fresh')
+            launch('official-old-fresh', OLD_SCHEMA)
             stop()
             report['officialOldLaunched'] = True
             rules = json.loads((ROOT / 'src-tauri/league-rules.json').read_text())
@@ -414,7 +437,7 @@ def exercise(args):
             cache.write_bytes(cache_bytes)
             forge.parent.mkdir(parents=True, exist_ok=True)
             forge.write_text(forge_text)
-            launch('official-old-seeded')
+            launch('official-old-seeded', OLD_SCHEMA)
             stop()
             before = snapshot()
             verify_files()
@@ -430,9 +453,9 @@ def exercise(args):
                 raise RuntimeError('The real native install did not preserve permissions and replace the AppImage.')
             report['installedSha256'] = digest(installed)
             report['permissionsPreserved'] = True
-            launch('official-new-signed')
+            launch('official-new-signed', expected_schema)
             stop()
-            if snapshot() != before:
+            if snapshot(discovery_schema=True) != before:
                 raise RuntimeError('The game or settings fixture changed after signed installation/relaunch.')
             verify_files()
             if digest(local) != metadata['newSha256'] or digest(new) != metadata['newSha256']:
@@ -440,7 +463,9 @@ def exercise(args):
             report.update(success=True, upgradedLaunched=True, gameDataPreserved=True,
                           settingsProbePreserved=True, cachePreserved=True, forgeDeckPreserved=True,
                           frozenUploadedPayloadUnchanged=True, ownedCards=2, decks=1,
-                          commonWildcards=7, historyRows=1, receiptRows=1, queuedPacks=3)
+                          commonWildcards=7, discoveryWildcards=0,
+                          discoverySchemaRowAdded=True, oldSchema=OLD_SCHEMA,
+                          historyRows=1, receiptRows=1, queuedPacks=3)
             print('PASS: actual official Linux signed upgrade, tamper rejection, relaunch, and fixture preservation with current reward entitlements pre-recorded; compensation and online-gate UI not exercised.')
         except Exception as error:
             report['error'] = str(error).replace(str(root), '<isolated>')[-2500:]
@@ -457,13 +482,33 @@ def exercise(args):
 def self_test():
     assert version('0.3.0') > version('0.2.1')
     ledger = current_reward_ledger({'startingPacks': 20, 'weeklyPacks': 6,
-                                   'startingWildcards': {'common': 10, 'uncommon': 5, 'rare': 2, 'mythic': 1}})
+                                   'startingWildcards': {'common': 10, 'uncommon': 5, 'rare': 2, 'mythic': 1, 'discovery': 1}})
     assert ledger == {'version': 1, 'startingPacks': 20, 'weeklyPacks': 6,
-                      'startingWildcards': {'common': 10, 'uncommon': 5, 'rare': 2, 'mythic': 1}}
+                      'startingWildcards': {'common': 10, 'uncommon': 5, 'rare': 2, 'mythic': 1, 'discovery': 1},
+                      'alternatingRewardsApplied': True}
     with sqlite3.connect(':memory:') as db:
         db.execute('CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
         db.execute('INSERT INTO settings VALUES(?,?)', (REWARD_LEDGER_KEY, json.dumps(ledger)))
         assert json.loads(db.execute('SELECT value FROM settings WHERE key=?', (REWARD_LEDGER_KEY,)).fetchone()[0]) == ledger
+    with sqlite3.connect(':memory:') as db:
+        db.executescript((ROOT / 'src-tauri/migrations/001_initial.sql').read_text(encoding='utf-8-sig'))
+        db.execute("UPDATE wildcards SET quantity=7 WHERE rarity='common'")
+        old_rows = db.execute('SELECT rarity,quantity FROM wildcards').fetchall()
+        before = preservation_wildcards(old_rows, discovery_schema=False)
+        db.executescript((ROOT / 'src-tauri/migrations/008_discovery_wildcards.sql').read_text(encoding='utf-8-sig'))
+        new_rows = db.execute('SELECT rarity,quantity FROM wildcards').fetchall()
+        assert preservation_wildcards(new_rows, discovery_schema=True) == before
+        db.execute("UPDATE wildcards SET quantity=1 WHERE rarity='discovery'")
+        assert preservation_wildcards(db.execute('SELECT rarity,quantity FROM wildcards').fetchall(), discovery_schema=True) != before
+        for rows, modern in [(old_rows, True), (new_rows, False),
+                             ([*new_rows, ('unknown', 0)], True),
+                             ([*new_rows, ('common', 7)], True)]:
+            try:
+                preservation_wildcards(rows, discovery_schema=modern)
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError('An unexpected currency schema was accepted.')
     for invalid in ['v0.3.0', '0.03.0', '0.3.0-beta', '../0.3.0']:
         try:
             version(invalid)
@@ -488,7 +533,7 @@ def self_test():
                             'HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR', 'TMPDIR',
                             'APPIMAGE_EXTRACT_AND_RUN', 'WEBKIT_DISABLE_DMABUF_RENDERER', 'LIBGL_ALWAYS_SOFTWARE', 'GDK_BACKEND', 'LINUX_QA_ROOT'}
         assert all(Path(env[key]).is_relative_to(temporary) for key in ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR', 'TMPDIR'])
-    print('PASS: reward-ledger fixture, stable version, signature version, redirect host, and credential-free temporary environment checks.')
+    print('PASS: modern reward-ledger fixture, old-to-new Discovery schema preservation and drift rejection, stable version, signature version, redirect host, and credential-free temporary environment checks.')
 
 
 def main():

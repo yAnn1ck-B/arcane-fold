@@ -1,3 +1,68 @@
+.craft-panel-common {
+  --craft-color: var(--wildcard-common-color);
+  --craft-hover: #3b4039;
+  --craft-ink: #fffefa;
+  --craft-bg: #eeefec;
+  --craft-border: #c3c7c0;
+  --craft-text: #3e453c;
+  --craft-focus: var(--wildcard-common-color);
+}
+.craft-panel-uncommon {
+  --craft-color: var(--wildcard-uncommon-color);
+  --craft-hover: #9fbac5;
+  --craft-ink: #20343c;
+  --craft-bg: #edf3f5;
+  --craft-border: #a8bec6;
+  --craft-text: #3e5862;
+  --craft-focus: #617f8b;
+}
+.craft-panel-rare {
+  --craft-color: var(--wildcard-rare-color);
+  --craft-hover: #bdab51;
+  --craft-ink: #30290d;
+  --craft-bg: #f7f2df;
+  --craft-border: #dfd195;
+  --craft-text: #665719;
+  --craft-focus: #887627;
+}
+.craft-panel-mythic {
+  --craft-color: var(--wildcard-mythic-color);
+  --craft-hover: #d78345;
+  --craft-ink: #372011;
+  --craft-bg: #fbede4;
+  --craft-border: #e6be9e;
+  --craft-text: #7b421d;
+  --craft-focus: #9f5d2c;
+}
+.craft-panel-discovery {
+  --craft-color: var(--discovery-color);
+  --craft-hover: var(--discovery-hover);
+  --craft-ink: #fffefa;
+  --craft-bg: var(--discovery-bg);
+  --craft-border: var(--discovery-border);
+  --craft-text: var(--discovery-text);
+  --craft-focus: var(--discovery-color);
+}
+.craft-panel.craft-panel-themed {
+  background: var(--craft-bg);
+  border-color: var(--craft-border);
+}
+.craft-panel.craft-panel-themed p {
+  color: var(--craft-text);
+}
+.craft-panel-themed .ui-button-primary {
+  background: var(--craft-color);
+  border-color: var(--craft-color);
+  color: var(--craft-ink);
+}
+.craft-panel-themed .ui-button-primary:hover:enabled {
+  background: var(--craft-hover);
+  border-color: var(--craft-hover);
+}
+.craft-panel-themed .ui-button-primary:focus-visible {
+  outline-color: var(--craft-focus);
+}
+
 .card-browser-filters.panel {
   container-type: inline-size;
   container-name: card-filters;

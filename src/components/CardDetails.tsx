@@ -2,6 +2,7 @@ import { formatMana } from "@/lib/mana";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  Compass,
   Layers3,
   LoaderCircle,
   Plus,
@@ -17,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { getCard, getCardPrintings } from "@/services/cards";
 import { craftCard } from "@/services/progression";
 import { isUnlimitedBasic } from "@/lib/cards";
-import type { CatalogCard, LeagueStatus, WildcardRarity } from "@/lib/types";
+import type { CatalogCard, LeagueStatus, WildcardKind } from "@/lib/types";
 
 interface CardDetailsProps {
   card: CatalogCard;
@@ -125,23 +126,28 @@ export default function CardDetails({
   const craftable =
     !unlimited &&
     ["common", "uncommon", "rare", "mythic"].includes(current.rarity);
-  const balance = craftable
-    ? league.wildcards[current.rarity as WildcardRarity]
-    : 0;
+  const discovering = oracleOwned === 0;
+  const wildcardKind: WildcardKind = discovering
+    ? "discovery"
+    : current.rarity as WildcardKind;
+  const balance = craftable ? (league.wildcards[wildcardKind] ?? 0) : 0;
   async function craft() {
     if (running.current || atCollectionLimit) return;
     running.current = true;
     setBusy(true);
     setError(null);
     try {
+      // A retry keeps both its receipt and intended currency. If ownership
+      // refreshes after a lost reply, crafting a copy is a separate action.
+      const requestKey = `${current.id}:${wildcardKind}`;
       const requestId =
-        craftRequests.current.get(current.id) ?? crypto.randomUUID();
-      craftRequests.current.set(current.id, requestId);
-      const result = await craftCard(current.id, requestId);
-      craftRequests.current.delete(current.id);
+        craftRequests.current.get(requestKey) ?? crypto.randomUUID();
+      craftRequests.current.set(requestKey, requestId);
+      const result = await craftCard(current.id, requestId, wildcardKind);
+      craftRequests.current.delete(requestKey);
       setCurrent(result.card);
       onChange();
-      toast(`Crafted one ${result.card.name}.`);
+      toast(`${discovering ? "Discovered" : "Crafted one copy of"} ${result.card.name}.`);
       try {
         setCurrent(await getCard(current.id));
       } catch (reason) {
@@ -248,7 +254,7 @@ export default function CardDetails({
             </div>
           ) : (
             <>
-              <div className="craft-panel">
+              <div className={`craft-panel${craftable ? ` craft-panel-themed craft-panel-${wildcardKind}` : ""}`}>
                 <p>
                   {atCollectionLimit
                     ? "You have reached the four-copy limit across all printings. No more copies can be crafted."
@@ -256,7 +262,9 @@ export default function CardDetails({
                       ? "This expansion has not unlocked in the shared league yet."
                       : !craftable
                         ? "This printing cannot be crafted with wildcards."
-                        : `${balance} ${current.rarity} wildcards available`}
+                        : discovering
+                          ? `${balance} Discovery wildcards available. Spend one to acquire your first copy.`
+                          : `${balance} ${current.rarity} wildcards available. Spend one to add a copy.`}
                 </p>
                 <Button
                   onClick={() => void craft()}
@@ -270,10 +278,12 @@ export default function CardDetails({
                     balance < 1
                   }
                 >
-                  <Sparkles size={15} />{" "}
+                  {discovering ? <Compass size={15} /> : <Sparkles size={15} />}{" "}
                   {atCollectionLimit
                     ? "Four-copy limit reached"
-                    : `Craft one ${current.rarity} card`}
+                    : discovering
+                      ? "Discover card · 1 Discovery"
+                      : `Craft copy · 1 ${current.rarity}`}
                 </Button>
               </div>
               <p className="card-preview-owned">{oracleOwned} owned</p>

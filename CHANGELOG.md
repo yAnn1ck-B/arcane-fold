@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.4.0] - 2026-11-18
+
+- Match copy-crafting buttons and panels to common, uncommon, rare, and mythic wildcard colors, with readable text and matching hover/focus states.
+- Highlight Discovery crafting in violet, with a matching standard round dot. Keep the Discovery name on Overview; Collection and Booster packs use compact dot-and-number counters with tooltips and accessible labels.
+- Add Discovery wildcards: one starting grant and one at shared-calendar weeks 4, 8, 12, and onward. Existing players receive the missing starting grant and due Discovery rewards once without refilling spent balances.
+- Restrict matching-rarity wildcards to additional copies of owned cards. A Discovery wildcard grants the first copy of any eligible nonbasic card from an unlocked expansion; ownership and the four-copy cap remain pooled across printings.
+- Alternate the four-week mythic and Discovery rewards: mythic at weeks 2, 6, 10, and onward; Discovery at weeks 4, 8, 12, and onward. Keep all pack, common, uncommon, rare, and starting ordinary-wildcard grants unchanged, preserving rewards already earned under the old schedule.
+- Limit All Cards, its totals, filter options, and creature-type suggestions to globally unlocked expansions. Newly unlocked expansions appear automatically while stored ownership and history remain intact.
+
 ## [0.3.3] - 2026-11-17
 
 - Grant starting packs and wildcards together on first app use after online verification, without requiring a booster opening. Reuse the existing entitlement ledger so prior grants and spent balances stay intact.

@@ -94,7 +94,7 @@ Show Black Lotus in the welcome banner without an artwork caption. Use colored r
 
 Display cards in a visual artwork grid grouped by Oracle identity. Use one tile and one pooled owned total per card across all printings; omit set-code summaries from grouped tiles. Collection quantities come from booster openings and wildcard crafting, with no manual ownership controls.
 
-Provide a toggle between **Owned Cards** and **All Cards**. Both Collection and Deck builder use shared controls:
+Provide a toggle between **Owned Cards** and **All Cards**. All Cards shows only eligible printings from globally unlocked expansions, including its grouped totals, filter options, and creature-type suggestions. Future expansions appear automatically when the shared calendar unlocks them; retain all stored ownership and historical card details. Both Collection and Deck builder use shared controls:
 
 - Search card names and rules text, including multi-word ability phrases.
 - Multi-select color pills and mana-value pills for existing values 0 through 5, plus a 6+ bucket.
@@ -110,7 +110,7 @@ Clicking a card opens the shared full modal with artwork, rules, and a simple `N
 
 In Collection, changing a printing changes only the preview. In Deck builder, the same details callback changes every copy of that card across both sections. Card details, the printing picker, and target dialogs are centered body portals, including when DeckBuilder is hidden beneath Collection. Collection's **Add to deck** opens the deck/section chooser, preserves an unsaved deck draft, and leaves the user in Collection after **Add** to an existing deck, with a success notice. New targets use **Create and add**.
 
-The All Cards view allows crafting any selected eligible printing from a globally unlocked expansion with a matching-rarity wildcard, up to four total copies per Oracle identity. Refresh ownership and available printings after crafting. Display mana without braces, such as `1R`. Exclude novelty, nonstandard, silver/gold-bordered, acorn, and fractional-cost printings from browsing, crafting, packs, and deck use while preserving stored collection and history records.
+The All Cards view allows copying owned cards with a matching-rarity wildcard, up to four total copies per Oracle identity. A Discovery wildcard grants the first copy of an unowned card of any standard rarity. Both require a selected eligible nonbasic printing from a globally unlocked expansion; ownership of another printing counts as owning the card. Refresh ownership and available printings after crafting. Display mana without braces, such as `1R`. Exclude novelty, nonstandard, silver/gold-bordered, acorn, and fractional-cost printings from browsing, crafting, packs, and deck use while preserving stored collection and history records.
 
 ### C. Deck Builder
 
@@ -179,23 +179,25 @@ Four wildcard rarities:
 - Rare
 - Mythic
 
-One matching wildcard crafts one card of that rarity.
+One matching wildcard crafts one additional copy of an already-owned card of that rarity. A separate Discovery wildcard grants the first copy of an unowned card of any standard rarity from an unlocked expansion. Each discovery immediately adds the card; later copies use ordinary wildcards. Discovery wildcards cannot be spent on owned cards or free basic lands. Previously collected or crafted cards remain owned and can be copied.
 
 The permanent collection is limited to four copies of each nonbasic card across all printings, identified by Oracle ID. Crafting a fifth copy is rejected without spending a wildcard. Booster slots select another eligible card of the same rarity, or award a matching wildcard when that rarity's pool is complete. Basic lands remain freely available in decks through eligible globally unlocked printings.
 
-Wildcards are earned from the starting grant, shared weekly schedule, and duplicate-protection replacement slots. The current built-in random bonus-drop probability is zero.
+Ordinary wildcards are earned from the starting grant, shared weekly schedule, and duplicate-protection replacement slots. Discovery wildcards are earned only from their starting grant and shared-calendar schedule, not random pack or duplicate replacements. The current built-in random bonus-drop probability is zero.
 
-In the All Cards browser, provide a **Craft** button.
+In the All Cards browser, provide **Craft** for additional copies and **Discover card** for a first copy, with the relevant balance and cost shown.
 
-Crafting a card deducts one wildcard and adds the selected card to the collection.
+Crafting a card atomically deducts one appropriate wildcard and adds the selected card to the collection. Requests bind their intended currency so retries or concurrent ownership changes cannot silently spend a different type. Completed historical crafting receipts remain replayable without a second spend.
 
 Show available wildcard balances on the dashboard and crafting screen.
 
 ### F. Shared Weekly Rewards and Set Unlocking
 
-Everyone uses the same built-in league calendar, anchored at the single committed `startedAt` value in `src-tauri/league-rules.json`. Set the real production start before the first public release and keep it stable afterward; the earlier development anchor remains recorded in verification history. The 0.3.1 rules grant 20 starting packs, 6 weekly packs, and starting wildcards of 10 common, 5 uncommon, 2 rare, and 1 mythic. Weekly wildcards remain unchanged: 4 common and 2 uncommon each week, 1 rare every two weeks, and 1 mythic every four weeks. Published 0.3.0 retains its earlier 12/4 pack amounts until upgraded. Claims count shared calendar boundaries, including missed periods and late joining, while preserving existing balances.
+Everyone uses the same built-in league calendar, anchored at the single committed `startedAt` value in `src-tauri/league-rules.json`. Set the real production start before the first public release and keep it stable afterward; the earlier development anchor remains recorded in verification history. Grant 20 starting packs, 6 weekly packs, and starting wildcards of 10 common, 5 uncommon, 2 rare, 1 mythic, and 1 Discovery. Keep 4 common and 2 uncommon each week and 1 rare every two weeks. Alternate 1 mythic at weeks 2, 6, 10, ... with 1 Discovery at weeks 4, 8, 12, ...; each has a four-week interval. The 0.4.0 candidate includes this Discovery policy; published 0.3.3 retains its previous mythic timing and crafting rules. Published 0.3.0 retains its earlier 12/4 pack amounts until upgraded. Claims count shared calendar boundaries, including missed periods and late joining, while preserving existing balances.
 
 A late joiner receives the starting packs and wildcards plus all scheduled rewards elapsed since that shared start. On first app use after online version verification, the initial status call starts a new league and credits those rewards together, without requiring a catalog or booster opening. Status updates automatically credit all due periods for existing players. Reuse the existing entitlement ledger so players who already received or spent their starting wildcards are not granted them again. Record periods locally and prevent duplicate rewards, including concurrent calls and retries. For the historical 0.3.1 change, already-started leagues receive the positive entitlement difference exactly once: 8 additional starting packs, 2 per already-credited week, and the starting wildcard grant. Keep earned/spent progress and historical receipts intact; record the applied entitlement policy atomically with its rewards. First-use grants shipped in 0.3.3.
+
+On upgrade, existing players receive their missing starting Discovery once through the same entitlement ledger; new players receive it as part of the ordinary starting grant. Catch up due Discovery periods and the shifted mythic entitlement without regranting already-credited or spent rewards. Previously earned mythics remain intact. Persist reward accounting atomically with grants so status refreshes, concurrent calls, retries, and relaunches cannot repeat compensation. Never reset collection, decks, packs, history, or existing wildcard balances for this change.
 
 Expansion availability and automatic unlock order come from the same shared configuration. Foundations (`FDN`) starts at week 0. The fixed schedule unlocks Bloomburrow at week 4, Wilds of Eldraine at 8, The Lost Caverns of Ixalan at 12, Outlaws of Thunder Junction at 16, Duskmourn: House of Horror at 20, Kamigawa: Neon Dynasty at 24, The Brothers' War at 28, Aetherdrift at 32, Tarkir: Dragonstorm at 36, Edge of Eternities at 40, Lorwyn Eclipsed at 44, Secrets of Strixhaven at 48, and March of the Machine at 52.
 

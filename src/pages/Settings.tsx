@@ -371,8 +371,8 @@ export default function Settings({
             <div>
               <dt>Starting wildcards</dt>
               <dd>
-                {(["common", "uncommon", "rare", "mythic"] as const)
-                  .map((rarity) => `${league.startingWildcards?.[rarity] ?? 0} ${rarity}`)
+                {(["common", "uncommon", "rare", "mythic", "discovery"] as const)
+                  .map((kind) => `${league.startingWildcards?.[kind] ?? 0} ${kind === "discovery" ? "Discovery" : kind}`)
                   .join("; ")}
               </dd>
             </div>
@@ -383,13 +383,23 @@ export default function Settings({
             <div>
               <dt>Wildcard rewards</dt>
               <dd>
-                {(["common", "uncommon", "rare", "mythic"] as const)
-                  .map((rarity) => {
+                {(["common", "uncommon", "rare", "mythic", "discovery"] as const)
+                  .map((kind) => {
                     const interval =
-                      league.wildcardRewardIntervals?.[rarity] ?? 1;
-                    return `${league.weeklyWildcards[rarity]} ${rarity} ${interval === 1 ? "each week" : `every ${interval} weeks`}`;
+                      league.wildcardRewardIntervals?.[kind] ?? 1;
+                    const offset = league.wildcardRewardOffsets?.[kind] ?? 0;
+                    const firstWeek = interval - offset;
+                    return `${league.weeklyWildcards[kind] ?? 0} ${kind === "discovery" ? "Discovery" : kind} ${interval === 1 ? "each week" : `every ${interval} weeks, first at week ${firstWeek}`}`;
                   })
                   .join("; ")}
+              </dd>
+            </div>
+            <div>
+              <dt>Crafting</dt>
+              <dd>
+                Matching-rarity wildcards add copies of owned cards. A Discovery
+                wildcard acquires the first copy of any eligible card from an
+                unlocked expansion.
               </dd>
             </div>
             <div>

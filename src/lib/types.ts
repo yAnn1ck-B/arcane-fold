@@ -22,13 +22,9 @@ export interface AppSettings {
     startingPacks: number;
     startingWildcards?: WildcardBalances;
     weeklyPacks: number;
-    weeklyWildcards: {
-      common: number;
-      uncommon: number;
-      rare: number;
-      mythic: number;
-    };
-    wildcardRewardIntervals: Record<WildcardRarity, number>;
+    weeklyWildcards: WildcardBalances;
+    wildcardRewardIntervals: Record<WildcardKind, number>;
+    wildcardRewardOffsets: Record<WildcardKind, number>;
     mythicProbability: number;
     enabledSets: string[];
     booster: {
@@ -187,7 +183,8 @@ export interface DeckValidation {
 }
 
 export type WildcardRarity = "common" | "uncommon" | "rare" | "mythic";
-export type WildcardBalances = Record<WildcardRarity, number>;
+export type WildcardKind = WildcardRarity | "discovery";
+export type WildcardBalances = Record<WildcardKind, number>;
 export interface BoosterHistory {
   id: string;
   setCode: string;

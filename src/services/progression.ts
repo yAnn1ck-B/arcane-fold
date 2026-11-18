@@ -4,6 +4,7 @@ import type {
   CatalogCard,
   LeagueStatus,
   WildcardBalances,
+  WildcardKind,
 } from "@/lib/types";
 
 export function leagueStatus() {
@@ -22,10 +23,10 @@ export function openBoosters(
 ) {
   return invoke<BoosterOpening>("open_boosters", { setCode, count, requestId });
 }
-export function craftCard(cardId: string, requestId: string) {
+export function craftCard(cardId: string, requestId: string, wildcardKind: WildcardKind) {
   return invoke<{ card: CatalogCard; wildcards: WildcardBalances }>(
     "craft_card",
-    { cardId, requestId },
+    { cardId, requestId, wildcardKind },
   );
 }
 

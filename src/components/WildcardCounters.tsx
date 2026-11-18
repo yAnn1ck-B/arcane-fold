@@ -28,6 +28,14 @@ export default function WildcardCounters({
           <strong>{balances[rarity]}</strong>
         </span>
       ))}
+      <span
+        className="wildcard-counter wildcard-counter-discovery"
+        title={`${balances.discovery ?? 0} Discovery wildcards — acquire a first copy`}
+        aria-label={`${balances.discovery ?? 0} Discovery wildcards`}
+      >
+        <i className="rarity-dot rarity-discovery" aria-hidden="true" />
+        <strong>{balances.discovery ?? 0}</strong>
+      </span>
     </div>
   );
 }

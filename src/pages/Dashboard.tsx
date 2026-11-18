@@ -354,6 +354,17 @@ export default function Dashboard({
                   </span>
                 ),
               )}
+              <span
+                className="wildcard-balance wildcard-balance-discovery"
+                title={`${league.wildcards.discovery ?? 0} Discovery wildcards — acquire a first copy`}
+                aria-label={`${league.wildcards.discovery ?? 0} Discovery wildcards`}
+              >
+                <i className="rarity-dot rarity-discovery" aria-hidden="true" />
+                <strong className="dashboard-wildcard-count">
+                  {league.wildcards.discovery ?? 0}
+                </strong>
+                <span className="dashboard-wildcard-label">Discovery</span>
+              </span>
             </div>
             <Button variant="outline" onClick={onCollection}>
               Browse and craft <ArrowRight size={13} />

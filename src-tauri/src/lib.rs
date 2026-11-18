@@ -67,6 +67,12 @@ pub fn run() {
                             sql: include_str!("../migrations/007_pack_queue.sql"),
                             kind: MigrationKind::Up,
                         },
+                        Migration {
+                            version: 8,
+                            description: "discovery_wildcards",
+                            sql: include_str!("../migrations/008_discovery_wildcards.sql"),
+                            kind: MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

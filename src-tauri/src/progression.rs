@@ -24,15 +24,18 @@ pub struct WildcardBalances {
     pub uncommon: i64,
     pub rare: i64,
     pub mythic: i64,
+    #[serde(default)]
+    pub discovery: i64,
 }
 
 impl WildcardBalances {
-    fn values(&self) -> [(&'static str, i64); 4] {
+    fn values(&self) -> [(&'static str, i64); 5] {
         [
             ("common", self.common),
             ("uncommon", self.uncommon),
             ("rare", self.rare),
             ("mythic", self.mythic),
+            ("discovery", self.discovery),
         ]
     }
     fn add_rarity(&mut self, rarity: &str) {
@@ -49,6 +52,7 @@ impl WildcardBalances {
         self.uncommon += other.uncommon;
         self.rare += other.rare;
         self.mythic += other.mythic;
+        self.discovery += other.discovery;
     }
 }
 
@@ -205,11 +209,25 @@ fn validate_config(config: &LeagueConfig) -> Result<(), String> {
         config.wildcard_reward_intervals.uncommon,
         config.wildcard_reward_intervals.rare,
         config.wildcard_reward_intervals.mythic,
+        config.wildcard_reward_intervals.discovery,
     ]
     .iter()
     .any(|weeks| !(1..=10_000).contains(weeks))
     {
         return Err("Wildcard reward intervals must be whole weeks between 1 and 10,000.".into());
+    }
+    for (offset, interval) in config.wildcard_reward_offsets.values().iter().zip([
+        config.wildcard_reward_intervals.common,
+        config.wildcard_reward_intervals.uncommon,
+        config.wildcard_reward_intervals.rare,
+        config.wildcard_reward_intervals.mythic,
+        config.wildcard_reward_intervals.discovery,
+    ]) {
+        if offset.1 < 0 || offset.1 >= interval {
+            return Err(
+                "Wildcard reward offsets must be non-negative and less than their interval.".into(),
+            );
+        }
     }
     let mut scheduled_codes = HashSet::new();
     if config.expansion_schedule.iter().any(|expansion| {
@@ -377,14 +395,14 @@ fn rewards_between(
             .filter(|value| *value <= MAX_BALANCE)
             .ok_or_else(|| "Accumulated weekly rewards exceed the supported balance.".to_string())
     };
-    let wildcard = |amount: i64, interval: i64| {
+    let wildcard = |amount: i64, interval: i64, offset: i64| {
         if interval < 1 {
             return Err("Wildcard reward intervals must be positive whole weeks.".to_string());
         }
         // Count calendar boundaries crossed, not the rounded length of the
         // missed interval. Claiming week 1 then week 2 must grant the first rare.
-        let grants = (current / interval)
-            .saturating_sub(claimed / interval)
+        let grants = (current.saturating_add(offset) / interval)
+            .saturating_sub(claimed.saturating_add(offset) / interval)
             .max(0);
         multiply(amount, grants)
     };
@@ -394,18 +412,27 @@ fn rewards_between(
             common: wildcard(
                 config.weekly_wildcards.common,
                 config.wildcard_reward_intervals.common,
+                config.wildcard_reward_offsets.common,
             )?,
             uncommon: wildcard(
                 config.weekly_wildcards.uncommon,
                 config.wildcard_reward_intervals.uncommon,
+                config.wildcard_reward_offsets.uncommon,
             )?,
             rare: wildcard(
                 config.weekly_wildcards.rare,
                 config.wildcard_reward_intervals.rare,
+                config.wildcard_reward_offsets.rare,
             )?,
             mythic: wildcard(
                 config.weekly_wildcards.mythic,
                 config.wildcard_reward_intervals.mythic,
+                config.wildcard_reward_offsets.mythic,
+            )?,
+            discovery: wildcard(
+                config.weekly_wildcards.discovery,
+                config.wildcard_reward_intervals.discovery,
+                config.wildcard_reward_offsets.discovery,
             )?,
         },
     ))
@@ -670,6 +697,8 @@ struct RewardEntitlements {
     starting_packs: i64,
     weekly_packs: i64,
     starting_wildcards: WildcardBalances,
+    #[serde(default)]
+    alternating_rewards_applied: bool,
 }
 
 impl RewardEntitlements {
@@ -679,6 +708,7 @@ impl RewardEntitlements {
             starting_packs: config.starting_packs,
             weekly_packs: config.weekly_packs,
             starting_wildcards: config.starting_wildcards.clone(),
+            alternating_rewards_applied: true,
         }
     }
 
@@ -689,6 +719,7 @@ impl RewardEntitlements {
             starting_packs: 12,
             weekly_packs: 4,
             starting_wildcards: WildcardBalances::default(),
+            alternating_rewards_applied: false,
         }
     }
 }
@@ -742,13 +773,34 @@ async fn reconcile_reward_entitlements(
         .and_then(|value| value.checked_add(initial_delta))
         .filter(|value| *value <= MAX_BALANCE)
         .ok_or("The accumulated reward adjustment exceeds the supported balance.")?;
-    let wildcard_delta = WildcardBalances {
+    let mut wildcard_delta = WildcardBalances {
         common: (config.starting_wildcards.common - previous.starting_wildcards.common).max(0),
         uncommon: (config.starting_wildcards.uncommon - previous.starting_wildcards.uncommon)
             .max(0),
         rare: (config.starting_wildcards.rare - previous.starting_wildcards.rare).max(0),
         mythic: (config.starting_wildcards.mythic - previous.starting_wildcards.mythic).max(0),
+        discovery: (config.starting_wildcards.discovery - previous.starting_wildcards.discovery)
+            .max(0),
     };
+    if !previous.alternating_rewards_applied
+        && (config.weekly_wildcards.discovery > 0 || config.wildcard_reward_offsets.mythic > 0)
+    {
+        // Published clients credited one mythic at weeks 4,8,... and no Discovery.
+        // Correct already-claimed periods once using entitlements, never balances:
+        // a spent mythic or Discovery must never be replenished by an upgrade.
+        let (_, entitled) = accumulated_rewards(config, current.last_claimed_period)?;
+        wildcard_delta.mythic += (entitled.mythic - current.last_claimed_period / 4).max(0);
+        wildcard_delta.discovery += entitled.discovery;
+        if wildcard_delta
+            .values()
+            .iter()
+            .any(|(_, amount)| *amount > MAX_BALANCE)
+        {
+            return Err(
+                "The accumulated wildcard adjustment exceeds the supported balance.".into(),
+            );
+        }
+    }
     if packs > 0 {
         ensure_pack_queue(connection, config, Some(current)).await?;
         let changed = sqlx::query("UPDATE league_state SET available_packs=available_packs+? WHERE id=1 AND available_packs<=?")
@@ -788,7 +840,12 @@ async fn reconcile_reward_entitlements(
         version: 1,
         starting_packs: previous.starting_packs.max(config.starting_packs),
         weekly_packs: previous.weekly_packs.max(config.weekly_packs),
+        alternating_rewards_applied: true,
         starting_wildcards: WildcardBalances {
+            discovery: previous
+                .starting_wildcards
+                .discovery
+                .max(config.starting_wildcards.discovery),
             common: previous
                 .starting_wildcards
                 .common
@@ -939,6 +996,7 @@ async fn balances(connection: &mut SqliteConnection) -> Result<WildcardBalances,
             "uncommon" => balances.uncommon = quantity,
             "rare" => balances.rare = quantity,
             "mythic" => balances.mythic = quantity,
+            "discovery" => balances.discovery = quantity,
             _ => (),
         }
     }
@@ -1858,19 +1916,56 @@ pub async fn open_next_boosters(
     .await
 }
 
+#[cfg(test)]
 pub async fn craft_pool(
     pool: &SqlitePool,
     card_id: &str,
     request_id: &str,
     now: i64,
 ) -> Result<CraftingResult, String> {
+    craft_with_kind_pool(pool, card_id, request_id, now, None).await
+}
+
+pub async fn craft_with_kind_pool(
+    pool: &SqlitePool,
+    card_id: &str,
+    request_id: &str,
+    now: i64,
+    wildcard_kind: Option<&str>,
+) -> Result<CraftingResult, String> {
     valid_request_id(request_id)?;
-    let request = serde_json::json!({ "cardId": card_id }).to_string();
+    if wildcard_kind
+        .is_some_and(|kind| !["common", "uncommon", "rare", "mythic", "discovery"].contains(&kind))
+    {
+        return Err("Choose a valid wildcard kind.".into());
+    }
+    let legacy_request = serde_json::json!({ "cardId": card_id }).to_string();
+    let request = match wildcard_kind {
+        Some(kind) => serde_json::json!({ "cardId": card_id, "wildcardKind": kind }).to_string(),
+        None => legacy_request.clone(),
+    };
     let mut transaction = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| e.to_string())?;
-    if let Some(result) = receipt(&mut transaction, request_id, "craft", &request).await? {
+    // Replay successful pre-Discovery crafts even if the card is now owned or
+    // at its limit. Explicit currency requests remain bound to their original kind.
+    if let Some(saved) =
+        sqlx::query("SELECT kind,request_json,result_json FROM progression_operations WHERE id=?")
+            .bind(request_id)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|e| e.to_string())?
+    {
+        let result: CraftingResult = serde_json::from_str(saved.get("result_json"))
+            .map_err(|e| format!("Cannot read the saved operation receipt: {e}"))?;
+        let saved_request: &str = saved.get("request_json");
+        let legacy_retry = saved_request == legacy_request
+            && wildcard_kind != Some("discovery")
+            && wildcard_kind.is_none_or(|kind| kind == result.card.rarity);
+        if saved.get::<&str, _>("kind") != "craft" || (saved_request != request && !legacy_retry) {
+            return Err("This operation identifier was already used for a different request. Start a new action instead of changing a retry.".into());
+        }
         transaction.commit().await.map_err(|e| e.to_string())?;
         return Ok(result);
     }
@@ -1900,9 +1995,25 @@ pub async fn craft_pool(
     if card.oracle_owned >= COLLECTION_COPY_LIMIT {
         return Err("You already own four copies of this card across all printings.".into());
     }
+    let currency = wildcard_kind.unwrap_or(&card.rarity);
+    if currency == "discovery" {
+        if card.oracle_owned > 0 {
+            return Err(
+                "Discovery wildcards can only acquire the first copy of a card you do not own."
+                    .into(),
+            );
+        }
+    } else {
+        if currency != card.rarity {
+            return Err("Use a wildcard matching this printing's rarity.".into());
+        }
+        if card.oracle_owned < 1 {
+            return Err("You must own this card before copying it with a rarity wildcard. Use a Discovery wildcard for its first copy.".into());
+        }
+    }
     let changed =
         sqlx::query("UPDATE wildcards SET quantity=quantity-1 WHERE rarity=? AND quantity>=1")
-            .bind(&card.rarity)
+            .bind(currency)
             .execute(&mut *transaction)
             .await
             .map_err(|e| e.to_string())?
@@ -1910,7 +2021,7 @@ pub async fn craft_pool(
     if changed != 1 {
         return Err(format!(
             "You need one {} wildcard to craft this printing.",
-            card.rarity
+            currency
         ));
     }
     let mut cards = vec![card];
@@ -1984,13 +2095,15 @@ pub async fn craft_card(
     app: AppHandle,
     card_id: String,
     request_id: String,
+    wildcard_kind: Option<String>,
 ) -> Result<CraftingResult, String> {
     let _operation = database_mutation_guard()?;
-    craft_pool(
+    craft_with_kind_pool(
         &open_pool(&app).await?,
         &card_id,
         &request_id,
         crate::league_clock::effective_now(),
+        wildcard_kind.as_deref(),
     )
     .await
 }
@@ -2041,6 +2154,10 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::raw_sql(include_str!("../migrations/008_discovery_wildcards.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
         let settings = serde_json::json!({ "league": { "startedAt": NOW, "startingPacks": 2, "startingWildcards": {"common":0,"uncommon":0,"rare":0,"mythic":0}, "weeklyPacks": 4, "weeklyWildcards": { "common": 0, "uncommon": 0, "rare": 2, "mythic": 0 }, "enabledSets": ["tst"], "mythicProbability": 0.125 } });
         sqlx::query("INSERT INTO settings(key,value) VALUES('app',?)")
             .bind(settings.to_string())
@@ -2078,6 +2195,8 @@ mod tests {
         rules.starting_packs = 12;
         rules.weekly_packs = 4;
         rules.starting_wildcards = WildcardBalances::default();
+        rules.weekly_wildcards.discovery = 0;
+        rules.wildcard_reward_offsets = WildcardBalances::default();
         sqlx::query("UPDATE settings SET value=? WHERE key='app'")
             .bind(serde_json::json!({ "league": rules }).to_string())
             .execute(&db.pool)
@@ -2705,8 +2824,12 @@ mod tests {
                 .execute(&db.pool)
                 .await
                 .unwrap();
+            sqlx::query("INSERT INTO collection(card_id,quantity) VALUES('r',1)")
+                .execute(&db.pool)
+                .await
+                .unwrap();
             let result = craft_pool(&db.pool, "r", "craft-once", NOW).await.unwrap();
-            assert_eq!(result.card.owned, 1);
+            assert_eq!(result.card.owned, 2);
             assert_eq!(result.wildcards.rare, 0);
             assert_eq!(
                 craft_pool(&db.pool, "r", "craft-once", NOW + 1)
@@ -2714,7 +2837,7 @@ mod tests {
                     .unwrap()
                     .card
                     .owned,
-                1
+                2
             );
             assert!(craft_pool(&db.pool, "r", "craft-no-wildcards", NOW)
                 .await
@@ -2724,7 +2847,7 @@ mod tests {
                     .fetch_one(&db.pool)
                     .await
                     .unwrap(),
-                1
+                2
             );
             sqlx::query("UPDATE cards SET set_code='locked' WHERE id='u'")
                 .execute(&db.pool)
@@ -3012,6 +3135,8 @@ mod tests {
         old.starting_packs = 12;
         old.weekly_packs = 4;
         old.starting_wildcards = WildcardBalances::default();
+        old.weekly_wildcards.discovery = 0;
+        old.wildcard_reward_offsets = WildcardBalances::default();
         set_reward_rules(&db.pool, &old).await;
         begin_pool(&db.pool, NOW).await.unwrap();
         claim_pool(&db.pool, NOW + 4 * WEEK_SECONDS).await.unwrap();
@@ -3087,7 +3212,8 @@ mod tests {
                     common: 10,
                     uncommon: 5,
                     rare: 2,
-                    mythic: 1
+                    mythic: 1,
+                    discovery: 1,
                 }
             );
             assert_eq!(
@@ -3135,7 +3261,8 @@ mod tests {
                     common: 26,
                     uncommon: 13,
                     rare: 4,
-                    mythic: 2
+                    mythic: 2,
+                    discovery: 2,
                 }
             );
             let late = automatic_status_pool(&late.pool, NOW + 4 * WEEK_SECONDS)
@@ -3156,10 +3283,12 @@ mod tests {
             let db = fixture().await;
             set_reward_rules(&db.pool, &current_reward_rules()).await;
             automatic_status_pool(&db.pool, NOW).await.unwrap();
-            let crafted = craft_pool(&db.pool, "c", "first-use-craft", NOW)
-                .await
-                .unwrap();
-            assert_eq!(crafted.wildcards.common, 9);
+            let crafted =
+                craft_with_kind_pool(&db.pool, "c", "first-use-craft", NOW, Some("discovery"))
+                    .await
+                    .unwrap();
+            assert_eq!(crafted.wildcards.common, 10);
+            assert_eq!(crafted.wildcards.discovery, 0);
             let before = reconciliation_snapshot(&db.pool).await;
             db.pool.close().await;
             let reopened = SqlitePoolOptions::new()
@@ -3183,7 +3312,9 @@ mod tests {
     fn first_use_preserves_existing_first_opening_grant_spends_and_receipts_exactly() {
         tauri::async_runtime::block_on(async {
             let db = fixture().await;
-            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            let mut rules = current_reward_rules();
+            rules.mythic_probability = 0.0;
+            set_reward_rules(&db.pool, &rules).await;
             // Reproduce the released app: the first opening granted rewards.
             open_next_pool_boosters(&db.pool, 1, "released-first-opening", NOW)
                 .await
@@ -3244,7 +3375,8 @@ mod tests {
                         common: 10 + 4 * week,
                         uncommon: 5 + 2 * week,
                         rare: 2 + week / 2,
-                        mythic: 1 + week / 4,
+                        mythic: 1 + (week + 2) / 4,
+                        discovery: 1 + week / 4,
                     }
                 );
                 assert_eq!(newcomer.available_packs, veteran.available_packs);
@@ -3488,6 +3620,8 @@ mod tests {
             lower.starting_packs = 0;
             lower.weekly_packs = 0;
             lower.starting_wildcards = WildcardBalances::default();
+            lower.weekly_wildcards.discovery = 0;
+            lower.wildcard_reward_offsets = WildcardBalances::default();
             set_reward_rules(&db.pool, &lower).await;
             let same = automatic_status_pool(&db.pool, NOW + 4 * WEEK_SECONDS)
                 .await
@@ -3988,16 +4122,25 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let db = fixture().await;
             begin_pool(&db.pool, NOW).await.unwrap();
-            sqlx::query("UPDATE wildcards SET quantity=1 WHERE rarity='rare'")
+            sqlx::query("UPDATE wildcards SET quantity=1 WHERE rarity='discovery'")
                 .execute(&db.pool)
                 .await
                 .unwrap();
             sqlx::raw_sql("CREATE TRIGGER reject_test_card BEFORE INSERT ON collection WHEN NEW.card_id='r' BEGIN SELECT RAISE(ABORT,'test insert failure'); END;").execute(&db.pool).await.unwrap();
-            assert!(craft_pool(&db.pool, "r", "failed-insert", NOW)
-                .await
-                .unwrap_err()
-                .contains("test insert failure"));
-            assert_eq!(status_pool(&db.pool, NOW).await.unwrap().wildcards.rare, 1);
+            assert!(
+                craft_with_kind_pool(&db.pool, "r", "failed-insert", NOW, Some("discovery"))
+                    .await
+                    .unwrap_err()
+                    .contains("test insert failure")
+            );
+            assert_eq!(
+                status_pool(&db.pool, NOW)
+                    .await
+                    .unwrap()
+                    .wildcards
+                    .discovery,
+                1
+            );
             assert_eq!(
                 sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM collection")
                     .fetch_one(&db.pool)
@@ -4126,7 +4269,8 @@ mod tests {
                     common: 18,
                     uncommon: 9,
                     rare: 3,
-                    mythic: 1
+                    mythic: 2,
+                    discovery: 1,
                 }
             );
             assert_eq!(joined.enabled_sets, vec!["fdn"]);
@@ -4260,7 +4404,8 @@ mod tests {
                     common: 16,
                     uncommon: 8,
                     rare: 2,
-                    mythic: 1
+                    mythic: 1,
+                    discovery: 0,
                 }
             );
             assert_eq!(claimed.next_expansion.unwrap().code, "WOE");
@@ -4326,7 +4471,8 @@ mod tests {
                     common: 48,
                     uncommon: 24,
                     rare: 6,
-                    mythic: 3
+                    mythic: 3,
+                    discovery: 0,
                 }
             );
             assert_eq!(joined.enabled_sets, vec!["fdn", "blb", "woe", "lci"]);
@@ -4509,6 +4655,7 @@ mod tests {
                     uncommon: 109,
                     rare: 28,
                     mythic: 14,
+                    discovery: 14,
                 }
             );
             assert_eq!(
@@ -4521,58 +4668,26 @@ mod tests {
     #[test]
     fn wildcard_cadence_uses_calendar_boundaries_for_rare_and_mythic_rewards() {
         let rules = crate::league_rules::builtin_rules().unwrap();
-        for (week, expected) in [
-            (0, [0, 0, 0, 0]),
-            (1, [4, 2, 0, 0]),
-            (2, [8, 4, 1, 0]),
-            (3, [12, 6, 1, 0]),
-            (4, [16, 8, 2, 1]),
-            (5, [20, 10, 2, 1]),
-            (7, [28, 14, 3, 1]),
-            (8, [32, 16, 4, 2]),
-        ] {
+        for week in 0..=12 {
             let (packs, rewards) = accumulated_rewards(&rules, week).unwrap();
             assert_eq!(packs, week * 6);
             assert_eq!(
                 rewards,
                 WildcardBalances {
-                    common: expected[0],
-                    uncommon: expected[1],
-                    rare: expected[2],
-                    mythic: expected[3]
+                    common: 4 * week,
+                    uncommon: 2 * week,
+                    rare: week / 2,
+                    mythic: (week + 2) / 4,
+                    discovery: week / 4,
                 }
             );
+            if week > 0 {
+                let (_, grant) = rewards_between(&rules, week - 1, week).unwrap();
+                assert_eq!(grant.mythic, i64::from(week % 4 == 2));
+                assert_eq!(grant.discovery, i64::from(week % 4 == 0));
+                assert!(grant.mythic == 0 || grant.discovery == 0);
+            }
         }
-        let (_, at_second_week) = rewards_between(&rules, 1, 2).unwrap();
-        assert_eq!(
-            at_second_week,
-            WildcardBalances {
-                common: 4,
-                uncommon: 2,
-                rare: 1,
-                mythic: 0
-            }
-        );
-        let (_, at_fourth_week) = rewards_between(&rules, 3, 4).unwrap();
-        assert_eq!(
-            at_fourth_week,
-            WildcardBalances {
-                common: 4,
-                uncommon: 2,
-                rare: 1,
-                mythic: 1
-            }
-        );
-        let (_, skipped_weeks) = rewards_between(&rules, 1, 7).unwrap();
-        assert_eq!(
-            skipped_weeks,
-            WildcardBalances {
-                common: 24,
-                uncommon: 12,
-                rare: 3,
-                mythic: 1
-            }
-        );
         assert_eq!(
             rewards_between(&rules, 9, 7).unwrap(),
             (0, WildcardBalances::default())
@@ -4596,7 +4711,8 @@ mod tests {
                     common: 4,
                     uncommon: 2,
                     rare: 0,
-                    mythic: 0
+                    mythic: 0,
+                    discovery: 0,
                 }
             );
             let missed = status_pool(&veteran.pool, NOW + 3 * WEEK_SECONDS)
@@ -4609,7 +4725,8 @@ mod tests {
                     common: 8,
                     uncommon: 4,
                     rare: 1,
-                    mythic: 0
+                    mythic: 0,
+                    discovery: 0,
                 }
             );
             let caught_up = claim_pool(&veteran.pool, NOW + 3 * WEEK_SECONDS)
@@ -4624,7 +4741,8 @@ mod tests {
                     common: 12,
                     uncommon: 6,
                     rare: 1,
-                    mythic: 0
+                    mythic: 0,
+                    discovery: 0,
                 }
             );
             assert_eq!(caught_up.wildcards, late_join.wildcards);
@@ -4638,7 +4756,8 @@ mod tests {
                     common: 4,
                     uncommon: 2,
                     rare: 1,
-                    mythic: 1
+                    mythic: 1,
+                    discovery: 0,
                 }
             );
             assert_eq!(fourth_week.claimable_packs, 12);
@@ -4654,7 +4773,8 @@ mod tests {
                     common: 16,
                     uncommon: 8,
                     rare: 2,
-                    mythic: 1
+                    mythic: 1,
+                    discovery: 0,
                 }
             );
             assert_eq!(paid.wildcards, newcomer_paid.wildcards);
@@ -4670,7 +4790,7 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let db = scheduled_fixture().await;
             begin_pool(&db.pool, NOW).await.unwrap();
-            sqlx::query("UPDATE wildcards SET quantity=CASE rarity WHEN 'common' THEN 5 WHEN 'uncommon' THEN 6 WHEN 'rare' THEN 7 WHEN 'mythic' THEN 8 END").execute(&db.pool).await.unwrap();
+            sqlx::query("UPDATE wildcards SET quantity=CASE rarity WHEN 'common' THEN 5 WHEN 'uncommon' THEN 6 WHEN 'rare' THEN 7 WHEN 'mythic' THEN 8 ELSE quantity END").execute(&db.pool).await.unwrap();
             sqlx::query("INSERT INTO collection(card_id,quantity) VALUES('fdn-c',2)")
                 .execute(&db.pool)
                 .await
@@ -4682,7 +4802,8 @@ mod tests {
                     common: 5,
                     uncommon: 6,
                     rare: 7,
-                    mythic: 8
+                    mythic: 8,
+                    discovery: 0,
                 }
             );
             let paid = claim_pool(&db.pool, NOW + 2 * WEEK_SECONDS).await.unwrap();
@@ -4692,7 +4813,8 @@ mod tests {
                     common: 13,
                     uncommon: 10,
                     rare: 8,
-                    mythic: 8
+                    mythic: 8,
+                    discovery: 0,
                 }
             );
             assert_eq!(
@@ -4740,5 +4862,227 @@ mod tests {
             enabled_sets(&config, state, NOW + 4 * WEEK_SECONDS),
             vec!["tst", "neo", "khm"]
         );
+    }
+    #[test]
+    fn discovery_first_copies_and_normal_copies_use_explicit_atomic_currencies() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            automatic_status_pool(&db.pool, NOW).await.unwrap();
+            let before = reconciliation_snapshot(&db.pool).await;
+            assert!(craft_pool(&db.pool, "r", "unowned-normal", NOW)
+                .await
+                .unwrap_err()
+                .contains("must own"));
+            assert_eq!(reconciliation_snapshot(&db.pool).await, before);
+            let discovered =
+                craft_with_kind_pool(&db.pool, "r", "discover-r", NOW, Some("discovery"))
+                    .await
+                    .unwrap();
+            assert_eq!(discovered.card.oracle_owned, 1);
+            assert_eq!(discovered.wildcards.discovery, 0);
+            assert_eq!(discovered.wildcards.rare, 2);
+            let replay = craft_with_kind_pool(&db.pool, "r", "discover-r", NOW, Some("discovery"))
+                .await
+                .unwrap();
+            assert_eq!(replay.card.oracle_owned, 1);
+            assert!(
+                craft_with_kind_pool(&db.pool, "r", "discover-r", NOW, Some("rare"))
+                    .await
+                    .is_err()
+            );
+            assert!(
+                craft_with_kind_pool(&db.pool, "r", "discover-owned", NOW, Some("discovery"))
+                    .await
+                    .unwrap_err()
+                    .contains("first copy")
+            );
+            assert!(
+                craft_with_kind_pool(&db.pool, "r", "wrong-rarity", NOW, Some("common"))
+                    .await
+                    .unwrap_err()
+                    .contains("matching")
+            );
+            sqlx::query("INSERT INTO cards(id,oracle_id,name,set_code,collector_number,rarity,metadata_json,type_line) SELECT 'r-alt',oracle_id,name,set_code,'alt',rarity,metadata_json,type_line FROM cards WHERE id='r'").execute(&db.pool).await.unwrap();
+            let copied = craft_with_kind_pool(&db.pool, "r-alt", "copy-r-alt", NOW, Some("rare"))
+                .await
+                .unwrap();
+            assert_eq!(copied.card.oracle_owned, 2);
+            assert_eq!(copied.wildcards.rare, 1);
+            assert_eq!(copied.wildcards.discovery, 0);
+            assert!(craft_with_kind_pool(
+                &db.pool,
+                "r-alt",
+                "discover-alt",
+                NOW,
+                Some("discovery")
+            )
+            .await
+            .unwrap_err()
+            .contains("first copy"));
+            let snapshot = reconciliation_snapshot(&db.pool).await;
+            assert!(
+                craft_with_kind_pool(&db.pool, "m", "empty-discovery", NOW, Some("discovery"))
+                    .await
+                    .unwrap_err()
+                    .contains("need one discovery")
+            );
+            assert_eq!(reconciliation_snapshot(&db.pool).await, snapshot);
+        });
+    }
+
+    #[test]
+    fn concurrent_discoveries_grant_only_one_first_copy_and_never_spend_normal_currency() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            automatic_status_pool(&db.pool, NOW).await.unwrap();
+            sqlx::query("UPDATE wildcards SET quantity=2 WHERE rarity='discovery'")
+                .execute(&db.pool)
+                .await
+                .unwrap();
+            let first = db.pool.clone();
+            let second = db.pool.clone();
+            let a = tokio::spawn(async move {
+                craft_with_kind_pool(&first, "r", "discovery-race-a", NOW, Some("discovery")).await
+            });
+            let b = tokio::spawn(async move {
+                craft_with_kind_pool(&second, "r", "discovery-race-b", NOW, Some("discovery")).await
+            });
+            assert_ne!(a.await.unwrap().is_ok(), b.await.unwrap().is_ok());
+            let status = status_pool(&db.pool, NOW).await.unwrap();
+            assert_eq!(status.wildcards.discovery, 1);
+            assert_eq!(status.wildcards.rare, 2);
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT quantity FROM collection WHERE card_id='r'")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap(),
+                1
+            );
+        });
+    }
+
+    #[test]
+    fn released_profiles_receive_missing_discovery_and_shifted_mythic_entitlements_once() {
+        tauri::async_runtime::block_on(async {
+            for week in [0, 1, 2, 4, 6, 8, 13] {
+                let db = fixture().await;
+                let current = current_reward_rules();
+                let mut old = current.clone();
+                old.starting_wildcards.discovery = 0;
+                old.weekly_wildcards.discovery = 0;
+                old.wildcard_reward_offsets = WildcardBalances::default();
+                set_reward_rules(&db.pool, &old).await;
+                let now = NOW + week * WEEK_SECONDS;
+                automatic_status_pool(&db.pool, now).await.unwrap();
+                // The released v1 ledger has neither discovery nor the schedule marker.
+                sqlx::query("UPDATE settings SET value=json_remove(value,'$.startingWildcards.discovery','$.alternatingRewardsApplied') WHERE key=?").bind(REWARD_ENTITLEMENTS_KEY).execute(&db.pool).await.unwrap();
+                // Model all old mythics as spent; an upgrade must not refill them.
+                sqlx::query("UPDATE wildcards SET quantity=0 WHERE rarity='mythic'")
+                    .execute(&db.pool)
+                    .await
+                    .unwrap();
+                sqlx::query("INSERT INTO collection(card_id,quantity) VALUES('c',2)")
+                    .execute(&db.pool)
+                    .await
+                    .unwrap();
+                let old_status = status_pool(&db.pool, now).await.unwrap();
+                let preserved = owned_reward_snapshot(&db.pool).await;
+                set_reward_rules(&db.pool, &current).await;
+                let first = db.pool.clone();
+                let second = db.pool.clone();
+                let a = tokio::spawn(async move { automatic_status_pool(&first, now).await });
+                let b = tokio::spawn(async move { automatic_status_pool(&second, now).await });
+                for result in [a.await.unwrap().unwrap(), b.await.unwrap().unwrap()] {
+                    assert_eq!(result.available_packs, old_status.available_packs);
+                    assert_eq!(result.wildcards.common, old_status.wildcards.common);
+                    assert_eq!(result.wildcards.uncommon, old_status.wildcards.uncommon);
+                    assert_eq!(result.wildcards.rare, old_status.wildcards.rare);
+                    assert_eq!(result.wildcards.mythic, (week + 2) / 4 - week / 4);
+                    assert_eq!(result.wildcards.discovery, 1 + week / 4);
+                }
+                assert_eq!(owned_reward_snapshot(&db.pool).await, preserved);
+                // Spending Discovery must survive repeated status and restart paths.
+                sqlx::query("UPDATE wildcards SET quantity=0 WHERE rarity='discovery'")
+                    .execute(&db.pool)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    automatic_status_pool(&db.pool, now)
+                        .await
+                        .unwrap()
+                        .wildcards
+                        .discovery,
+                    0
+                );
+                assert_eq!(
+                    begin_pool(&db.pool, now).await.unwrap().wildcards.discovery,
+                    0
+                );
+                let later = automatic_status_pool(&db.pool, NOW + (week + 4) * WEEK_SECONDS)
+                    .await
+                    .unwrap();
+                assert_eq!(later.wildcards.discovery, 1);
+                assert_eq!(later.wildcards.mythic, 1 + (week + 2) / 4 - week / 4);
+            }
+        });
+    }
+
+    #[test]
+    fn discovery_upgrade_rolls_back_with_ledger_failure_and_preserves_legacy_craft_receipts() {
+        tauri::async_runtime::block_on(async {
+            let db = fixture().await;
+            let mut old = current_reward_rules();
+            old.starting_wildcards.discovery = 0;
+            old.weekly_wildcards.discovery = 0;
+            old.wildcard_reward_offsets = WildcardBalances::default();
+            set_reward_rules(&db.pool, &old).await;
+            automatic_status_pool(&db.pool, NOW).await.unwrap();
+            sqlx::query("UPDATE settings SET value=json_remove(value,'$.startingWildcards.discovery','$.alternatingRewardsApplied') WHERE key=?").bind(REWARD_ENTITLEMENTS_KEY).execute(&db.pool).await.unwrap();
+            set_reward_rules(&db.pool, &current_reward_rules()).await;
+            let before = reconciliation_snapshot(&db.pool).await;
+            sqlx::raw_sql("CREATE TRIGGER reject_discovery_ledger BEFORE UPDATE ON settings WHEN NEW.key='league_reward_entitlements_v1' BEGIN SELECT RAISE(ABORT,'ledger test failure'); END;").execute(&db.pool).await.unwrap();
+            assert!(automatic_status_pool(&db.pool, NOW)
+                .await
+                .unwrap_err()
+                .contains("ledger test failure"));
+            assert_eq!(reconciliation_snapshot(&db.pool).await, before);
+            sqlx::raw_sql("DROP TRIGGER reject_discovery_ledger")
+                .execute(&db.pool)
+                .await
+                .unwrap();
+            assert_eq!(
+                automatic_status_pool(&db.pool, NOW)
+                    .await
+                    .unwrap()
+                    .wildcards
+                    .discovery,
+                1
+            );
+            // Historical results without discovery deserialize and replay before new rules.
+            let card = recipe_card("r", "rare", "Creature");
+            let result=serde_json::json!({"card":card,"wildcards":{"common":0,"uncommon":0,"rare":0,"mythic":0}}).to_string();
+            sqlx::query("INSERT INTO progression_operations(id,kind,request_json,result_json,created_at) VALUES('legacy-craft','craft',?,?,?)")
+                .bind(serde_json::json!({"cardId":"r"}).to_string()).bind(result).bind(timestamp(NOW).unwrap()).execute(&db.pool).await.unwrap();
+            let before = reconciliation_snapshot(&db.pool).await;
+            assert_eq!(
+                craft_pool(&db.pool, "r", "legacy-craft", NOW)
+                    .await
+                    .unwrap()
+                    .wildcards
+                    .discovery,
+                0
+            );
+            craft_with_kind_pool(&db.pool, "r", "legacy-craft", NOW, Some("rare"))
+                .await
+                .unwrap();
+            assert!(
+                craft_with_kind_pool(&db.pool, "r", "legacy-craft", NOW, Some("discovery"))
+                    .await
+                    .is_err()
+            );
+            assert_eq!(reconciliation_snapshot(&db.pool).await, before);
+        });
     }
 }
