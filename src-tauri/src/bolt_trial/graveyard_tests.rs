@@ -1,19 +1,11 @@
-use super::tests::{choose, forge_install, play_until, zone};
-use super::{Engine, Scenario};
+use super::tests::{choose, play_until, seeded_deck, zone};
+use super::Engine;
 use serde_json::Value;
-use std::sync::atomic::AtomicBool;
-
-fn seeded(deck: &str, opponent: Option<&str>) -> Engine {
-    let mut game =
-        Engine::launch_seeded(&forge_install(), Scenario::Deck, Some(deck), opponent, 19).unwrap();
-    game.next_state(None, &AtomicBool::new(false)).unwrap();
-    game
-}
 
 #[test]
 #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
 fn real_forge_foundations_think_twice_requires_flashback_cost_and_exiles_after_drawing() {
-    let mut game = seeded("[Main]\n9 Island\n5 Think Twice|FDN|[165]\n4 Opt", None);
+    let mut game = seeded_deck("[Main]\n9 Island\n5 Think Twice|FDN|[165]\n4 Opt", None, 19);
     choose(&mut game, "Keep hand");
     choose(&mut game, "Play Island");
     choose(&mut game, "Cast Opt");
@@ -64,9 +56,10 @@ fn real_forge_foundations_think_twice_requires_flashback_cost_and_exiles_after_d
 #[test]
 #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
 fn real_forge_foundations_reassembling_skeleton_returns_tapped_from_its_owners_graveyard() {
-    let mut game = seeded(
+    let mut game = seeded_deck(
         "[Main]\n7 Swamp\n7 Reassembling Skeleton|FDN|[182]",
         Some("[Main]\n24 Mountain"),
+        19,
     );
     let discard = "Discard Reassembling Skeleton";
     play_until(

@@ -27,6 +27,7 @@ Select a card to move it, cast it, change its face, mark combat, or add counters
 - **Undo** takes back the last submitted Forge decision, even from the result screen. Forge replays the original decks, shuffle seed and prior choices, then verifies the restored decision before replacing the live game. The log rewinds with it. Switching seats and opening a card's ability picker are view actions and leave undo history alone.
 - Select a permanent with multiple available activations to see each cost and effect. Choosing an ability submits it to Forge. Cancel returns to the same decision. On Foundations cards this includes Soul-Guide Lantern's graveyard exile and draw abilities. Scry and surveil let the deciding player place cards and order the ones they keep. Spells such as Duress show the chooser the revealed hand and identify the legal discards.
 - Open your graveyard to use abilities and spells that Forge allows there, such as Reassembling Skeleton's return ability and Think Twice's flashback. Secluded Courtyard lets you choose its creature type as it enters and the color when you use its restricted mana ability.
+- For spells such as Wildwood Scourge, choose the value of X you can pay. Both players can see the announced value on the stack. When several of your abilities trigger together, choose which resolves first. For example, Temple of Mystery can scry before Tatyova draws, or you can draw first and scry the next card.
 - Forge follows the turn's phases and steps. It passes priority automatically when a seat has no play to make, including while spells and abilities are on the stack. If a spell or activated ability is available, **Pass priority** lets you save it for later. Forge pays mana and handles some secondary card choices.
 - **Giant Growth in combat** lets you attack, block from the other seat, then decide whether to cast Giant Growth during the declare blockers step.
 - **Library search and activated abilities** includes Bushwhack's land and fight modes, Evolving Wilds, Cultivate and Mild-Mannered Librarian. The search dialog shows eligible cards and lets you finish early when the effect permits it.
@@ -135,10 +136,11 @@ npm run test:decks
 npm test
 ```
 
-To run the installed-engine practice tests, set `FORGE_BOLT_TEST_INSTALL` to the Forge Desktop 2.0.13 installation folder and run
+The Forge practice regression suite uses JDK 17 and the card scripts from Forge Desktop 2.0.13. It runs isolated matches with temporary decks. Run it separately from the default native tests.
 
 ```powershell
-npm test -- --locked --lib real_forge -- --ignored --test-threads=1
+$env:FORGE_BOLT_TEST_INSTALL = 'C:\path\to\Forge 2.0.13'
+npm run test:forge
 ```
 
 The historical 0.3.0 baseline passed the frontend build, all 126 native checks (122 unit, one migration guard, and three cold-configuration tests), and 55 Node checks (24 deck-autosave/lifecycle checks plus 31 updater/version/verifier/migration checks). The full locked suite passed in a fresh checkout with Rust 1.90 and in both tagged Windows/Linux jobs. An isolated Windows desktop profile verified missing-Forge configuration and automatic setup resumption, compact deck controls and naming dialogs, automatic Forge saves and failure retries, and exact numbered column counts. Auto now rounds up at borderline widths: a scaled laptop layout at 1463 pixels and 175% DPI showed 4 open / 7 collapsed, while 1920 pixels showed 5 open / 7 collapsed. Lost-response checks covered new-deck deduplication and Collection quantity changes and target switching up to four copies. Shared wildcard visuals, full expansion names in opening history, and automatic reveal clearing also passed. Native pack tests cover common-only reduced weight, higher-rarity land priority, normal uncommon identity weighting, shared land preferences, printing-neutral odds, pack variety, rarity odds, basic exclusion, and completion fallbacks. Aggregate simulations covered 650,000 fresh packs across the 13 populated scheduled expansions; the missing Secrets of Strixhaven pool was not simulated. Desktop pack checks used separate data and Forge exports. Native integration tests were not rerun while the actively played preview was running.

@@ -22,7 +22,11 @@ Saved-deck games support both seats on one device and solo practice. Forge advan
 
 Both tables have a public game log grouped by turn. Manual games save it alongside the existing checkpoint. Forge practice records public engine events and explicit priority passes. Undo rebuilds the previous decision using the original random seed and choices, checks the replay, and restores the corresponding log and private seat views. A failed replay leaves the current match available.
 
-Foundations is the first set for interaction coverage. The installed Forge 2.0.13 integration test constructs a practice deck with all 771 Foundations printings across 517 distinct card names. Separate games exercise Soul-Guide Lantern's two abilities, alternative mana abilities, private scry and surveil ordering, discard choices, and sacrifices. The adapter uses Forge's rules scripts and controller callbacks across cards. Further coverage should exercise player decisions by mechanic, including variable costs and ordering simultaneous triggers. Loading the entire edition verifies its printings and scripts. Gameplay coverage comes from resolving those interactions in actual matches.
+Foundations is the first set for interaction coverage. The installed Forge 2.0.13 regression suite checks all 771 printings across 517 distinct names and verifies that each printing can enter a practice deck. Gameplay tests use seeded decks to play both sides of a decision and check the resulting hands, stack, battlefield and life totals.
+
+The suite covers alternate activations, private scry and surveil ordering, discards, sacrifices and flashback. Combo tests cover Tatyova with Temple of Mystery in either trigger order, Wildwood Scourge with a kicked Gnarlid Colony, and Mossborn Hydra with Doubling Season and Evolving Wilds. Bloodthirsty Conqueror and Marauding Blight-Priest can drain an opponent to zero, and the opponent can interrupt the loop with Unsummon. [Documented Conqueror combo](https://commanderspellbook.com/combo/110-6191/)
+
+Other cases check when a choice takes effect. Dwynen's Elite checks for another Elf again on resolution. Felidar Savior can target up to two distinct creatures, and Affectionate Indrik chooses its target before its controller decides whether to fight. Paying X while a trigger resolves, as with Wildborn Preserver, remains a coverage gap. [Foundations release notes](https://magic.wizards.com/en/news/feature/foundations-release-notes)
 
 **Technology:**
 

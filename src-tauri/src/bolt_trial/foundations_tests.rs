@@ -1,4 +1,4 @@
-use super::tests::{choose, practice_engine, zone};
+use super::tests::{choose, play_until, practice_engine, seeded_deck, zone};
 use super::{seat_view, Engine, Scenario, Seat};
 use std::collections::HashSet;
 use std::fmt::Write;
@@ -6,11 +6,78 @@ use std::sync::atomic::AtomicBool;
 
 #[test]
 #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
+fn real_forge_foundations_dwynens_elite_rechecks_for_another_elf_on_resolution() {
+    for unsummon in [false, true] {
+        let mut game = seeded_deck(
+            "[Main]\n6 Forest|FDN\n3 Llanowar Elves|FDN|[227]\n3 Dwynen's Elite|FDN|[218]",
+            Some("[Main]\n8 Island|FDN\n4 Unsummon|FDN|[599]"),
+            19,
+        );
+        let setup = [
+            "Keep hand",
+            "Play Forest",
+            "Play Island",
+            "No attacks",
+            "Pass priority",
+        ];
+        for spell in ["Cast Llanowar Elves", "Cast Dwynen's Elite"] {
+            play_until(&mut game, spell, &setup);
+            choose(&mut game, spell);
+        }
+        // Let the creature resolve, then give Player 2 priority with its
+        // distinct triggered ability on the stack.
+        assert_eq!(game.current["stack"][0]["name"], "Dwynen's Elite");
+        choose(&mut game, "Pass priority");
+        assert_eq!(game.current["actor"], "opponent");
+        assert_eq!(game.current["stack"][0]["name"], "Dwynen's Elite");
+        assert!(game.current["stack"][0]["description"].as_str().is_some());
+        assert!(zone(&game, "player", "battlefield")
+            .iter()
+            .any(|card| card["name"] == "Dwynen's Elite"));
+        if unsummon {
+            choose(&mut game, "Cast Unsummon");
+            choose(&mut game, "Target Llanowar Elves");
+        }
+        for _ in 0..6 {
+            if game.current["stack"].as_array().unwrap().is_empty() {
+                break;
+            }
+            choose(&mut game, "Pass priority");
+        }
+        assert!(game.current["stack"].as_array().unwrap().is_empty());
+        let battlefield = zone(&game, "player", "battlefield");
+        let elves: Vec<_> = battlefield
+            .iter()
+            .filter(|card| card["name"] == "Elf Warrior Token")
+            .collect();
+        assert_eq!(elves.len(), usize::from(!unsummon), "{battlefield:?}");
+        assert!(!zone(&game, "opponent", "battlefield")
+            .iter()
+            .any(|card| card["name"] == "Elf Warrior Token"));
+        if let Some(token) = elves.first() {
+            assert!(token["typeLine"].as_str().unwrap().contains("Elf Warrior"));
+            assert_eq!(token["power"], 1);
+            assert_eq!(token["toughness"], 1);
+        }
+        assert_eq!(
+            battlefield
+                .iter()
+                .any(|card| card["name"] == "Llanowar Elves"),
+            !unsummon,
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
 fn real_forge_loads_every_foundations_printing_into_deck_practice() {
     let install = std::env::var("FORGE_BOLT_TEST_INSTALL").unwrap();
     let mut editions = crate::decks::catalog_editions(Some(&install)).unwrap();
     let (_, printings) = editions.remove("fdn").expect("Foundations edition");
-    assert!(!printings.is_empty());
+    // Check the pinned edition independently of how many rows our importer returns.
+    let names: HashSet<_> = printings.iter().map(|(_, name)| name).collect();
+    assert_eq!(printings.len(), 771);
+    assert_eq!(names.len(), 517);
     let mut deck = String::from("[Main]\n");
     for (number, name) in &printings {
         writeln!(deck, "1 {name}|FDN|[{number}]").unwrap();
@@ -23,28 +90,17 @@ fn real_forge_loads_every_foundations_printing_into_deck_practice() {
         .as_u64()
         .unwrap() as usize;
     assert_eq!(dealt + library, printings.len());
-    let names: HashSet<_> = printings.iter().map(|(_, name)| name).collect();
-    println!(
-        "Forge loaded {} Foundations printings across {} distinct card names.",
-        printings.len(),
-        names.len()
-    );
 }
 
 #[test]
 #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
 fn real_forge_foundations_surveil_hides_the_look_and_honors_the_chosen_order() {
-    let install = std::env::var("FORGE_BOLT_TEST_INSTALL").unwrap();
-    let mut engine = Engine::launch_seeded(
-        std::path::Path::new(&install),
-        Scenario::Deck,
-        Some("[Main]\n16 Island|FDN\n10 Cephalid Inkmage|FDN\n"),
+    let mut engine = seeded_deck(
+        "[Main]\n16 Island|FDN\n10 Cephalid Inkmage|FDN\n",
         Some("[Main]\n40 Forest|FDN\n"),
         743,
-    )
-    .unwrap();
+    );
     let cancel = AtomicBool::new(false);
-    engine.next_state(None, &cancel).unwrap();
     for _ in 0..80 {
         if engine.current["librarySearch"]["operation"] == "Surveil" {
             break;
@@ -122,4 +178,68 @@ fn real_forge_foundations_surveil_hides_the_look_and_honors_the_chosen_order() {
         choose(&mut engine, next);
     }
     panic!("Did not reach the second draw after surveil");
+}
+
+#[test]
+#[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
+fn real_forge_foundations_evolving_wilds_landfall_with_doubling_season() {
+    let deck = "[Main]\n14 Forest|FDN\n4 Doubling Season|FDN\n4 Mossborn Hydra|FDN\n4 Evolving Wilds|FDN\n";
+    let setup = [
+        "Play Forest",
+        "Pass priority",
+        "No attacks",
+        "Discard Forest",
+        "Discard",
+    ];
+    for fetch in [false, true] {
+        let mut game = seeded_deck(deck, None, 61);
+        choose(&mut game, "Keep hand");
+        play_until(&mut game, "Cast Doubling Season", &setup);
+        choose(&mut game, "Cast Doubling Season");
+        play_until(&mut game, "Cast Mossborn Hydra", &setup);
+        choose(&mut game, "Cast Mossborn Hydra");
+        play_until(
+            &mut game,
+            "Play Evolving Wilds",
+            &["Pass priority", "No attacks", "Discard Forest", "Discard"],
+        );
+        let hydra = |game: &Engine| {
+            let card = zone(game, "player", "battlefield")
+                .iter()
+                .find(|card| card["name"] == "Mossborn Hydra")
+                .expect("Hydra on the battlefield");
+            let counters = card["counters"]["+1/+1"].as_u64().unwrap();
+            assert_eq!(card["power"], counters);
+            assert_eq!(card["toughness"], counters);
+            counters
+        };
+        assert_eq!(hydra(&game), 2);
+
+        choose(&mut game, "Play Evolving Wilds");
+        assert_eq!(game.current["stack"][0]["name"], "Mossborn Hydra");
+        choose(&mut game, "{T}, Sacrifice Evolving Wilds");
+        play_until(&mut game, "Choose Forest", &["Pass priority"]);
+        assert_eq!(hydra(&game), 2);
+        assert!(zone(&game, "player", "graveyard")
+            .iter()
+            .any(|c| c["name"] == "Evolving Wilds"));
+        choose(
+            &mut game,
+            if fetch {
+                "Choose Forest"
+            } else {
+                "Finish search"
+            },
+        );
+        // A landfall adds the existing count. Season doubles only the counters being added.
+        // Declining the fetch gives one trigger (2 → 6); finding a land gives two (2 → 6 → 18).
+        for _ in 0..6 {
+            if game.current["stack"].as_array().unwrap().is_empty() {
+                break;
+            }
+            choose(&mut game, "Pass priority");
+        }
+        assert!(game.current["stack"].as_array().unwrap().is_empty());
+        assert_eq!(hydra(&game), if fetch { 18 } else { 6 });
+    }
 }

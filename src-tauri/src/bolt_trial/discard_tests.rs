@@ -1,18 +1,10 @@
-use super::tests::{choose, forge_install, play_until, zone};
-use super::{seat_view, Engine, Scenario, Seat};
+use super::tests::{choose, play_until, seeded_deck, zone};
+use super::{seat_view, Engine, Seat};
 use std::sync::atomic::AtomicBool;
 
 fn cast_in_duel(card: &str, opponent: &str) -> Engine {
     let deck = format!("[Main]\n6 Swamp\n5 {card}\n");
-    let mut game = Engine::launch_seeded(
-        &forge_install(),
-        Scenario::Deck,
-        Some(&deck),
-        Some(opponent),
-        19,
-    )
-    .unwrap();
-    game.next_state(None, &AtomicBool::new(false)).unwrap();
+    let mut game = seeded_deck(&deck, Some(opponent), 19);
     let cast = format!("Cast {card}");
     play_until(
         &mut game,

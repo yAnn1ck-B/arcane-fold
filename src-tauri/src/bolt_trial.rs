@@ -23,15 +23,21 @@ use replay::{GameSetup, PracticeGame};
 #[cfg(test)]
 mod ability_tests;
 #[cfg(test)]
-mod foundations_tests;
+mod discard_tests;
 #[cfg(test)]
-mod history_tests;
+mod foundations_tests;
 #[cfg(test)]
 mod graveyard_tests;
 #[cfg(test)]
-mod discard_tests;
+mod history_tests;
 #[cfg(test)]
 mod library_tests;
+#[cfg(test)]
+mod lifegain_combo_tests;
+#[cfg(test)]
+mod trigger_combo_tests;
+#[cfg(test)]
+mod variable_combo_tests;
 
 const SOURCE: &str = concat!(
     include_str!("../resources/playtest/ForgeBoltTrial.java"),
@@ -675,6 +681,14 @@ mod tests {
             .expect("Set FORGE_BOLT_TEST_INSTALL to the Forge 2.0.13 folder")
     }
 
+    pub(super) fn seeded_deck(deck: &str, opponent: Option<&str>, seed: i64) -> Engine {
+        let mut engine =
+            Engine::launch_seeded(&forge_install(), Scenario::Deck, Some(deck), opponent, seed)
+                .unwrap();
+        engine.next_state(None, &AtomicBool::new(false)).unwrap();
+        engine
+    }
+
     pub(super) fn play_until(game: &mut Engine, prefix: &str, setup: &[&str]) {
         for _ in 0..100 {
             let choices = game.current["choices"].as_array().unwrap();
@@ -690,7 +704,9 @@ mod tests {
                 .iter()
                 .copied()
                 .find(|label| offers(label))
-                .unwrap_or_else(|| panic!("Expected {prefix} or a setup action in {}", game.current));
+                .unwrap_or_else(|| {
+                    panic!("Expected {prefix} or a setup action in {}", game.current)
+                });
             choose(game, next);
         }
         panic!("Never reached {prefix}");

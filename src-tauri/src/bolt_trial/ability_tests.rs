@@ -119,8 +119,14 @@ fn real_forge_foundations_courtyard_uses_the_chosen_type_and_mana_color() {
         .any(|choice| choice["kind"] == "type" && choice["label"] == "Elf"));
     choose(&mut game, "Elf");
     assert_eq!(zone(&game, "player", "battlefield")[0]["chosenType"], "Elf");
-    assert!(game.current["history"].as_array().unwrap().iter()
-        .any(|row| row["text"].as_str().unwrap().contains("chose Elf for Secluded Courtyard")));
+    assert!(game.current["history"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["text"]
+            .as_str()
+            .unwrap()
+            .contains("chose Elf for Secluded Courtyard")));
     let options = activations(&game, "Secluded Courtyard");
     assert_eq!(options.len(), 2);
     let restricted = options
