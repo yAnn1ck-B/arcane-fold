@@ -12,20 +12,29 @@ export const zones = [
   "exile",
 ] as const;
 export type Zone = (typeof zones)[number];
-export const steps = [
-  "Untap",
-  "Upkeep",
-  "Draw",
-  "First main",
-  "Beginning of combat",
-  "Declare attackers",
-  "Declare blockers",
-  "Combat damage",
-  "End of combat",
-  "Second main",
-  "End step",
-  "Cleanup",
-] as const;
+// Saved manual games store the index in this order.
+export const turnPhases = [
+  {
+    name: "Beginning phase",
+    steps: ["Untap step", "Upkeep step", "Draw step"],
+  },
+  { name: "Precombat main phase", steps: [] },
+  {
+    name: "Combat phase",
+    steps: [
+      "Beginning of combat step",
+      "Declare attackers step",
+      "Declare blockers step",
+      "Combat damage step",
+      "End of combat step",
+    ],
+  },
+  { name: "Postcombat main phase", steps: [] },
+  { name: "Ending phase", steps: ["End step", "Cleanup step"] },
+];
+export const steps = turnPhases.flatMap((phase) =>
+  phase.steps.length ? phase.steps : [phase.name],
+);
 export type Combat = "attacking" | "blocking" | null;
 export interface Piece {
   id: string;

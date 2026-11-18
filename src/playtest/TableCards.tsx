@@ -12,6 +12,7 @@ import {
 import CardImage from "@/components/CardImage";
 import type { Action, MatchView, Seat, Zone } from "./types";
 import { seats } from "./types";
+import { CardReading, InspectButton, PreviewAnchor } from "./CardPreview";
 
 export function pieceName(view: MatchView, id: string) {
   const piece = view.pieces[id];
@@ -68,6 +69,7 @@ export function TableCard({
   onClick,
   disabled,
   focusRef,
+  reading,
 }: {
   name: string;
   label: string;
@@ -78,32 +80,36 @@ export function TableCard({
   onClick?: () => void;
   disabled?: boolean;
   focusRef?: Ref<HTMLButtonElement>;
+  reading: ReactNode;
 }) {
   return (
-    <div className={`pt-piece ${tapped ? "is-tapped" : ""}`} title={label}>
-      {art}
-      <div className="pt-piece-flags" aria-hidden="true">
-        {tapped && <RotateCw size={14} />}
-        {flags}
-      </div>
-      {onClick ? (
-        <button
-          ref={focusRef}
-          type="button"
-          className="pt-piece-select"
-          onClick={onClick}
-          disabled={disabled}
-          aria-label={label}
-        >
-          <span>{name}</span>
-        </button>
-      ) : (
-        <span className="pt-piece-select" aria-label={label}>
-          <span>{name}</span>
-        </span>
+    <PreviewAnchor
+      name={name}
+      reading={reading}
+      className={`pt-piece ${tapped ? "is-tapped" : ""} ${onClick ? "has-action" : ""}`}
+    >
+      {(inspect) => (
+        <>
+          {art}
+          <div className="pt-piece-flags" aria-hidden="true">
+            {tapped && <RotateCw size={14} />}
+            {flags}
+          </div>
+          <button
+            ref={focusRef}
+            type="button"
+            className="pt-piece-select"
+            onClick={onClick ?? inspect}
+            disabled={!!onClick && disabled}
+            aria-label={onClick ? label : `Inspect ${name}`}
+          >
+            <span>{name}</span>
+          </button>
+          {onClick && <InspectButton name={name} onClick={inspect} />}
+          {quickAction}
+        </>
       )}
-      {quickAction}
-    </div>
+    </PreviewAnchor>
   );
 }
 
@@ -117,6 +123,8 @@ export function CardTile(
   const { id, view, onClick, zone, dispatch } = props;
   const piece = view.pieces[id];
   const name = piece.faceDown ? "Face-down card" : pieceName(view, id);
+  const catalog =
+    !piece.faceDown && piece.printing ? view.catalog[piece.printing] : null;
   const stateLabels = [
     piece.tapped && "Tapped",
     piece.back && !piece.faceDown && "Back face",
@@ -134,6 +142,16 @@ export function CardTile(
       name={name}
       label={stateLabels ? `${name}, ${stateLabels}` : name}
       art={<CardArt {...props} />}
+      reading={
+        <CardReading
+          name={name}
+          art={<CardArt {...props} />}
+          counters={piece.counters}
+          manaCost={catalog?.manaCost}
+          typeLine={catalog?.typeLine}
+          oracleText={catalog?.oracleText}
+        />
+      }
       onClick={onClick}
       tapped={piece.tapped}
       flags={

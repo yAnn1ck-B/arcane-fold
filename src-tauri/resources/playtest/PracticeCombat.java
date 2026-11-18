@@ -3,21 +3,25 @@ final class PracticeCombat {
     static void setup(ForgePractice practice) {
         practice.put("Grizzly Bears", practice.player, ZoneType.Battlefield).setSickness(false);
         practice.put("Runeclaw Bear", practice.opponent, ZoneType.Battlefield).setSickness(false);
+        if (practice.mode.equals("growth")) {
+            practice.put("Forest", practice.player, ZoneType.Battlefield);
+            practice.put("Giant Growth", practice.player, ZoneType.Hand);
+        }
     }
 
     static void attackers(ForgePractice practice, Player player, Combat combat) {
-        if (player == practice.opponent && CombatUtil.validateAttackers(combat)) return;
+        if (!practice.human(player) && CombatUtil.validateAttackers(combat)) return;
         while (true) {
             List<ForgePractice.Choice> choices = new ArrayList<>();
             for (Card card : player.getCreaturesInPlay()) {
                 if (combat.isAttacking(card)) {
-                    choices.add(practice.choice("Hold back " + card.getName(), "attack", card, null,
+                    choices.add(practice.choice("Hold back " + ForgePractice.publicName(card), "attack", card, null,
                             () -> combat.removeFromCombat(card)));
                     continue;
                 }
                 for (var defender : combat.getDefenders()) {
                     if (CombatUtil.canAttack(card, defender)) {
-                        choices.add(practice.choice("Attack " + defender.getName() + " with " + card.getName(),
+                        choices.add(practice.choice("Attack " + defender.getName() + " with " + ForgePractice.publicName(card),
                                 "attack", card, null, () -> combat.addAttacker(card, defender)));
                     }
                 }
@@ -36,18 +40,17 @@ final class PracticeCombat {
     }
 
     static void blockers(ForgePractice practice, Player defender, Combat combat) {
-        if (!practice.mode.equals("combat") && defender == practice.opponent
-                && CombatUtil.validateBlocks(combat, defender) == null) return;
+        if (!practice.human(defender) && CombatUtil.validateBlocks(combat, defender) == null) return;
         while (true) {
             List<ForgePractice.Choice> choices = new ArrayList<>();
             for (Card blocker : defender.getCreaturesInPlay()) {
                 for (Card attacker : combat.getAttackers()) {
                     if (combat.getDefenderPlayerByAttacker(attacker) != defender) continue;
                     if (combat.isBlocking(blocker, attacker)) {
-                        choices.add(practice.choice("Remove block on " + attacker.getName() + " by " + blocker.getName(),
+                        choices.add(practice.choice("Remove block on " + ForgePractice.publicName(attacker) + " by " + ForgePractice.publicName(blocker),
                                 "block", blocker, null, () -> combat.removeBlockAssignment(attacker, blocker)));
                     } else if (CombatUtil.canBlock(attacker, blocker, combat)) {
-                        choices.add(practice.choice("Block " + attacker.getName() + " with " + blocker.getName(),
+                        choices.add(practice.choice("Block " + ForgePractice.publicName(attacker) + " with " + ForgePractice.publicName(blocker),
                                 "block", blocker, null, () -> combat.addBlocker(attacker, blocker)));
                     }
                 }

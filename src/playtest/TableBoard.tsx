@@ -1,7 +1,28 @@
-import { Heart, Layers } from "lucide-react";
+import { ArrowLeftRight, Heart, Layers } from "lucide-react";
 import type { ReactNode } from "react";
 import "./table.css";
 import "./controls.css";
+
+export function SwitchPlayer({
+  player,
+  onSwitch,
+  autoFocus,
+}: {
+  player: number;
+  onSwitch: () => void;
+  autoFocus?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="pt-seat-switch"
+      onClick={onSwitch}
+      autoFocus={autoFocus}
+    >
+      <ArrowLeftRight size={16} /> Switch to Player {player}
+    </button>
+  );
+}
 
 export function TableBoard({
   label,

@@ -1,10 +1,25 @@
 import { useEffect, useRef, useState, type Ref } from "react";
-import { Droplet, ImageOff, RotateCcw, Target, X } from "lucide-react";
+import {
+  Droplet,
+  ImageOff,
+  Layers,
+  RotateCcw,
+  Search,
+  Target,
+} from "lucide-react";
 import CardImage from "@/components/CardImage";
 import { Button } from "@/components/ui/button";
 import { database } from "@/services/database";
-import { LifeValue, StackPanel, TableBoard, TableSeat } from "./TableBoard";
+import {
+  LifeValue,
+  StackPanel,
+  SwitchPlayer,
+  TableBoard,
+  TableSeat,
+} from "./TableBoard";
 import { TableCard } from "./TableCards";
+import { CardReading, StackCardName } from "./CardPreview";
+import { TableDialog } from "./TableDialog";
 import type {
   ForgeCard,
   ForgeChoice,
@@ -13,32 +28,47 @@ import type {
   Scenario,
 } from "./forge-match";
 
-type Artwork = { id: string; name: string };
+type Artwork = {
+  id: string;
+  name: string;
+  manaCost: string;
+  typeLine: string;
+  oracleText: string;
+  imageUri: string | null;
+};
 type ArtCache = Map<string, Promise<Artwork | undefined>>;
+const pileNames = { graveyard: "Graveyard", exile: "Exile" } as const;
+type Pile = { seat: ForgeSeat; zone: keyof typeof pileNames };
+
+function pileLabel(seat: ForgeSeat, viewer: ForgeSeat, zone: Pile["zone"]) {
+  return `${seat === viewer ? "Your" : "Opponent's"} ${zone}`;
+}
 
 function ForgeArt({
   card,
   imageCacheDir,
   cache,
+  inspect = false,
 }: {
   card: ForgeCard;
   imageCacheDir: string;
   cache: ArtCache;
+  inspect?: boolean;
 }) {
   const { name, setCode = "", collectorNumber = "" } = card;
   const [art, setArt] = useState<Artwork>();
   useEffect(() => {
+    if (card.faceDown) return;
     const key = JSON.stringify([name, setCode, collectorNumber]);
     let request = cache.get(key);
     if (!request) {
       request = database()
         .then(async (db) => {
           const [row] = await db.select<Artwork[]>(
-            `SELECT id, name FROM cards
+            `SELECT id, name, mana_cost AS manaCost, type_line AS typeLine, oracle_text AS oracleText, image_uri AS imageUri FROM cards
            WHERE (name = ? COLLATE NOCASE OR (set_code = ? COLLATE NOCASE AND collector_number = ?))
-             AND image_uri IS NOT NULL
            ORDER BY (set_code = ? COLLATE NOCASE) DESC, (collector_number = ?) DESC,
-             (name = ? COLLATE NOCASE) DESC, set_code, collector_number, id LIMIT 1`,
+             (name = ? COLLATE NOCASE) DESC, (image_uri IS NOT NULL) DESC, set_code, collector_number, id LIMIT 1`,
             [name, setCode, collectorNumber, setCode, collectorNumber, name],
           );
           return row;
@@ -57,9 +87,18 @@ function ForgeArt({
     return () => {
       active = false;
     };
-  }, [cache, name, setCode, collectorNumber]);
-  if (art) return <CardImage card={art} imageCacheDir={imageCacheDir} />;
-  return (
+  }, [cache, name, setCode, collectorNumber, card.faceDown]);
+  if (card.faceDown) {
+    const back = (
+      <div className="pt-card-back">
+        <Layers size={25} aria-hidden />
+      </div>
+    );
+    return inspect ? <CardReading name="Face-down card" art={back} /> : back;
+  }
+  const image = art?.imageUri ? (
+    <CardImage card={art} imageCacheDir={imageCacheDir} />
+  ) : (
     <div className="card-image">
       <div className="card-image-placeholder">
         <ImageOff size={20} aria-hidden />
@@ -67,9 +106,25 @@ function ForgeArt({
       </div>
     </div>
   );
+  return inspect ? (
+    <CardReading
+      name={name}
+      art={image}
+      manaCost={art?.manaCost || card.manaCost}
+      typeLine={card.typeLine || art?.typeLine}
+      oracleText={art?.oracleText || card.oracleText}
+      damage={card.damage}
+      counters={card.counters}
+      stats={
+        card.power != null && card.toughness != null
+          ? `${card.power}/${card.toughness}`
+          : undefined
+      }
+    />
+  ) : (
+    image
+  );
 }
-
-const seatOrder: ForgeSeat[] = ["opponent", "player"];
 
 export default function ForgeBoard({
   state,
@@ -78,6 +133,9 @@ export default function ForgeBoard({
   onChoose,
   replay,
   imageCacheDir,
+  viewer,
+  sharedSeats,
+  onSwitch,
 }: {
   state: ForgeMatch;
   scenario: Scenario;
@@ -85,34 +143,51 @@ export default function ForgeBoard({
   onChoose: (id: string) => void;
   replay: () => void;
   imageCacheDir: string;
+  viewer: ForgeSeat;
+  sharedSeats: boolean;
+  onSwitch?: () => void;
 }) {
-  const [graveyard, setGraveyard] = useState<ForgeSeat | null>(null);
+  const [pile, setPile] = useState<Pile | null>(null);
   const [menuCard, setMenuCard] = useState<ForgeCard | null>(null);
+  const [deferredSearch, setDeferredSearch] = useState<string>();
+  const [cardFilter, setCardFilter] = useState("");
   const firstButton = useRef<HTMLButtonElement>(null);
-  const menuButton = useRef<HTMLButtonElement>(null);
   const cache = useRef<ArtCache>(new Map());
-  const { actor, players, stack, choices } = state;
-  const handSeat =
-    actor === "opponent" && scenario === "response" ? "opponent" : "player";
+  const { actor, players, stack, choices, librarySearch } = state;
+  const searchId = librarySearch ? choices[0]?.id : undefined;
+  const showSearch = !!librarySearch && deferredSearch !== searchId;
+  const filter = cardFilter.trim().toLowerCase();
+  const searchCards =
+    librarySearch?.cards.filter((card) =>
+      card.name.toLowerCase().includes(filter),
+    ) ?? [];
+  const handSeat = viewer;
+  const seatOrder: ForgeSeat[] =
+    viewer === "player" ? ["opponent", "player"] : ["player", "opponent"];
   const hand = players[handSeat].hand;
-  const handLabel = handSeat === "player" ? "Your hand" : "Opponent's hand";
-  const pileCards = graveyard ? players[graveyard].graveyard : [];
+  const handLabel = sharedSeats
+    ? `Player ${viewer === "player" ? 1 : 2} hand`
+    : "Your hand";
+  const pileCards = pile ? (players[pile.seat][pile.zone] ?? []) : [];
   const visibleCards = new Set(
     [
       ...hand,
       ...stack,
       ...pileCards,
+      ...(librarySearch?.cards ?? []),
       ...players.player.battlefield,
       ...players.opponent.battlefield,
     ].map((card) => card.id),
   );
   const isLifeTarget = (choice: ForgeChoice) =>
     choice.kind === "target" && !!choice.seat && !choice.cardId;
-  const toolbar = choices.filter(
-    (choice) =>
-      !isLifeTarget(choice) &&
-      (!choice.cardId || !visibleCards.has(choice.cardId)),
-  );
+  const toolbar = librarySearch
+    ? []
+    : choices.filter(
+        (choice) =>
+          !isLifeTarget(choice) &&
+          (!choice.cardId || !visibleCards.has(choice.cardId)),
+      );
   const menuChoices = menuCard
     ? choices.filter((choice) => choice.cardId === menuCard.id)
     : [];
@@ -121,13 +196,22 @@ export default function ForgeBoard({
     choice && choice.id === initialChoice ? firstButton : undefined;
 
   useEffect(() => {
-    if (!locked && !menuCard)
-      firstButton.current?.focus({ preventScroll: true });
-    if (menuCard) menuButton.current?.focus();
-  }, [state, locked, menuCard]);
+    const button = firstButton.current;
+    if (!locked && button && !document.querySelector("dialog[open]")) {
+      // Advance keyboard focus without opening a card reading over a new decision.
+      button.dataset.autoFocus = "";
+      button.focus({ preventScroll: true });
+      delete button.dataset.autoFocus;
+    }
+  }, [state, locked]);
+
+  useEffect(() => {
+    setCardFilter("");
+  }, [searchId]);
 
   function choose(choice: ForgeChoice) {
     setMenuCard(null);
+    setPile(null);
     onChoose(choice.id);
   }
 
@@ -146,6 +230,7 @@ export default function ForgeBoard({
   }
 
   function tile(card: ForgeCard) {
+    const name = card.faceDown ? "Face-down card" : card.name;
     const actions = choices.filter((choice) => choice.cardId === card.id);
     const move = actions[0];
     const stats =
@@ -159,19 +244,27 @@ export default function ForgeBoard({
         : "";
     const combatLabel =
       card.blocking && card.target ? `Blocking ${card.target}` : combat;
-    const description = [card.name, stats, card.tapped && "Tapped", combatLabel]
+    const description = [name, stats, card.tapped && "Tapped", combatLabel]
       .filter(Boolean)
       .join(", ");
     const label =
       actions.length > 1
-        ? `Choose action for ${card.name}`
+        ? `Choose action for ${name}`
         : (move?.label ?? description);
     return (
       <TableCard
         key={card.id}
-        name={card.name}
+        name={name}
         label={label}
         tapped={card.tapped}
+        reading={
+          <ForgeArt
+            card={card}
+            cache={cache.current}
+            imageCacheDir={imageCacheDir}
+            inspect
+          />
+        }
         flags={
           <>
             {combat && <span>{combat}</span>}
@@ -199,18 +292,17 @@ export default function ForgeBoard({
   }
 
   function renderSeat(seat: ForgeSeat) {
-    const own = seat === "player";
+    const own = seat === viewer;
     const data = players[seat];
     const targets = choices.filter(
       (choice) => isLifeTarget(choice) && choice.seat === seat,
     );
     const life = <LifeValue life={data.life} />;
-    const pileLabel = own ? "Your graveyard" : "Opponent's graveyard";
     return (
       <TableSeat
         key={seat}
         own={own}
-        label={own ? "Player 1" : "Player 2"}
+        label={seat === "player" ? "Player 1" : "Player 2"}
         title={own ? "You" : "Opponent"}
         piles={
           <>
@@ -224,14 +316,22 @@ export default function ForgeBoard({
                 Hand <b>{data.handCount}</b>
               </span>
             )}
-            <button
-              type="button"
-              aria-expanded={graveyard === seat}
-              aria-label={`${pileLabel}, ${data.graveyard.length} ${data.graveyard.length === 1 ? "card" : "cards"}`}
-              onClick={() => setGraveyard(graveyard === seat ? null : seat)}
-            >
-              Graveyard <b>{data.graveyard.length}</b>
-            </button>
+            {(["graveyard", "exile"] as const).map((zone) => {
+              const cards = data[zone];
+              if (!cards) return null;
+              return (
+                <button
+                  key={zone}
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-expanded={pile?.seat === seat && pile.zone === zone}
+                  aria-label={`${pileLabel(seat, viewer, zone)}, ${cards.length} ${cards.length === 1 ? "card" : "cards"}`}
+                  onClick={() => setPile({ seat, zone })}
+                >
+                  {pileNames[zone]} <b>{cards.length}</b>
+                </button>
+              );
+            })}
           </>
         }
         resources={
@@ -271,24 +371,56 @@ export default function ForgeBoard({
       label="Forge playtest table"
       toolbar={
         <div className="pt-forge-controls">
-          <div className="ptc ptc-turn" aria-label="Turn and phase">
+          <div className="ptc ptc-turn" aria-label="Turn, phase and step">
             {state.turn > 0 && (
               <span className="ptc-turn-number">
                 Turn <strong>{state.turn}</strong>
               </span>
             )}
             <span className="ptc-turn-player">
-              {state.phase}
-              <small>
-                {state.active === "opponent" ? "Opponent's turn" : "Your turn"}
-              </small>
+              {[state.phase, state.step].filter(Boolean).join(" · ")}
+              {state.turn > 0 && (
+                <small>
+                  {sharedSeats
+                    ? `Player ${state.active === "player" ? 1 : 2}'s turn`
+                    : state.active === "opponent"
+                      ? "Opponent's turn"
+                      : "Your turn"}
+                </small>
+              )}
             </span>
           </div>
           <div className="pt-forge-prompt">
-            <strong>{actor === "opponent" ? "Opponent" : "You"}</strong>
+            {!onSwitch && (
+              <strong>
+                {sharedSeats
+                  ? `Player ${actor === "player" ? 1 : 2}`
+                  : actor === "opponent"
+                    ? "Opponent"
+                    : "You"}
+              </strong>
+            )}
             <span role="status">{state.prompt}</span>
+            {!!state.revealedToYou?.length && (
+              <small>Revealed to you: {state.revealedToYou.join(", ")}</small>
+            )}
           </div>
           <div className="pt-forge-options">
+            {onSwitch && (
+              <SwitchPlayer
+                autoFocus
+                player={actor === "player" ? 1 : 2}
+                onSwitch={onSwitch}
+              />
+            )}
+            {librarySearch && !showSearch && (
+              <Button
+                variant="outline"
+                onClick={() => setDeferredSearch(undefined)}
+              >
+                View library search
+              </Button>
+            )}
             {toolbar.map((choice) => option(choice, focusFor(choice)))}
             {state.stage === "finished" && (
               <Button
@@ -307,7 +439,15 @@ export default function ForgeBoard({
       seats={seatOrder.map(renderSeat)}
       handLabel={handLabel}
       handCount={players[handSeat].handCount}
-      hand={hand.map(tile)}
+      hand={
+        onSwitch
+          ? [
+              <span key="hidden" className="pt-empty">
+                Hand hidden during seat change
+              </span>,
+            ]
+          : hand.map(tile)
+      }
       stack={
         <StackPanel count={stack.length}>
           {stack.length > 0 && (
@@ -323,7 +463,18 @@ export default function ForgeBoard({
                         <span>Top</span>
                       </div>
                     )}
-                    <strong>{card.name}</strong>
+                    <StackCardName
+                      name={card.name}
+                      label={card.name}
+                      reading={
+                        <ForgeArt
+                          card={card}
+                          cache={cache.current}
+                          imageCacheDir={imageCacheDir}
+                          inspect
+                        />
+                      }
+                    />
                     {card.description && <small>{card.description}</small>}
                     {card.target && <small>Targeting {card.target}</small>}
                     {actions.map((choice) => option(choice, focusFor(choice)))}
@@ -336,55 +487,67 @@ export default function ForgeBoard({
       }
     >
       {menuCard && menuChoices.length > 0 && (
-        <section
-          className="pt-pile-panel"
-          aria-label={`Actions for ${menuCard.name}`}
+        <TableDialog
+          title={`Actions for ${menuCard.name}`}
+          onClose={() => setMenuCard(null)}
         >
-          <header className="pt-pile-heading">
-            <h3>{menuCard.name}</h3>
-            <button
-              type="button"
-              className="pt-btn"
-              onClick={() => setMenuCard(null)}
-            >
-              <X size={14} /> Close
-            </button>
-          </header>
           <div className="pt-forge-options">
-            {menuChoices.map((choice, index) =>
-              option(choice, index === 0 ? menuButton : undefined),
-            )}
+            {menuChoices.map((choice) => option(choice))}
           </div>
-        </section>
+        </TableDialog>
       )}
-      {graveyard && (
-        <section
-          className="pt-pile-panel"
-          aria-label={
-            graveyard === "player" ? "Your graveyard" : "Opponent's graveyard"
-          }
+      {pile && (
+        <TableDialog
+          title={pileNames[pile.zone]}
+          label={pileLabel(pile.seat, viewer, pile.zone)}
+          subtitle={`${pile.seat === "player" ? "Player 1" : "Player 2"} · ${pileCards.length} ${pileCards.length === 1 ? "card" : "cards"}`}
+          closeLabel="Close zone"
+          onClose={() => setPile(null)}
         >
-          <header className="pt-pile-heading">
-            <div>
-              <small>{graveyard === "player" ? "Player 1" : "Player 2"}</small>
-              <h3>
-                Graveyard <small>{pileCards.length}</small>
-              </h3>
-            </div>
-            <button
-              type="button"
-              className="pt-btn"
-              onClick={() => setGraveyard(null)}
-            >
-              Close zone
-            </button>
-          </header>
           {pileCards.length ? (
             <div className="pt-field">{pileCards.map(tile)}</div>
           ) : (
             <p className="pt-subtle">This zone is empty.</p>
           )}
-        </section>
+        </TableDialog>
+      )}
+      {librarySearch && showSearch && (
+        <TableDialog
+          title={librarySearch.title}
+          label="Library search"
+          closeLabel="Close library search"
+          onClose={() => setDeferredSearch(searchId)}
+        >
+          {state.prompt !== librarySearch.title && (
+            <p className="pt-search-prompt">{state.prompt}</p>
+          )}
+          {librarySearch.cards.length > 0 && (
+            <label className="pt-query">
+              <Search size={16} />
+              <input
+                type="search"
+                aria-label="Filter library cards"
+                placeholder="Find a card"
+                value={cardFilter}
+                onChange={(e) => setCardFilter(e.target.value)}
+              />
+            </label>
+          )}
+          {searchCards.length ? (
+            <div className="pt-field">{searchCards.map(tile)}</div>
+          ) : (
+            <p className="pt-subtle">
+              {librarySearch.cards.length
+                ? "No matching cards."
+                : "No eligible cards."}
+            </p>
+          )}
+          <div className="pt-search-actions">
+            {choices
+              .filter((choice) => !choice.cardId)
+              .map((choice) => option(choice))}
+          </div>
+        </TableDialog>
       )}
     </TableBoard>
   );

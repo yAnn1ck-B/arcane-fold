@@ -18,7 +18,7 @@ Table actions update an independent match model. A local checkpoint records shuf
 
 ### Forge practice (unreleased)
 
-Saved-deck practice takes an in-memory match through the opening hand, mulligans, mana payment, spellcasting, priority and turns against a passing seat. The response exercise gives the second seat two Islands and Counterspell. The combat exercise lets the player declare attackers and blockers and observe damage and state-based actions. The original Lightning Bolt exercise remains a regression case. All starting positions use the same battlefield, card tiles, hand and stack as manual games, with Forge supplying available choices for rules-enforced play.
+Saved-deck games support both seats on one device and solo practice. Forge advances through all turn phases and steps, passing priority when a seat has no available play. When control changes, the table hides private information until the next player takes their seat. Guided positions cover Lightning Bolt, Counterspell, combat damage, Giant Growth after blockers, library searches to different zones and a once-only activated ability. Visible cards can be inspected on the shared table. Graveyards and searches open in dialogs.
 
 **Technology:**
 

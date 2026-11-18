@@ -7,13 +7,17 @@ final class ForgePractice {
     private final PhaseHandler phases;
     private final Path scratch;
     private final BufferedReader input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+    private final PracticeLibrary library = new PracticeLibrary(this);
     private int decision;
-    private int yieldTurn = -1;
+    private final boolean secondDeck;
 
     ForgePractice(String mode, Path scratch) {
         this.mode = mode;
         this.scratch = scratch;
-        game = new Match(new GameRules(GameType.Constructed), List.of(seat("Player"), seat("Opponent")),
+        secondDeck = mode.equals("deck") && Files.isRegularFile(scratch.resolve("opponent.dck"));
+        boolean hotseat = secondDeck || mode.equals("growth");
+        game = new Match(new GameRules(GameType.Constructed),
+                List.of(seat(hotseat ? "Player 1" : "Player"), seat(hotseat ? "Player 2" : "Opponent")),
                 "Forge practice").createGame();
         player = game.getPlayers().get(0);
         opponent = game.getPlayers().get(1);
@@ -46,10 +50,15 @@ final class ForgePractice {
         return card;
     }
 
-    private void prepareDeck() throws IOException {
+    boolean human(Player p) {
+        return p == player || secondDeck || mode.equals("combat") || mode.equals("growth")
+                || mode.equals("response") || mode.equals("library");
+    }
+
+    private void loadLibrary(Player owner, Path file) throws IOException {
         boolean main = false;
         var catalog = StaticData.instance();
-        for (String row : Files.readAllLines(scratch.resolve("practice.dck"), StandardCharsets.UTF_8)) {
+        for (String row : Files.readAllLines(file, StandardCharsets.UTF_8)) {
             String line = row.strip();
             if (line.startsWith("[")) {
                 main = line.equalsIgnoreCase("[main]");
@@ -71,20 +80,25 @@ final class ForgePractice {
                 }
                 int copies = Integer.parseInt(counted[0]);
                 for (int i = 0; i < copies; i++) {
-                    player.getZone(ZoneType.Library).add(CardFactory.getCard(paper, player, game));
+                    owner.getZone(ZoneType.Library).add(CardFactory.getCard(paper, owner, game));
                 }
             }
         }
-        if (player.getCardsIn(ZoneType.Library).size() < player.getStartingHandSize()) {
+        if (owner.getCardsIn(ZoneType.Library).size() < owner.getStartingHandSize()) {
             throw new IllegalArgumentException("Practice needs at least seven main-deck cards.");
         }
-        for (int i = 0; i < 60; i++) put("Island", opponent, ZoneType.Library);
+    }
+
+    private void prepareDeck() throws IOException {
+        loadLibrary(player, scratch.resolve("practice.dck"));
+        if (secondDeck) loadLibrary(opponent, scratch.resolve("opponent.dck"));
+        else for (int i = 0; i < 60; i++) put("Island", opponent, ZoneType.Library);
         game.setAge(GameStage.Mulligan);
         for (Player p : game.getPlayers()) {
             p.shuffle(null);
             p.drawCards(p.getStartingHandSize());
         }
-        catalog.setMulliganRule(forge.MulliganDefs.MulliganRule.London);
+        StaticData.instance().setMulliganRule(forge.MulliganDefs.MulliganRule.London);
         new MulliganService(player).perform();
     }
 
@@ -98,16 +112,20 @@ final class ForgePractice {
                     put("Island", opponent, ZoneType.Battlefield);
                     put("Counterspell", opponent, ZoneType.Hand);
                 }
-                case "combat" -> PracticeCombat.setup(this);
+                case "combat", "growth" -> PracticeCombat.setup(this);
+                case "library" -> PracticeLibrary.setup(this);
                 case "deck" -> prepareDeck();
                 default -> throw new IllegalArgumentException("Unknown practice scenario.");
             }
             game.setAge(GameStage.Play);
             phases.setupFirstTurn(player, null);
-            int steps = 0;
+            // These positions start at a specific decision. Saved-deck games always
+            // start with the opening hand, followed by Forge's ordinary turn loop.
+            if (mode.equals("growth")) phases.devAdvanceToPhase(PhaseType.COMBAT_DECLARE_ATTACKERS);
             while (!game.isGameOver()) {
-                if (mode.equals("combat") && phases.getPhase() == PhaseType.MAIN2) {
-                    emit(player, "Combat complete", List.of(), true);
+                if ((mode.equals("combat") || mode.equals("growth") || mode.equals("library"))
+                        && phases.is(PhaseType.MAIN2)) {
+                    emit(player, mode.equals("library") ? "Exercise complete" : "Combat complete", List.of(), true);
                     return;
                 }
                 if (mode.equals("response") && game.getStack().isEmpty()
@@ -116,10 +134,7 @@ final class ForgePractice {
                     emit(player, countered ? "Counterspell countered Lightning Bolt." : "Lightning Bolt resolved.", List.of(), true);
                     return;
                 }
-                int previous = decision;
                 phases.mainLoopStep();
-                steps = previous == decision ? steps + 1 : 0;
-                if (steps > 512) throw new IllegalStateException("Forge did not reach the next practice decision.");
             }
             emit(player, String.join(" ", game.getOutcome().getOutcomeStrings()), List.of(), true);
         } catch (EndInput closed) {
@@ -159,23 +174,69 @@ final class ForgePractice {
     private String seatId(Player p) { return p == opponent ? "opponent" : "player"; }
     private String cardId(Card c) { return "c" + c.getId(); }
 
+    static String publicName(Card card) {
+        return card.isFaceDown() ? "Face-down card" : card.getName();
+    }
+
+    private String phaseName(PhaseType phase) {
+        if (phase == null) return "Opening hand";
+        return switch (phase) {
+            case UNTAP, UPKEEP, DRAW -> "Beginning phase";
+            case MAIN1 -> "Precombat main phase";
+            case MAIN2 -> "Postcombat main phase";
+            case END_OF_TURN, CLEANUP -> "Ending phase";
+            default -> "Combat phase";
+        };
+    }
+
+    private String stepName(PhaseType phase) {
+        if (phase == null || phase.isMain()) return "";
+        return switch (phase) {
+            case UNTAP -> "Untap step";
+            case UPKEEP -> "Upkeep step";
+            case DRAW -> "Draw step";
+            case COMBAT_BEGIN -> "Beginning of combat step";
+            case COMBAT_DECLARE_ATTACKERS -> "Declare attackers step";
+            case COMBAT_DECLARE_BLOCKERS -> "Declare blockers step";
+            case COMBAT_FIRST_STRIKE_DAMAGE -> "Combat damage step (first strike)";
+            case COMBAT_DAMAGE -> "Combat damage step";
+            case COMBAT_END -> "End of combat step";
+            case END_OF_TURN -> "End step";
+            case CLEANUP -> "Cleanup step";
+            default -> "";
+        };
+    }
+
     private Map<String, Object> cardState(Card card) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", cardId(card));
-        out.put("name", card.getName());
-        out.put("setCode", card.getSetCode());
-        if (card.getPaperCard() != null) out.put("collectorNumber", card.getPaperCard().getCollectorNumber());
+        out.put("name", publicName(card));
+        if (card.isFaceDown()) {
+            out.put("faceDown", true);
+        } else {
+            out.put("oracleText", card.getOracleText().replace("\\n", "\n"));
+            out.put("typeLine", card.getType().toString());
+            if (!card.getManaCost().isNoCost()) out.put("manaCost", card.getManaCost().toString());
+            out.put("setCode", card.getSetCode());
+            if (card.getPaperCard() != null) out.put("collectorNumber", card.getPaperCard().getCollectorNumber());
+        }
         out.put("tapped", card.isTapped());
         if (card.isCreature()) {
             out.put("power", card.getNetPower());
             out.put("toughness", card.getNetToughness());
+            if (card.getDamage() > 0) out.put("damage", card.getDamage());
+        }
+        if (!card.getCounters().isEmpty()) {
+            Map<String, Integer> counters = new LinkedHashMap<>();
+            card.getCounters().forEach((type, count) -> counters.put(type.getName(), count));
+            out.put("counters", counters);
         }
         Combat combat = phases.getCombat();
         if (combat != null) {
             if (combat.isAttacking(card)) out.put("attacking", true);
             if (combat.getAllBlockers().contains(card)) {
                 out.put("blocking", true);
-                out.put("target", String.join(", ", combat.getAttackersBlockedBy(card).stream().map(Card::getName).toList()));
+                out.put("target", String.join(", ", combat.getAttackersBlockedBy(card).stream().map(ForgePractice::publicName).toList()));
             }
         }
         return out;
@@ -187,13 +248,14 @@ final class ForgePractice {
                 "libraryCount", p.getCardsIn(ZoneType.Library).size(), "handCount", hand.size(),
                 "hand", revealHand ? hand.stream().map(this::cardState).toList() : List.of(),
                 "battlefield", p.getCardsIn(ZoneType.Battlefield).stream().map(this::cardState).toList(),
+                "exile", p.getCardsIn(ZoneType.Exile).stream().map(this::cardState).toList(),
                 "graveyard", p.getCardsIn(ZoneType.Graveyard).stream().map(this::cardState).toList());
     }
 
     private static String targetName(GameObject obj) {
-        if (obj instanceof SpellAbility spell) return spell.getHostCard().getName();
+        if (obj instanceof SpellAbility spell) return publicName(spell.getHostCard());
         if (obj instanceof Player p) return p.getName();
-        return ((Card)obj).getName();
+        return publicName((Card)obj);
     }
 
     private void emit(Player actor, String prompt, List<Choice> choices, boolean finished) throws IOException {
@@ -203,7 +265,7 @@ final class ForgePractice {
             var spell = instance.getSpellAbility();
             if (!spell.isSpell()) {
                 out.put("id", "s" + instance.getId());
-                out.put("description", spell.getStackDescription());
+                if (!instance.getSourceCard().isFaceDown()) out.put("description", spell.getStackDescription());
             }
             var targets = new ArrayList<String>();
             for (var group : instance.getSpellAbility().getAllTargetChoices()) {
@@ -222,11 +284,16 @@ final class ForgePractice {
             if (c.seat() != null) out.put("seat", seatId(c.seat()));
             options.add(out);
         }
-        var state = Map.of("stage", finished ? "finished" : "decision", "prompt", prompt,
+        Map<String, Object> state = new LinkedHashMap<>(Map.of("stage", finished ? "finished" : "decision", "prompt", prompt,
                 "actor", seatId(actor), "active", seatId(phases.getPlayerTurn()), "turn", phases.getTurn(),
-                "phase", phases.getPhase() == null ? "Opening hand" : phases.getPhase().nameForUi,
-                "players", Map.of("player", board(player, true), "opponent", board(opponent, actor == opponent && mode.equals("response"))),
-                "stack", stack, "choices", options);
+                "phase", phaseName(phases.getPhase()), "step", stepName(phases.getPhase()),
+                "players", Map.of("player", board(player, actor == player), "opponent", board(opponent, actor == opponent)),
+                "stack", stack, "choices", options));
+        if (library.candidates() != null) {
+            state.put("librarySearch", Map.of("title", prompt, "cards", library.candidates().stream().map(this::cardState).toList()));
+        }
+        List<String> revealed = library.takeReveal(actor);
+        if (revealed != null) state.put("revealedToYou", revealed);
         var json = new StringWriter();
         new JsonObjectWriter(json, 12).value(NoOpLogger.getInstance(), state);
         System.out.println("BOLT_STATE " + json);
@@ -303,6 +370,13 @@ final class ForgePractice {
             this.seat = seat;
         }
 
+        @Override
+        public boolean isAI() {
+            // AI strategy deliberately saves targeted creatures from tapping to pay for a pump
+            // spell. A human choosing that target can legally pay with the same mana creature.
+            return !human(seat);
+        }
+
         private boolean keep(int bottom) {
             var keep = choice("Keep hand", "option", null, null, null);
             if (bottom >= seat.getMaxHandSize()) return true;
@@ -313,7 +387,7 @@ final class ForgePractice {
 
         @Override
         public boolean mulliganKeepHand(Player first, int count) {
-            if (seat == opponent) return true;
+            if (!human(seat)) return true;
             if (keepAfterRedraw == null) return keep(count);
             boolean answer = keepAfterRedraw;
             keepAfterRedraw = null;
@@ -330,7 +404,7 @@ final class ForgePractice {
 
         @Override
         public CardCollectionView chooseCardsToDiscardToMaximumHandSize(int count) {
-            if (seat == opponent) return super.chooseCardsToDiscardToMaximumHandSize(count);
+            if (!human(seat)) return super.chooseCardsToDiscardToMaximumHandSize(count);
             return pickCards(seat.getCardsIn(ZoneType.Hand), count, "Discard", "Discard to your maximum hand size");
         }
 
@@ -358,11 +432,12 @@ final class ForgePractice {
 
         @Override
         public List<SpellAbility> chooseSpellAbilityToPlay() {
-            boolean deck = mode.equals("deck");
-            if (mode.equals("combat") || deck && seat == opponent) return null;
+            if (!human(seat) || mode.equals("combat")) return null;
+            if (mode.equals("library") && phases.getPhase().isBefore(PhaseType.MAIN1)) return null;
             boolean pending = !game.getStack().isEmpty();
-            if (!pending && (!phases.is(PhaseType.MAIN1, seat) || seat == opponent || yieldTurn == phases.getTurn())) return null;
-            if (mode.equals("response") && !pending && !player.getCardsIn(ZoneType.Graveyard).isEmpty()) return null;
+            boolean responseExercise = mode.equals("response");
+            if (responseExercise && !pending && (!phases.is(PhaseType.MAIN1, player) || seat != player
+                    || !player.getCardsIn(ZoneType.Graveyard).isEmpty())) return null;
             List<Choice> choices = new ArrayList<>();
             Map<Choice, SpellAbility> plays = new java.util.IdentityHashMap<>();
             for (Card card : seat.getCardsIn(ZoneType.Hand)) {
@@ -375,23 +450,21 @@ final class ForgePractice {
                     }
                 }
             }
-            if (deck) {
+            if (!responseExercise) {
                 for (Card card : seat.getCardsIn(ZoneType.Battlefield)) {
                     for (SpellAbility ability : card.getNonManaAbilities()) {
                         if (ability.isActivatedAbility()) {
                             String label = ability.getDescription().replace("CARDNAME", card.getName());
-                            addPlay(card, ability.copy(), label, choices, plays);
+                            // Forge tracks activation limits against this printed ability.
+                            addPlay(card, ability, label, choices, plays);
                         }
                     }
                 }
             }
-            if (pending && !deck && game.getStack().peekAbility().getActivatingPlayer() == seat && choices.isEmpty()) return null;
-            if (pending || deck) choices.add(choice(pending ? "Pass priority" : "Next turn", "pass", null, null, null));
             if (choices.isEmpty()) return null;
-            Choice selected = ask(seat, pending ? seat.getName() + " has priority" : "Choose a play", choices);
-            if (plays.containsKey(selected)) return List.of(plays.get(selected));
-            if (deck && !pending) yieldTurn = phases.getTurn();
-            return null;
+            if (!responseExercise || pending) choices.add(choice("Pass priority", "pass", null, null, null));
+            Choice selected = ask(seat, "Choose a play", choices);
+            return plays.containsKey(selected) ? List.of(plays.get(selected)) : null;
         }
 
         private void addPlay(Card card, SpellAbility sa, String label, List<Choice> choices, Map<Choice, SpellAbility> plays) {
@@ -420,6 +493,39 @@ final class ForgePractice {
                 throw new IllegalStateException("Forge could not complete the cost or choices for " + play.getHostCard().getName() + ".");
             }
             return true;
+        }
+
+        @Override
+        public Card chooseSingleCardForZoneChange(ZoneType destination, List<ZoneType> origins, SpellAbility effect,
+                CardCollection options, forge.game.player.DelayedReveal delayedReveal, String title, boolean optional, Player decider) {
+            if (!human(seat) || !origins.contains(ZoneType.Library)) {
+                return super.chooseSingleCardForZoneChange(destination, origins, effect, options, delayedReveal, title, optional, decider);
+            }
+            if (delayedReveal != null) reveal(delayedReveal);
+            return library.choose(seat, effect, options, title, optional);
+        }
+
+        @Override
+        public List<Card> chooseCardsForZoneChange(ZoneType destination, List<ZoneType> origins, SpellAbility effect,
+                CardCollection options, int min, int max, forge.game.player.DelayedReveal delayedReveal, String title, Player decider) {
+            if (!human(seat) || !origins.contains(ZoneType.Library)) {
+                return super.chooseCardsForZoneChange(destination, origins, effect, options, min, max, delayedReveal, title, decider);
+            }
+            if (delayedReveal != null) reveal(delayedReveal);
+            return library.chooseMany(seat, effect, options, min, max, title);
+        }
+
+        @Override
+        public boolean confirmAction(SpellAbility effect, forge.game.player.PlayerActionConfirmMode mode, String message,
+                List<String> options, Card display, Map<String, Object> params) {
+            return library.confirmedFinish(effect, mode) || super.confirmAction(effect, mode, message, options, display, params);
+        }
+
+        @Override
+        public void reveal(CardCollectionView cards, ZoneType zone, Player owner, String message, boolean revealDialog) {
+            super.reveal(cards, zone, owner, message, revealDialog);
+            // Forge calls this on the actual recipients. Its private search preview uses DelayedReveal instead.
+            if (owner != seat) library.revealTo(seat, cards);
         }
 
         @Override

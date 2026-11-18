@@ -16,6 +16,7 @@ import {
 import {
   manaTypes,
   steps,
+  turnPhases,
   type Action,
   type Mana,
   type MatchView,
@@ -24,6 +25,8 @@ import {
   type Zone,
 } from "./types";
 import { LifeValue, StackPanel } from "./TableBoard";
+import CardImage from "@/components/CardImage";
+import { CardReading, StackCardName } from "./CardPreview";
 
 interface ControlProps {
   view: MatchView;
@@ -48,7 +51,7 @@ function cardName(view: MatchView, id: string) {
 
 export function TurnControls({ view, dispatch }: ControlProps) {
   return (
-    <section className="ptc ptc-turn" aria-label="Turn and step">
+    <section className="ptc ptc-turn" aria-label="Turn, phase and step">
       <div className="ptc-turn-number">
         Turn <strong>{view.turn}</strong>
       </div>
@@ -57,20 +60,30 @@ export function TurnControls({ view, dispatch }: ControlProps) {
         <small>{view.players[view.active].deckName}</small>
       </span>
       <select
-        aria-label="Current step"
+        aria-label="Current phase or step"
         value={view.step}
         onChange={(e) =>
           dispatch({ type: "setStep", step: Number(e.target.value) })
         }
       >
-        {steps.map((step, i) => (
-          <option key={step} value={i}>
-            {step}
-          </option>
-        ))}
+        {turnPhases.map((phase) =>
+          phase.steps.length ? (
+            <optgroup label={phase.name} key={phase.name}>
+              {phase.steps.map((step) => (
+                <option key={step} value={steps.indexOf(step)}>
+                  {step}
+                </option>
+              ))}
+            </optgroup>
+          ) : (
+            <option key={phase.name} value={steps.indexOf(phase.name)}>
+              {phase.name}
+            </option>
+          ),
+        )}
       </select>
       <button type="button" onClick={() => dispatch({ type: "nextStep" })}>
-        Next step <ChevronRight size={14} />
+        Advance <ChevronRight size={14} />
       </button>
       <button type="button" onClick={() => dispatch({ type: "nextTurn" })}>
         Next turn <ChevronsRight size={14} />
@@ -439,12 +452,23 @@ function StackItem({
   entry,
   top,
   targetList,
-}: ControlProps & { entry: StackEntry; top: boolean; targetList: string }) {
+  imageCacheDir,
+}: ControlProps & {
+  entry: StackEntry;
+  top: boolean;
+  targetList: string;
+  imageCacheDir: string;
+}) {
   const [editing, setEditing] = useState(false);
   const [targetDraft, setTargetDraft] = useState("");
   const [destination, setDestination] = useState<Zone | "">("");
   const cardId = entry.card ?? entry.source;
   const piece = cardId ? view.pieces[cardId] : undefined;
+  const printing = entry.copyPrinting ?? piece?.printing;
+  const card =
+    printing && !piece?.faceDown && !entry.copyFaceDown
+      ? view.catalog[printing]
+      : null;
   const defaultZone = piece
     ? defaultDestination(view.catalog, piece)
     : "battlefield";
@@ -455,7 +479,30 @@ function StackItem({
         {entry.copyKind ? entry.copyKind + " copy" : entry.kind} · P
         {entry.controller + 1}
       </div>
-      <strong>{entry.label}</strong>
+      {card ? (
+        <StackCardName
+          name={card.name}
+          label={entry.label}
+          reading={
+            <CardReading
+              {...card}
+              art={
+                <CardImage
+                  card={card}
+                  imageCacheDir={imageCacheDir}
+                  face={
+                    (entry.copyBack || piece?.back) && card.backImageUri
+                      ? "back"
+                      : "front"
+                  }
+                />
+              }
+            />
+          }
+        />
+      ) : (
+        <strong>{entry.label}</strong>
+      )}
       {entry.kind === "ability" && piece && (
         <small>From {cardName(view, piece.id)}</small>
       )}
@@ -583,7 +630,7 @@ function StackItem({
   );
 }
 
-export function StackControls(props: ControlProps) {
+export function StackControls(props: ControlProps & { imageCacheDir: string }) {
   const { view, viewer } = props;
   const targetList = useId();
   return (

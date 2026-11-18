@@ -4,6 +4,7 @@
 
 - Add a local Playtest table for saved decks, with manual zones, a shared stack, mana pools and resumable matches.
 - Add Forge-backed saved-deck practice and replayable Lightning Bolt, Counterspell response and creature combat exercises on the shared Playtest table. Forge 2.0.13 handles legality, payment, priority, damage and zone changes.
+- Support two locally controlled decks, private seat changes, phase and step timing, and automatic passes. Add Giant Growth, library search and activated ability exercises, centered zone dialogs and enlarged card previews.
 
 ## [0.4.0] - 2026-11-18
 

@@ -1,11 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type Scenario = "bolt" | "response" | "deck" | "combat";
+export type Scenario =
+  "bolt" | "response" | "deck" | "combat" | "growth" | "library";
 export type ForgeSeat = "player" | "opponent";
 
 export interface ForgeCard {
   id: string;
   name: string;
+  faceDown?: boolean;
   tapped: boolean;
   setCode?: string;
   collectorNumber?: string;
@@ -15,6 +17,11 @@ export interface ForgeCard {
   toughness?: number;
   target?: string;
   description?: string;
+  oracleText?: string;
+  typeLine?: string;
+  manaCost?: string;
+  damage?: number;
+  counters?: Record<string, number>;
 }
 
 export interface ForgeChoice {
@@ -33,6 +40,7 @@ interface ForgePlayer {
   hand: ForgeCard[];
   battlefield: ForgeCard[];
   graveyard: ForgeCard[];
+  exile?: ForgeCard[];
 }
 
 export interface ForgeMatch {
@@ -42,6 +50,9 @@ export interface ForgeMatch {
   actor: ForgeSeat;
   turn: number;
   phase: string;
+  step?: string;
+  librarySearch?: { title: string; cards: ForgeCard[] };
+  revealedToYou?: string[];
   players: Record<ForgeSeat, ForgePlayer>;
   stack: ForgeCard[];
   choices: ForgeChoice[];
@@ -121,7 +132,7 @@ function boltMatch(position: BoltPosition): ForgeMatch {
     actor: position.stage === "opponentPriority" ? "opponent" : "player",
     active: "player",
     turn: 1,
-    phase: "First main",
+    phase: "Precombat main phase",
     prompt,
     choices,
     stack,
@@ -150,6 +161,7 @@ export async function startForge(
   sessionId: string,
   scenario: Scenario,
   deckId?: string,
+  opponentDeckId?: string,
 ) {
   if (scenario === "bolt") {
     return boltMatch(
@@ -160,6 +172,7 @@ export async function startForge(
     sessionId,
     scenario,
     deckId,
+    opponentDeckId,
   });
 }
 

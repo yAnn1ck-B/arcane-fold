@@ -17,12 +17,17 @@ use std::{
 use tauri::{AppHandle, State};
 use tempfile::TempDir;
 
+#[cfg(test)]
+mod library_tests;
+
 const SOURCE: &str = concat!(
     include_str!("../resources/playtest/ForgeBoltTrial.java"),
     "\n",
     include_str!("../resources/playtest/ForgePractice.java"),
     "\n",
     include_str!("../resources/playtest/PracticeCombat.java"),
+    "\n",
+    include_str!("../resources/playtest/PracticeLibrary.java"),
 );
 const JAR: &str = "forge-gui-desktop-2.0.13-jar-with-dependencies.jar";
 const CLOSED: &str = "This Forge trial has ended.";
@@ -34,6 +39,8 @@ pub enum Scenario {
     Bolt,
     Response,
     Combat,
+    Growth,
+    Library,
     Deck,
 }
 
@@ -43,6 +50,8 @@ impl Scenario {
             Self::Bolt => "bolt",
             Self::Response => "response",
             Self::Combat => "combat",
+            Self::Growth => "growth",
+            Self::Library => "library",
             Self::Deck => "deck",
         }
     }
@@ -56,7 +65,12 @@ struct Engine {
 }
 
 impl Engine {
-    fn launch(install: &Path, scenario: Scenario, deck: Option<&str>) -> Result<Self, String> {
+    fn launch(
+        install: &Path,
+        scenario: Scenario,
+        deck: Option<&str>,
+        opponent: Option<&str>,
+    ) -> Result<Self, String> {
         let jar = install.join(JAR);
         if !install.is_absolute() || !jar.is_file() {
             return Err("Forge practice requires Forge Desktop 2.0.13. Select its installation folder in Settings.".into());
@@ -72,6 +86,10 @@ impl Engine {
                 deck.ok_or("Select a saved deck to practice.")?,
             )
             .map_err(|e| format!("Cannot prepare the practice deck: {e}"))?;
+            if let Some(opponent) = opponent {
+                fs::write(dir.join("opponent.dck"), opponent)
+                    .map_err(|e| format!("Cannot prepare Player 2's deck: {e}"))?;
+            }
         }
         let source = dir.join("ForgeBoltTrial.java");
         fs::write(&source, SOURCE).map_err(|e| format!("Cannot prepare the Forge adapter: {e}"))?;
@@ -255,6 +273,7 @@ pub async fn start_bolt_trial(
     session_id: String,
     scenario: Option<Scenario>,
     deck_id: Option<String>,
+    opponent_deck_id: Option<String>,
 ) -> Result<Value, String> {
     let scenario = scenario.unwrap_or_default();
     // Reserve before any await so leaving the page can also cancel a slow startup.
@@ -267,13 +286,19 @@ pub async fn start_bolt_trial(
                 .install_dir
                 .ok_or("Select your Forge installation in Settings.")?,
         );
-        let deck = if scenario == Scenario::Deck {
+        let (deck, opponent) = if scenario == Scenario::Deck {
             let id = deck_id
                 .as_deref()
                 .ok_or("Select a saved deck to practice.")?;
-            Some(crate::decks::load_pool(&pool, id).await?)
+            let deck = crate::decks::load_pool(&pool, id).await?;
+            let opponent = match opponent_deck_id.as_deref() {
+                Some(other) if other == id => Some(deck.clone()),
+                Some(other) => Some(crate::decks::load_pool(&pool, other).await?),
+                None => None,
+            };
+            (Some(deck), opponent)
         } else {
-            None
+            (None, None)
         };
         tauri::async_runtime::spawn_blocking(move || {
             if session.cancelled.load(Ordering::Acquire) {
@@ -283,7 +308,12 @@ pub async fn start_bolt_trial(
                 .as_ref()
                 .map(|deck| crate::decks::practice_snapshot(deck, &install))
                 .transpose()?;
-            let mut engine = Engine::launch(&install, scenario, snapshot.as_deref())?;
+            let opponent = opponent
+                .as_ref()
+                .map(|deck| crate::decks::practice_snapshot(deck, &install))
+                .transpose()?;
+            let mut engine =
+                Engine::launch(&install, scenario, snapshot.as_deref(), opponent.as_deref())?;
             let state = engine.next_state(None, &session.cancelled)?;
             *session.engine.lock().unwrap() = Some(engine);
             Ok(state)
@@ -373,7 +403,7 @@ mod tests {
             ("targetOpponent", "opponent", 20, 17),
             ("targetPlayer", "player", 17, 20),
         ] {
-            let mut engine = Engine::launch(&install, Scenario::Bolt, None).unwrap();
+            let mut engine = Engine::launch(&install, Scenario::Bolt, None, None).unwrap();
             let scratch = engine.scratch.path().to_path_buf();
             let ready = engine.next_state(None, &cancelled).unwrap();
             assert_eq!(ready["stage"], "ready");
@@ -425,8 +455,8 @@ mod tests {
         }
     }
 
-    fn practice_engine(scenario: Scenario, deck: Option<&str>) -> Engine {
-        let mut engine = Engine::launch(&forge_install(), scenario, deck).unwrap();
+    pub(super) fn practice_engine(scenario: Scenario, deck: Option<&str>) -> Engine {
+        let mut engine = Engine::launch(&forge_install(), scenario, deck, None).unwrap();
         engine.next_state(None, &AtomicBool::new(false)).unwrap();
         engine
     }
@@ -437,7 +467,7 @@ mod tests {
             .expect("Set FORGE_BOLT_TEST_INSTALL to the Forge 2.0.13 folder")
     }
 
-    fn choose(engine: &mut Engine, label: &str) {
+    pub(super) fn choose(engine: &mut Engine, label: &str) {
         let prefix = label.to_lowercase();
         let options = engine.current["choices"].as_array().unwrap();
         let id = options
@@ -461,7 +491,7 @@ mod tests {
         );
     }
 
-    fn zone<'a>(engine: &'a Engine, who: &str, name: &str) -> &'a Vec<Value> {
+    pub(super) fn zone<'a>(engine: &'a Engine, who: &str, name: &str) -> &'a Vec<Value> {
         engine.current["players"][who][name].as_array().unwrap()
     }
 
@@ -488,7 +518,7 @@ mod tests {
             if counter {
                 choose(&mut engine, "Cast Counterspell");
                 choose(&mut engine, "Target Lightning Bolt");
-                assert_eq!(engine.current["stack"].as_array().unwrap().len(), 2);
+                assert_eq!(engine.current["stage"], "finished");
                 assert_eq!(
                     zone(&engine, "opponent", "battlefield")
                         .iter()
@@ -599,22 +629,257 @@ mod tests {
         choose(&mut engine, "Bottom");
         assert_eq!(zone(&engine, "player", "hand").len(), 6);
         choose(&mut engine, "Play Forest");
+        assert_eq!(engine.current["turn"], 1);
+        assert_eq!(engine.current["phase"], "Precombat main phase");
         choose(&mut engine, "Cast Llanowar Elves");
-        assert!(zone(&engine, "player", "battlefield")
-            .iter()
-            .any(|c| c["name"] == "Forest" && c["tapped"] == true));
-        if !engine.current["stack"].as_array().unwrap().is_empty() {
-            choose(&mut engine, "Pass");
-        }
+        // No player can respond or otherwise act until the next untap and draw.
+        assert_eq!(engine.current["turn"], 3);
+        assert_eq!(engine.current["phase"], "Precombat main phase");
         assert!(zone(&engine, "player", "battlefield")
             .iter()
             .any(|c| c["name"] == "Llanowar Elves"));
-        let first_turn = engine.current["turn"].as_i64().unwrap();
-        choose(&mut engine, "Next turn");
-        assert!(engine.current["turn"].as_i64().unwrap() > first_turn);
         assert_eq!(zone(&engine, "player", "hand").len(), 5);
         assert!(zone(&engine, "player", "battlefield")
             .iter()
             .any(|c| c["name"] == "Forest" && c["tapped"] == false));
+    }
+
+    #[test]
+    #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
+    fn real_forge_saved_decks_change_seats_and_offer_both_main_phases() {
+        let mut engine = Engine::launch(
+            &forge_install(),
+            Scenario::Deck,
+            Some("[Main]\n12 Forest\n"),
+            Some("[Main]\n12 Mountain\n"),
+        )
+        .unwrap();
+        engine.next_state(None, &AtomicBool::new(false)).unwrap();
+        assert_eq!(zone(&engine, "player", "hand").len(), 7);
+        assert!(zone(&engine, "opponent", "hand").is_empty());
+        choose(&mut engine, "Keep hand");
+        assert_eq!(engine.current["actor"], "opponent");
+        assert!(zone(&engine, "player", "hand").is_empty());
+        assert_eq!(zone(&engine, "opponent", "hand").len(), 7);
+        choose(&mut engine, "Keep hand");
+        assert_eq!(engine.current["phase"], "Precombat main phase");
+        choose(&mut engine, "Pass priority");
+        assert_eq!(engine.current["phase"], "Postcombat main phase");
+        choose(&mut engine, "Play Forest");
+        assert_eq!(engine.current["turn"], 2);
+        assert_eq!(engine.current["actor"], "opponent");
+        assert_eq!(engine.current["active"], "opponent");
+        choose(&mut engine, "Play Mountain");
+        assert_eq!(engine.current["turn"], 3);
+        assert_eq!(engine.current["actor"], "player");
+        assert_eq!(zone(&engine, "player", "battlefield")[0]["name"], "Forest");
+        assert_eq!(
+            zone(&engine, "opponent", "battlefield")[0]["name"],
+            "Mountain"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
+    fn real_forge_a_targeted_mana_creature_can_pay_for_its_spell() {
+        for spell in ["Bite Down", "Giant Growth"] {
+            let deck = format!("[Main]\n3 Forest\n3 Llanowar Elves\n2 {spell}\n");
+            let mut engine = Engine::launch(
+                &forge_install(),
+                Scenario::Deck,
+                Some(&deck),
+                Some("[Main]\n4 Forest\n4 Llanowar Elves\n"),
+            )
+            .unwrap();
+            engine.next_state(None, &AtomicBool::new(false)).unwrap();
+            for action in [
+                "Keep hand",
+                "Keep hand",
+                "Play Forest",
+                "Cast Llanowar Elves",
+                "Play Forest",
+                "Cast Llanowar Elves",
+            ] {
+                choose(&mut engine, action);
+            }
+            assert_eq!(engine.current["step"], "Upkeep step");
+            let elf_id = zone(&engine, "player", "battlefield")
+                .iter()
+                .find(|c| c["name"] == "Llanowar Elves")
+                .unwrap()["id"]
+                .clone();
+            if spell == "Giant Growth" {
+                // Tap Forest for another Elf. The first Elf is the only remaining mana source.
+                choose(&mut engine, "Pass priority");
+                assert_eq!(engine.current["step"], "Draw step");
+                choose(&mut engine, "Pass priority");
+                choose(&mut engine, "Cast Llanowar Elves");
+            }
+            choose(&mut engine, &format!("Cast {spell}"));
+            let own_target = engine.current["choices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["cardId"] == elf_id)
+                .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            engine
+                .next_state(Some(&own_target), &AtomicBool::new(false))
+                .unwrap();
+            if spell == "Bite Down" {
+                choose(&mut engine, "Target Llanowar Elves");
+                assert_eq!(
+                    zone(&engine, "opponent", "graveyard")[0]["name"],
+                    "Llanowar Elves"
+                );
+            }
+            let elf = zone(&engine, "player", "battlefield")
+                .iter()
+                .find(|c| c["id"] == elf_id)
+                .unwrap();
+            assert_eq!(elf["tapped"], true);
+            assert_eq!(elf["power"], if spell == "Giant Growth" { 4 } else { 1 });
+            assert_eq!(zone(&engine, "player", "graveyard")[0]["name"], spell);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
+    fn real_forge_giant_growth_after_blockers_or_pass() {
+        for pump in [false, true] {
+            let mut engine = practice_engine(Scenario::Growth, None);
+            assert_eq!(engine.current["step"], "Declare attackers step");
+            choose(&mut engine, "Attack Player 2 with Grizzly Bears");
+            choose(&mut engine, "Confirm attackers");
+            choose(&mut engine, "Pass priority");
+            assert_eq!(engine.current["step"], "Declare blockers step");
+            assert_eq!(engine.current["actor"], "opponent");
+            choose(&mut engine, "Block Grizzly Bears with Runeclaw Bear");
+            choose(&mut engine, "Confirm blockers");
+            assert_eq!(engine.current["actor"], "player");
+            assert_eq!(engine.current["step"], "Declare blockers step");
+            if pump {
+                choose(&mut engine, "Cast Giant Growth");
+                choose(&mut engine, "Target Grizzly Bears");
+            } else {
+                choose(&mut engine, "Pass priority");
+            }
+            assert_eq!(engine.current["stage"], "finished");
+            assert_eq!(
+                zone(&engine, "opponent", "graveyard")[0]["name"],
+                "Runeclaw Bear"
+            );
+            assert_eq!(engine.current["players"]["opponent"]["life"], 20);
+            if pump {
+                let bear = zone(&engine, "player", "battlefield")
+                    .iter()
+                    .find(|c| c["name"] == "Grizzly Bears")
+                    .unwrap();
+                assert_eq!(bear["power"], 5);
+                assert_eq!(bear["toughness"], 5);
+                assert_eq!(bear["damage"], 2);
+                assert_eq!(
+                    zone(&engine, "player", "graveyard")[0]["name"],
+                    "Giant Growth"
+                );
+            } else {
+                assert_eq!(
+                    zone(&engine, "player", "graveyard")[0]["name"],
+                    "Grizzly Bears"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
+    fn real_forge_librarian_pays_mana_changes_type_adds_counters_and_draws() {
+        let mut engine = practice_engine(Scenario::Library, None);
+        let hand_count = zone(&engine, "player", "hand").len();
+        let library_count = engine.current["players"]["player"]["libraryCount"]
+            .as_u64()
+            .unwrap();
+        choose(&mut engine, "{3}{G}: Mild-Mannered Librarian");
+        let field = zone(&engine, "player", "battlefield");
+        assert_eq!(
+            field
+                .iter()
+                .filter(|c| c["name"] == "Forest" && c["tapped"] == true)
+                .count(),
+            4
+        );
+        let card = field
+            .iter()
+            .find(|c| c["name"] == "Mild-Mannered Librarian")
+            .unwrap();
+        assert!(card["typeLine"].as_str().unwrap().contains("Werewolf"));
+        assert_eq!(card["counters"]["+1/+1"], 2);
+        assert_eq!(card["power"], 3);
+        assert_eq!(zone(&engine, "player", "hand").len(), hand_count + 1);
+        assert_eq!(
+            engine.current["players"]["player"]["libraryCount"],
+            library_count - 1
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
+    fn real_forge_librarians_once_limit_survives_untapping() {
+        let mut engine = practice_engine(
+            Scenario::Deck,
+            Some("[Main]\n8 Forest\n8 Mild-Mannered Librarian\n"),
+        );
+        choose(&mut engine, "Keep hand");
+        let mut used_on_turn = None;
+        for _ in 0..180 {
+            let choices = engine.current["choices"].as_array().unwrap();
+            let has = |prefix: &str| {
+                choices
+                    .iter()
+                    .any(|c| c["label"].as_str().unwrap().starts_with(prefix))
+            };
+            let field = zone(&engine, "player", "battlefield");
+            let turn = engine.current["turn"].as_u64().unwrap();
+            let activated = "{3}{G}: Mild-Mannered Librarian";
+            if let Some(previous) = used_on_turn {
+                if turn > previous
+                    && field
+                        .iter()
+                        .filter(|c| c["name"] == "Forest" && c["tapped"] == false)
+                        .count()
+                        >= 4
+                {
+                    assert!(
+                        !has(activated),
+                        "The same permanent regained its once-only ability"
+                    );
+                    return;
+                }
+            }
+            let action = if has("Play Forest") {
+                "Play Forest"
+            } else if !field.iter().any(|c| c["name"] == "Mild-Mannered Librarian")
+                && has("Cast Mild-Mannered Librarian")
+            {
+                "Cast Mild-Mannered Librarian"
+            } else if used_on_turn.is_none() && has(activated) {
+                used_on_turn = Some(turn);
+                activated
+            } else if has("No attacks") {
+                "No attacks"
+            } else if has("Discard") {
+                if has("Discard Mild-Mannered Librarian") {
+                    "Discard Mild-Mannered Librarian"
+                } else {
+                    "Discard Forest"
+                }
+            } else {
+                "Pass priority"
+            };
+            choose(&mut engine, action);
+        }
+        panic!("No later untap after using the Librarian's ability");
     }
 }

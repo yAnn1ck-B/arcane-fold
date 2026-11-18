@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { ArrowLeftRight, Eye, Library, Search, X } from "lucide-react";
+import { useState } from "react";
+import { Eye, Library, Search } from "lucide-react";
 import type { AppSettings } from "@/lib/types";
 import { prepareShuffle, projectMatch } from "./engine";
 import {
@@ -17,7 +17,8 @@ import {
   type Seat,
   type Zone,
 } from "./types";
-import { TableBoard, TableSeat } from "./TableBoard";
+import { SwitchPlayer, TableBoard, TableSeat } from "./TableBoard";
+import { TableDialog } from "./TableDialog";
 
 type Dispatch = (action: Action) => void;
 const pileZones = ["library", "hand", "graveyard", "exile"] as const;
@@ -95,7 +96,6 @@ function TableView({
   const [lookMode, setLookMode] = useState<"none" | "top" | "all">("none");
   const [tokenName, setTokenName] = useState("");
   const [addingToken, setAddingToken] = useState(false);
-  const pilePanel = useRef<HTMLElement>(null);
   const other: Seat = viewer === 0 ? 1 : 0;
   const common = { view, viewer, dispatch };
   function showPile(seat: Seat, zone: Pile["zone"]) {
@@ -103,7 +103,6 @@ function TableView({
     setQuery("");
     setLookMode("none");
     setPile({ seat, zone });
-    requestAnimationFrame(() => pilePanel.current?.focus());
   }
   function closePile() {
     setPile(null);
@@ -149,9 +148,7 @@ function TableView({
       toolbar={
         <>
           <TurnControls {...common} />
-          <button type="button" className="pt-seat-switch" onClick={changeSeat}>
-            <ArrowLeftRight size={16} /> Switch to Player {other + 1}
-          </button>
+          <SwitchPlayer player={other + 1} onSwitch={changeSeat} />
         </>
       }
       seats={([other, viewer] as const).map((seat) => {
@@ -230,31 +227,16 @@ function TableView({
       })}
       handCount={view.players[viewer].counts.hand}
       hand={view.players[viewer].zones.hand.map((id) => renderTile(id, "hand"))}
-      stack={<StackControls {...common} />}
+      stack={<StackControls {...common} imageCacheDir={imageCacheDir} />}
     >
       {pile && (
-        <section
-          className="pt-pile-panel"
-          ref={pilePanel}
-          tabIndex={-1}
-          aria-label={`Player ${pile.seat + 1} ${pile.zone}`}
+        <TableDialog
+          title={zoneNames[pile.zone]}
+          label={`Player ${pile.seat + 1} ${pile.zone}`}
+          subtitle={`Player ${pile.seat + 1} · ${view.players[pile.seat].counts[pile.zone]} cards`}
+          closeLabel="Close zone"
+          onClose={closePile}
         >
-          <header className="pt-pile-heading">
-            <div>
-              <small>Player {pile.seat + 1}</small>
-              <h3>
-                {zoneNames[pile.zone]}{" "}
-                <small>{view.players[pile.seat].counts[pile.zone]}</small>
-              </h3>
-            </div>
-            <button
-              onClick={closePile}
-              className="pt-btn"
-              aria-label="Close zone"
-            >
-              <X size={16} />
-            </button>
-          </header>
           {pile.zone === "library" && pile.seat === viewer && (
             <div className="pt-library-tools">
               <button
@@ -309,16 +291,11 @@ function TableView({
           {(lookMode === "all" || lookMode === "top") && (
             <p className="pt-subtle">Library order, top first</p>
           )}
-          <div className="pt-pile-list">
-            {foundIds.map((id) => (
-              <button type="button" key={id} onClick={() => select(id)}>
-                {pieceName(view, id)}
-                {view.pieces[id].revealed && (
-                  <Eye size={14} aria-label="Revealed" />
-                )}
-              </button>
-            ))}
-          </div>
+          {!!foundIds.length && (
+            <div className="pt-field">
+              {foundIds.map((id) => renderTile(id, pile.zone))}
+            </div>
+          )}
           {!foundIds.length && (
             <p className="pt-subtle">
               {pileIds.length
@@ -332,7 +309,7 @@ function TableView({
                     : "No visible cards."}
             </p>
           )}
-        </section>
+        </TableDialog>
       )}
       {selectedPiece && selectedZone && (
         <CardInspector
