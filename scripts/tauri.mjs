@@ -9,7 +9,8 @@ const localCargo = path.join(root, ".tools", "cargo");
 if (existsSync(path.join(localCargo, "bin", "cargo.exe"))) {
   env.CARGO_HOME = localCargo;
   env.RUSTUP_HOME = path.join(root, ".tools", "rustup");
-  env.PATH = `${path.join(localCargo, "bin")}${path.delimiter}${env.PATH}`;
+  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+  env[pathKey] = [path.join(localCargo, "bin"), env[pathKey]].filter(Boolean).join(path.delimiter);
 }
 const cli = path.join(root, "node_modules", "@tauri-apps", "cli", "tauri.js");
 const cliArgs = process.argv.slice(2);
