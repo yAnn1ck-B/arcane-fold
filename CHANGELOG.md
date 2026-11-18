@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 - Add a local Playtest table for saved decks, with manual zones, a shared stack, mana pools and resumable matches.
-- Add a replayable Lightning Bolt trial on the same Playtest table used for saved decks. Installed Forge 2.0.13 handles targeting, mana payment, priority and damage.
+- Add Forge-backed saved-deck practice and replayable Lightning Bolt, Counterspell response and creature combat exercises on the shared Playtest table. Forge 2.0.13 handles legality, payment, priority, damage and zone changes.
 
 ## [0.4.0] - 2026-11-18
 

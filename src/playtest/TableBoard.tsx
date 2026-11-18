@@ -8,6 +8,7 @@ export function TableBoard({
   toolbar,
   seats,
   handCount,
+  handLabel = "Your hand",
   hand,
   stack,
   children,
@@ -16,6 +17,7 @@ export function TableBoard({
   toolbar: ReactNode;
   seats: ReactNode;
   handCount: number;
+  handLabel?: string;
   hand: ReactNode[];
   stack: ReactNode;
   children?: ReactNode;
@@ -26,10 +28,10 @@ export function TableBoard({
       <div className="pt-table-layout">
         <div className="pt-arena">
           {seats}
-          <section className="pt-hand" aria-label="Your hand">
+          <section className="pt-hand" aria-label={handLabel}>
             <div className="pt-zone-header">
               <h3>
-                Your hand <small>{handCount}</small>
+                {handLabel} <small>{handCount}</small>
               </h3>
             </div>
             <div className="pt-field">

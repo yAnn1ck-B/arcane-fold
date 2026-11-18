@@ -13,6 +13,14 @@ import forge.game.GameType;
 import forge.game.Match;
 import forge.game.card.Card;
 import forge.game.card.CardFactory;
+import forge.game.card.CardCollection;
+import forge.game.card.CardCollectionView;
+import forge.game.combat.Combat;
+import forge.game.combat.CombatUtil;
+import forge.game.GameObject;
+import forge.game.mulligan.MulliganService;
+import forge.game.spellability.LandAbility;
+import forge.item.PaperCard;
 import forge.game.phase.PhaseHandler;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
@@ -35,6 +43,7 @@ import java.io.StringWriter;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -69,7 +78,7 @@ public class ForgeBoltTrial {
         return new RegisteredPlayer(new Deck(name)).setPlayer(lobby);
     }
 
-    private static void loadForge(Path install, Path scratch) {
+    private static void loadForge(Path install, Path scratch, boolean includeTokens) {
         String assets = install.toString() + File.separator;
         // The adapter runs without a desktop window. Supply only the platform
         // hooks required by this fixture and surface unexpected UI requests.
@@ -89,8 +98,9 @@ public class ForgeBoltTrial {
         FModel.loadDynamicGamedata(); // Includes the basic land subtypes that grant mana abilities.
         String images = scratch.resolve("images").toString() + File.separator;
         ImageKeys.initializeDirs(images, Map.of(), images, images, images, images, images, images, images);
+        var tokens = includeTokens ? new CardStorageReader(res.resolve("tokenscripts").toString(), null, false) : null;
         new StaticData(new CardStorageReader(res.resolve("cardsfolder").toString(), null, true),
-                null, null, null, res.resolve("editions").toString(), scratch.resolve("editions").toString(),
+                tokens, null, null, res.resolve("editions").toString(), scratch.resolve("editions").toString(),
                 res.resolve("blockdata").toString(), res.resolve("setlookup").toString(),
                 "Original Art All Editions", false, false, false, false);
     }
@@ -211,7 +221,11 @@ public class ForgeBoltTrial {
 
     public static void main(String[] args) {
         try {
-            loadForge(Path.of(args[0]), Path.of(args[1]));
+            loadForge(Path.of(args[0]), Path.of(args[1]), args.length > 2 && args[2].equals("deck"));
+            if (args.length > 2 && !args[2].equals("bolt")) {
+                new ForgePractice(args[2], Path.of(args[1])).run();
+                System.exit(0);
+            }
             ForgeBoltTrial trial = new ForgeBoltTrial();
             trial.emit();
             var input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));

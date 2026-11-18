@@ -227,14 +227,17 @@ pub async fn list_pool(pool: &SqlitePool) -> Result<Vec<DeckSummary>, String> {
 }
 
 pub async fn load_pool(pool: &SqlitePool, id: &str) -> Result<DeckDetail, String> {
+    // Read the name and card list from the same saved revision during autosave.
+    let mut transaction = pool.begin().await.map_err(|e| e.to_string())?;
     let row = sqlx::query("SELECT * FROM decks WHERE id=?")
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *transaction)
         .await
         .map_err(|e| format!("Cannot read deck: {e}"))?
         .ok_or("This deck no longer exists.")?;
     let cards = sqlx::query(&format!("SELECT c.*, COALESCE(o.quantity,0) AS owned, {ORACLE_OWNED_SQL} AS oracle_owned, dc.section, dc.quantity AS deck_quantity FROM deck_cards dc JOIN cards c ON c.id=dc.card_id LEFT JOIN collection o ON o.card_id=c.id WHERE dc.deck_id=? ORDER BY dc.section,c.cmc,c.name COLLATE NOCASE,c.set_code,c.collector_number"))
-        .bind(id).fetch_all(pool).await.map_err(|e| format!("Cannot load deck cards: {e}"))?;
+        .bind(id).fetch_all(&mut *transaction).await.map_err(|e| format!("Cannot load deck cards: {e}"))?;
+    transaction.commit().await.map_err(|e| e.to_string())?;
     Ok(DeckDetail {
         id: row.get("id"),
         name: row.get("name"),
@@ -1547,6 +1550,28 @@ fn serialize_deck(name: &str, entries: &[DeckEntry], index: &ForgeIndex) -> Resu
     if !printing_errors.is_empty() {
         return Err(printing_errors.join(" "));
     }
+    serialize_exact_printings(name, entries, index)
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn practice_snapshot(deck: &DeckDetail, install: &Path) -> Result<String, String> {
+    if !deck
+        .cards
+        .iter()
+        .any(|entry| entry.section == "main" && entry.quantity > 0)
+    {
+        return Err("Add cards to the deck's main section before practicing.".into());
+    }
+    let index = forge_index(install.to_str()).ok_or("Cannot read Forge card editions.")?;
+    // A read-only practice copy also supports older saved decks with mixed artwork.
+    serialize_exact_printings(&deck.name, &deck.cards, &index)
+}
+
+fn serialize_exact_printings(
+    name: &str,
+    entries: &[DeckEntry],
+    index: &ForgeIndex,
+) -> Result<String, String> {
     let name = validated_name(name)?;
     let mut content = format!("[metadata]\nName={name}\n[Main]\n");
     for section in ["main", "sideboard"] {

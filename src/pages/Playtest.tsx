@@ -13,7 +13,7 @@ import {
 } from "@/playtest/session";
 import { loadSession, saveSession } from "@/playtest/storage";
 import Table from "@/playtest/Table";
-import ForgeBoltTrial from "@/playtest/ForgeBoltTrial";
+import ForgePractice from "@/playtest/ForgePractice";
 import type { Seat } from "@/playtest/types";
 import "@/styles/playtest.css";
 
@@ -128,12 +128,19 @@ export default function Playtest({
   return (
     <section className="playtest-page">
       {import.meta.env.DEV && !playing && (
-        <ForgeBoltTrial
+        <ForgePractice
           open={trialOpen}
           onOpenChange={setTrialOpen}
           canPlay={canPlay}
           disabled={working}
           imageCacheDir={settings.forge.imageCacheDir}
+          decks={decks}
+          decksReady={deckListReady}
+          suggestedDeckId={
+            decks.find(
+              (deck) => deck.name === session?.match.players[0].deckName,
+            )?.id
+          }
         />
       )}
       {error && !trialOpen && (
@@ -207,7 +214,7 @@ export default function Playtest({
             </div>
           )}
           <section className="panel pt-setup">
-            <h2>New table</h2>
+            <h2>Manual table</h2>
             <p>Practice a deck on your own, or play both sides of a matchup.</p>
             {deckListReady && !decks.length ? (
               <Button variant="outline" onClick={onDeckBuilder}>

@@ -18,7 +18,14 @@ The development build includes **Playtest** in the sidebar. Choose one saved dec
 
 Select a card to move it, cast it, change its face, mark combat, or add counters and attachments. Open a library to search or look at the top cards. The shared stack holds spells, abilities, copies, and target notes. Each action saves to one local table in the app profile's WebView storage. Choose **Resume** to continue, or **Undo** to take back one of the last 128 actions. Starting a replacement table asks for confirmation.
 
-**Try the Forge-backed Lightning Bolt scenario.** With Forge Desktop 2.0.13 selected in Settings and a JDK 17 `java` on your PATH, open **Playtest → Lightning Bolt trial → Start trial** in the Tauri development app. Both players start at 20 life. Click **Mountain**, then **Lightning Bolt**, then the opponent's life total. Forge taps the Mountain for the payment. The Bolt stays on the stack until you click **Pass priority** as the opponent. Their life drops to 17 and Bolt goes to your graveyard. Choose **Replay trial** to try the other legal target. The trial supplies its own two cards and uses the same battlefield, hand, card tiles and stack as a manual game. Forge controls which actions are available. Choose **Leave trial** to return to your decks and saved manual table.
+**Forge practice** runs on the same playtest table. Select Forge Desktop 2.0.13 in Settings and put a JDK 17 `java` on your PATH. In the Tauri development app, open **Playtest** and choose a starting position.
+
+- **Saved deck practice** shuffles a copy of the selected main deck. It needs at least seven cards. Keep your opening hand or take a London mulligan and choose which cards go on the bottom. Click a land, spell, or activated ability during your first main phase. **Next turn** advances through empty priority windows and stops for combat declarations and pending effects. The practice opponent passes. Forge pays mana automatically and handles some secondary card choices.
+- **Counterspell response** starts with Mountain and Lightning Bolt in your hand. The opponent has Counterspell and two untapped Islands. After you cast Bolt, play the opponent's response or pass and see how the stack resolves.
+- **Creature combat** starts with Grizzly Bears facing Runeclaw Bear. Declare attackers and blockers, then let Forge apply damage. Both creatures die if they fight. An unblocked attack deals two damage to the opponent.
+- **Lightning Bolt** replays the original two-card payment and targeting example.
+
+Forge practice runs in memory. Leaving it returns you to your saved decks and manual game.
 
 Use Windows with Node.js 20.19+ (or a supported newer LTS), Rust 1.90+, the MSVC C++ build tools and Windows SDK, and WebView2. See the [official Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
@@ -119,10 +126,10 @@ npm run test:decks
 npm test
 ```
 
-To exercise both legal Lightning Bolt targets against an installed Forge engine, set `FORGE_BOLT_TEST_INSTALL` to the Forge Desktop 2.0.13 installation folder and run:
+To test both Lightning Bolt targets, the Counterspell response, creature combat, and a saved-deck mulligan and turn against your installed engine, set `FORGE_BOLT_TEST_INSTALL` to the Forge Desktop 2.0.13 installation folder and run
 
 ```powershell
-npm test -- --lib bolt_trial::tests::real_forge_bolt_trial -- --ignored --exact
+npm test -- --locked --lib bolt_trial::tests::real_forge -- --ignored --test-threads=1
 ```
 
 The historical 0.3.0 baseline passed the frontend build, all 126 native checks (122 unit, one migration guard, and three cold-configuration tests), and 55 Node checks (24 deck-autosave/lifecycle checks plus 31 updater/version/verifier/migration checks). The full locked suite passed in a fresh checkout with Rust 1.90 and in both tagged Windows/Linux jobs. An isolated Windows desktop profile verified missing-Forge configuration and automatic setup resumption, compact deck controls and naming dialogs, automatic Forge saves and failure retries, and exact numbered column counts. Auto now rounds up at borderline widths: a scaled laptop layout at 1463 pixels and 175% DPI showed 4 open / 7 collapsed, while 1920 pixels showed 5 open / 7 collapsed. Lost-response checks covered new-deck deduplication and Collection quantity changes and target switching up to four copies. Shared wildcard visuals, full expansion names in opening history, and automatic reveal clearing also passed. Native pack tests cover common-only reduced weight, higher-rarity land priority, normal uncommon identity weighting, shared land preferences, printing-neutral odds, pack variety, rarity odds, basic exclusion, and completion fallbacks. Aggregate simulations covered 650,000 fresh packs across the 13 populated scheduled expansions; the missing Secrets of Strixhaven pool was not simulated. Desktop pack checks used separate data and Forge exports. Native integration tests were not rerun while the actively played preview was running.

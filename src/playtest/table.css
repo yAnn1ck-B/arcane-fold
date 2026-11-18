@@ -20,6 +20,31 @@
   flex-wrap: wrap;
   margin: 6px 0 14px;
 }
+.pt-forge-controls,
+.pt-forge-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.pt-forge-controls {
+  width: 100%;
+  gap: 0.75rem 1rem;
+}
+.pt-forge-prompt {
+  display: grid;
+  gap: 0.15rem;
+  flex: 1 1 16rem;
+}
+.pt-forge-prompt strong,
+.pt-zone-count {
+  font-size: 0.85em;
+  color: var(--tone-secondary, #4d6752);
+}
+.pt-forge .pt-piece:has(button.pt-piece-select:enabled) {
+  border-color: var(--tone-accent, #547d5b);
+  box-shadow: 0 0 0 1px var(--tone-accent, #547d5b);
+}
 .pt-table-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(225px, 27%);

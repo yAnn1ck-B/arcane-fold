@@ -8,7 +8,7 @@ Build a Windows desktop application that works alongside **MTG Forge**.
 
 The application manages a permanent Magic: The Gathering card collection. Users open booster packs, collect cards, earn wildcards, craft specific cards, and build decks that can be played in Forge.
 
-Forge handles rules-enforced gameplay. The development build offers a manual table for saved decks and an experimental Forge-backed Lightning Bolt scenario.
+Forge handles rules-enforced gameplay. The development build offers a shared playtest table for manual games, Forge-backed deck practice and guided rules exercises.
 
 ### Manual playtest (unreleased)
 
@@ -16,9 +16,9 @@ The Playtest page supports solo practice and two seats controlled on one device.
 
 Table actions update an independent match model. A local checkpoint records shuffle outcomes and recent actions for resuming and undoing moves. Each seat renders a filtered view of the table. Future network play can put the full match and action validation on a host and send only the appropriate view to each client. Future rules automation can use the same actions. Player authentication, remote connections, AI, and automated rules enforcement are outside this trial.
 
-### Forge-backed Lightning Bolt trial (unreleased)
+### Forge practice (unreleased)
 
-The debug Playtest page also offers a fixed two-player position with Mountain and Lightning Bolt in hand. The player plays the land, casts the spell, chooses a target and passes as the opponent. Both modes render the same playtest table. Manual games use the saved match model and its editing controls. In the Bolt trial, Forge supplies the card abilities, match state and legal targets, and the table forwards player choices to Forge. The trial is replayable in memory.
+Saved-deck practice takes an in-memory match through the opening hand, mulligans, mana payment, spellcasting, priority and turns against a passing seat. The response exercise gives the second seat two Islands and Counterspell. The combat exercise lets the player declare attackers and blockers and observe damage and state-based actions. The original Lightning Bolt exercise remains a regression case. All starting positions use the same battlefield, card tiles, hand and stack as manual games, with Forge supplying available choices for rules-enforced play.
 
 **Technology:**
 
@@ -56,7 +56,7 @@ Deck edits save automatically to the app and Forge, with serialized writes and t
 
 Owned incomplete decks may be saved to Forge as drafts. Nonbasic quantities across both sections must stay within pooled Oracle ownership, and every selected printing must be eligible and globally unlocked; collection ownership is pooled across expansions. Report sync failures honestly. There is no separate Export to Forge button or automatic-export preference.
 
-The companion uses Forge files directly for its catalog and deck integration. Starting the experimental Lightning Bolt trial also starts a local Java process for that match.
+The companion uses Forge files directly for its catalog and deck integration. Starting Forge practice starts a local Java process for that match.
 
 ## 3. Local Database
 
