@@ -20,6 +20,8 @@ Keep your opening hand or mulligan in the opening-hand dialog. After a mulligan,
 
 Use **Switch to manual play** during a game to take over both seats and resolve effects yourself. Confirm the switch and, if prompted, replacement of the existing saved game. The manual table starts at the current position, retains the public log, and saves each move locally. Manual Undo starts at the switch and retains up to 128 moves. **Resume** reopens a saved manual game, including games saved under the former Playtest name.
 
+Play offers casts from other zones when a card grants permission. Open the library counter to see its top card when your seat is allowed to look. The board also prompts for decisions such as dividing counters, assigning combat damage and choosing a card to discard as payment. [Foundations gameplay verification](docs/foundations-play-audit.md)
+
 ## Run locally
 
 Use Windows with Node.js 20.19+ (or a supported newer LTS), Rust 1.90+, the MSVC C++ build tools and Windows SDK, and WebView2. See the [official Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).

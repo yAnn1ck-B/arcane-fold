@@ -1,82 +1,63 @@
-# Foundations gameplay audit
+# Foundations gameplay verification
 
-Play can load all 771 Foundations (FDN) printings in Forge Desktop 2.0.13. Some of the 517 distinct cards still lose player choices, including choices that determine which creature dies, which card enters a hand, or whether a spell can be cast. Biogenic Upgrade can end a match with an engine error.
+This report covers local Play on `experiment/playtest` with Forge Desktop 2.0.13 and JDK 17. The installed Foundations (FDN) edition contains 771 printings across 517 distinct names, including the Starter Collection. Foundations Jumpstart (J25) and Special Guests (SPG) have separate set codes. The original positions and results are preserved in the checkpoint commit `b8941e8`.
 
-This audit covers the current Play working tree on `experiment/playtest`. Its set boundary is collector numbers 1–771 in the installed FDN edition, including the Starter Collection and alternate art. Foundations Jumpstart (J25) and Special Guests (SPG) have separate set codes.
+## Set-wide checks
 
-| Check | Result | What it establishes |
-| --- | --- | --- |
-| Exact-printing deck load | 771 of 771 | Forge constructed each printing through the saved-deck loader. |
-| Script inventory | 517 distinct names | Every name mapped to a card script. The inventory also located the 30 distinct token scripts explicitly referenced by those cards. |
-| First play for every name | 472 spells resolved, 44 lands were played and Biogenic Upgrade raised an exception. | The sweep attempted all 517 names through the Play controller. Twelve needed a second position with suitable mana, an opposing spell or a legal target. |
-| Existing regression suite | 42 installed-Forge tests and 15 manual-game/session tests passed | The index identifies 30 FDN names exercised by 27 focused native tests. The remaining 487 names have no focused test linked in the inventory. |
+| Check | What was exercised |
+| --- | --- |
+| Printing and script inventory | The saved-deck loader constructed all 771 exact collector numbers. All 517 names mapped to a Forge script, and all 30 explicitly referenced token scripts were present. |
+| First play for every name | 473 spells resolved and 44 lands were played. Each position used the production controller and ran through the resulting stack. Twelve cards needed a different position with suitable mana, an attacking creature or an opposing spell to respond to. |
+| Activated abilities | The sweep exercised 151 activation routes across 125 cards. Forge resolved 94 abilities on the stack and recorded mana from the selected source in 57 cases. The other names comprise 276 permanents with no activation in the surveyed position and 116 instants or sorceries. Conditions included ten other untapped Elves, an attacking creature, counters on the source, a legal opposing nonbasic land and two creatures activating from their owner's graveyard. |
+| Focused regressions | The inventory links 60 specific card names to 58 named tests. These check which seat gets a decision, what it can see, and what happens to the cards, stack, mana and life totals. |
 
-The script inventory counts 110 names with an explicit activated ability, 236 with a triggered ability, 56 with a token-creation operation, 18 with a discard operation, 14 with scry and six with surveil. A card can appear in several counts. Keyword-generated abilities and choices embedded in costs can follow different engine paths. Thrill of Possibility and Burglar Rat below illustrate why both paths need testing.
+Read the first-play table as an observation of one route through each card. A permanent can enter successfully while its end-step trigger, alternate activation or interaction with a second card needs its own position. The activation table records the source, cost, engine event and decisions in each position. The focused tests supply assertions about specific outcomes. Other combinations of cards, replacement effects and timing windows remain open to playtesting. [Printing, ability and test inventory](foundations-card-audit.tsv) · [First-play results](foundations-first-play.tsv) · [Activation results](foundations-activations.tsv)
 
-## Reproduced gameplay gaps
+Play automatically passes priority when the only available action would be to produce mana. At an open priority decision, players can tap a particular source before casting. The activation sweep gives each position an open decision so it can exercise the selected source.
 
-These positions ran against the installed Forge engine with the production Play controller and two human-controlled seats. The fixtures supplied the initial cards, answered the controller's prompts, and inspected the resulting zones, stack, life, or counters. The observations cover the native decisions and board data consumed by React. For missing plays, the checks also inspected the permission Forge granted and the cost it considered payable.
+## Targeting, casting and paying costs
 
-### Match failure and incorrect resolution
+| Position | Verified behavior |
+| --- | --- |
+| Biogenic Upgrade and Chandra, Flameshaper | Players select targets and announce the amount for each before the opponent responds. Bouncing a target loses its share. Teach by Example allows new targets for a copy and preserves the corresponding amounts. |
+| Bolt Bend and Burst Lightning | The player chooses a legal replacement target. If no replacement is possible, the original target stands. |
+| Vizier of the Menagerie and Omniscience | Vizier shows the library's top card to the permitted seat and allows the creature to be cast with the mana it grants permission to spend. Omniscience offers a free cast with no mana available. |
+| Blasphemous Edict and Muldrotha | The one-black alternate cost becomes available with thirteen creatures. Playing a land from the graveyard consumes the player's land drop. |
+| Eaten Alive and Harbinger of the Tides | Eaten Alive requires the player to choose and pay its additional cost before it exiles the target. Harbinger costs two extra mana at instant timing. Its controller can accept or decline the bounce after choosing a tapped opposing creature. |
+| Leyline Axe | After both players keep and finish putting mulligan cards on the bottom, each player with an Axe in hand can choose whether to start with it on the battlefield. |
+| Chandra, Flameshaper and Tinybones, Bauble Burglar | Chandra lets the player choose the exiled card and the permission expires at the end of the turn. Tinybones permits an opponent-owned card in exile with a stash counter. |
+| Strongbox Raider | After an attack, its controller exiles two cards and chooses one. Only that card can be played through the end of the controller's next turn. Without an attack, the cards stay in the library. |
+| Etali, Primal Storm | The attacking player chooses which exiled spells to cast, their order and their targets during resolution. Burst Lightning can be cast for free for 2 damage, or kicked for four mana for 4 damage. The player can decline to cast. Lands remain in exile. |
+| Thrill of Possibility and Hungry Ghoul | The payer chooses which card to discard or which other creature to sacrifice before the spell or ability resolves. |
+| Lathril, Blade of the Elves | With eleven other untapped Elves, the controller chooses the ten that pay for the activation. The remaining Elf stays untapped. The opponent loses 10 life and the controller gains 10. |
+| Pyromancer's Goggles | A Mountain pays for one Shock and leaves the Goggles untapped. Tapping the Goggles instead copies the spell, gives the controller the option to change its target, and deals 4 damage if both hit the opponent. |
+| Wildborn Preserver and Mentor of the Meek | Wildborn's controller can decline or choose X during resolution. Paying zero or more creates a second, respondable trigger. Mentor offers its optional draw when the controller can pay one, spends the mana on acceptance and leaves it available on decline. |
 
-| Card | Position and expected decision | Observed result |
-| --- | --- | --- |
-| Biogenic Upgrade | Cast with six Forests. Select Llanowar Elves and Runeclaw Bear. Assign the three counters 1/2 or 2/1 before either player responds. | Play accepted both targets and never asked for the amounts. Forge threw a null-pointer exception looking up the first target's allocation during resolution. |
-| Bolt Bend | Cast Burst Lightning targeting the other player. Respond with Bolt Bend. The caster is the only other legal damage target. | Play allowed Bolt Bend to target Burst Lightning and gave no prompt to change the damage target. The original opponent took 2 damage. |
+[Targeting and trigger regressions](../src-tauri/src/play/target_tests.rs) · [Casting permission regressions](../src-tauri/src/play/permission_tests.rs) · [Wildborn Preserver regression](../src-tauri/src/play/variable_combo_tests.rs) · [Wizards' Foundations rulings](https://magic.wizards.com/en/news/feature/foundations-release-notes)
 
-### Legal plays missing from the action menu
+## Decisions, combat and board information
 
-| Card | Available play | Observed result |
-| --- | --- | --- |
-| Vizier of the Menagerie | With a Forest untapped and Llanowar Elves on top of the library, look at the Elves and cast them. | Forge granted access to the top card and an affordable cast. The board showed only the library count, and the menu only offered the Forest in hand or a pass. |
-| Omniscience | With no mana available, cast Llanowar Elves from hand for free. | Forge marked the free spell affordable. Play omitted the spell. |
-| Blasphemous Edict | With exactly 13 creatures on the battlefield and one untapped Swamp, cast the spell for one black mana. | Forge marked the alternate cost affordable. Play omitted the spell. |
-| Muldrotha, the Gravetide | Use the turn's available land play for Evolving Wilds in the graveyard. | Forge allowed the land play. Play only offered the land in hand or a pass. |
-| Chandra, Flameshaper | Activate +2 and exile three Mountains. One receives permission to be played this turn. | Forge identified a legal land play for one exiled Mountain. The next menu offered the Forest in hand or a pass. |
-| Tinybones, Bauble Burglar | An opponent discards Plains to Tinybones. With a land play available, play that Plains from the opponent's exile. | The exiled Plains had its stash counter. The next menu offered the Island in hand or a pass. |
+| Position | Verified behavior |
+| --- | --- |
+| Curator of Destinies and Inspiration from Beyond | Curator's controller allocates the five cards. The opponent chooses between the face-up pile and the face-down pile, seeing only the permitted information. Inspiration's controller chooses the eligible spell returned from the graveyard. |
+| Sorcerous Spyglass and Heraldic Banner | Spyglass privately reveals the opponent's hand and accepts a legal printed name, including a name outside the decks. Naming Reassembling Skeleton disables its graveyard activation. Banner retains the chosen color and its bonus applies to the matching creature. |
+| Perforating Artist | The opponent chooses whether to discard, sacrifice or lose 3 life. The chosen payment or life loss appears on the correct side of the table. |
+| Multiple blockers and trample | The attacker can choose which one-toughness blocker takes the Elf's single damage. Rampaging Baloths can assign damage to the defending player once both blockers have been assigned lethal damage. |
+| Goldvein Pick and Healer's Hawk | The board identifies the equipped Hawk and its equipment. The Hawk gets the bonus, deals combat damage and creates a Treasure token. |
+| Chandra's Hawk copy | The token is visibly distinct from the original. Its inspector includes haste and the sacrifice ability. It can attack immediately and leaves the battlefield at the end step. |
+| Existing interactions | Separate positions cover scry, surveil, library search, flashback, Elf tokens, counters, simultaneous triggers, undo and the Bloodthirsty Conqueror loop, including interrupting that loop with Unsummon. |
 
-### Choices the engine made for the players
+[Private choices and costs](../src-tauri/src/play/decision_tests.rs) · [Battlefield and combat regressions](../src-tauri/src/play/board_tests.rs) · [Lifegain combo regressions](../src-tauri/src/play/lifegain_combo_tests.rs) · [Foundations combat rules](https://magic.wizards.com/en/news/announcements/foundations-update-bulletin)
 
-| Card or situation | Expected decision | Observed result |
-| --- | --- | --- |
-| Thrill of Possibility | Discard either Unsummon or Fleeting Distraction to pay the casting cost. | Forge discarded Fleeting Distraction and drew two cards without a discard prompt. |
-| Hungry Ghoul | Sacrifice Healer’s Hawk or Llanowar Elves to pay the activation cost. | Forge sacrificed the Elves without asking. |
-| Curator of Destinies | After it enters, its controller divides five cards into face-up and face-down piles. The opponent chooses which pile goes to the controller's hand. | Neither seat got its decision. Healer’s Hawk, Llanowar Elves and Plains went to hand. Goldvein Pick and Mountain went to the graveyard. |
-| Inspiration from Beyond | Mill three Islands with Unsummon and Fleeting Distraction already in the graveyard. Choose which instant or sorcery to return. | Forge returned Unsummon without asking. |
-| Heraldic Banner | Choose the color as the artifact enters. | The Banner resolved with white as its chosen color. Play sent no color prompt. |
-| Sorcerous Spyglass | Look at an opponent's hand containing Soul-Guide Lantern, then choose a card name. | Spyglass named Island without asking the player for a name. |
-| Combat with two blockers | Attack with 1/1 Llanowar Elves. Block with Savannah Lions and Helpful Hunter, each with 1 toughness. The attacker chooses which blocker takes the Elves' damage. | Both seats confirmed their combat declarations. Lions died, Hunter survived, and the attacker received no damage-assignment choice. |
+## Repeat the checks
 
-The Foundations rulings describe the pile decisions and who may see them. The set's combat rules let the attacker assign its damage among multiple blockers. [Foundations release notes](https://magic.wizards.com/en/news/feature/foundations-release-notes) · [Foundations rules update](https://magic.wizards.com/en/news/announcements/foundations-update-bulletin)
-
-## What to fix first
-
-1. Capture the Biogenic Upgrade and Bolt Bend positions in permanent regressions. Check the announced targets and allocations while the spell is on the stack, then assert the counters or damage after resolution. These positions expose a match-ending error and an incorrect game outcome.
-2. Build the priority menu from the plays Forge grants the seat, including alternate payments and plays from the library, graveyard or exile. Cover an unaffordable printed cost, a permitted alternate cost, a permission that expires and an opponent-owned card.
-3. Route payment and resolution decisions to the responsible seat. Exercise both choices for the Hungry Ghoul sacrifice and the Thrill of Possibility discard. Curator additionally needs separate private prompts for the two players.
-4. Expose combat damage assignment, equipment attachments and temporary token identity on the automatic table. Assert both the engine outcome and what each player can see on the board.
-
-## Interactions that worked
-
-- **Wildborn Preserver** has a regression covering decline and payments of 0, 1 and 3 as the original trigger resolves. Paying puts the separate counter trigger on the stack. The opponent can respond with Unsummon before counters are added. [Native regression](../src-tauri/src/play/variable_combo_tests.rs) · [Wizards ruling](https://magic.wizards.com/en/news/feature/throne-eldraine-release-notes-2019-09-20)
-- **Teach by Example and Burst Lightning** allowed a different target for the copy. The two target prompts let each player take 2 damage, leaving both at 18 life.
-- **Burglar Rat** let the affected player choose the discard when its trigger resolved. **Duress** showed the revealed hand to its caster and offered only legal discards. **Tribute to Hunger** let the affected player choose the creature to sacrifice. [Discard and sacrifice regressions](../src-tauri/src/play/discard_tests.rs)
-- **Goldvein Pick and Healer’s Hawk** allowed the player to equip the Hawk while Llanowar Elves was another legal choice. The Hawk became 2/2, dealt combat damage and created a Treasure. The automatic board snapshot omitted which creature the Pick was attached to.
-- **Chandra, Flameshaper and Healer’s Hawk** produced a token copy that attacked immediately and was sacrificed at the end of the turn. The automatic card inspector presented the original and the temporary copy with identical characteristics, leaving the player without a visible way to identify the temporary Hawk.
-- Existing seeded regressions also check private scry and surveil ordering, discarding as an effect, flashback, Elf token creation, counter doubling, and responses that break a lifegain combo. The card inventory gives the test names for each recorded interaction. [Card inventory](foundations-card-audit.tsv)
-
-## Reading and repeating the checks
-
-The **card inventory** connects each FDN name and collector number to its installed Forge script, abilities, token scripts and named regression tests. Its decision-review column flags code paths worth exercising. A blank cell means the script scan found no matching pattern. [Card inventory](foundations-card-audit.tsv)
-
-The **first-play sweep** starts a fresh game for each distinct name with a fixed board, known mana and sample targets. If the card was unavailable in the first main phase, it repeats the attempt with suitable mana, a legal target, an incoming attacker or an opposing spell on the stack. The report records Forge's resolution or land-play event and identifies the second position where one was needed. A successful resolution can still skip a player decision. Bolt Bend resolved in the sweep, and the separate Burst Lightning position showed that it could leave the wrong target in place. [First-play results](foundations-first-play.tsv) · [Sweep fixture](../src-tauri/test-fixtures/FoundationsFirstPlay.java)
-
-From the repository root, set the Forge installation path and use JDK 17 with `java` and `javac` on the path. The commands below check the two saved reports and run the Forge and manual-game regression suites. The sweep's `--check` compares observed outcomes with the audit, including the known Biogenic Upgrade failure. After a fix, inspect the new outcome and regenerate the report by omitting `--check`.
+From the repository root, set the path to Forge Desktop 2.0.13 and make `java` and `javac` from JDK 17 available. The Python checks compare the saved reports with fresh results. Omitting `--check` regenerates a report after reviewing a change to the expected behavior. The installed-engine checks use disposable games and separate Forge homes.
 
 ```powershell
 $env:FORGE_BOLT_TEST_INSTALL = 'C:\path\to\Forge 2.0.13'
 python scripts/audit-foundations.py "$env:FORGE_BOLT_TEST_INSTALL" --check
 python scripts/check-foundations-first-play.py "$env:FORGE_BOLT_TEST_INSTALL" --check
+python scripts/check-foundations-first-play.py "$env:FORGE_BOLT_TEST_INSTALL" --activations --check
 npm run test:forge
 npm run test:game
 ```

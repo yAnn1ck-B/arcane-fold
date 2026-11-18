@@ -16,7 +16,7 @@ An active game can switch permanently to manual play after confirmation. The nat
 
 The manual table supports zone moves, life, mana, counters, tokens, attachments, combat markers, stack entries and turn changes. Each move updates a local checkpoint in the existing profile store. Saved manual tables from earlier builds remain resumable. Fixed scenarios are automated integration fixtures.
 
-Foundations is the first set for interaction coverage. The installed Forge 2.0.13 regression suite checks all 771 printings across 517 distinct names and verifies that each printing can enter a practice deck. Gameplay tests use seeded decks to play both sides of a decision and check the resulting hands, stack, battlefield and life totals.
+Foundations is the first set for interaction coverage. The installed Forge 2.0.13 regression suite loads all 771 printings across 517 distinct names. A separate sweep plays every distinct card through the controller. Fixed positions and seeded decks exercise both sides of player decisions and check the resulting hands, stack, battlefield and life totals. [Foundations gameplay verification](docs/foundations-play-audit.md)
 
 The suite covers alternate activations, private scry and surveil ordering, discards, sacrifices and flashback. Combo tests cover Tatyova with Temple of Mystery in either trigger order, Wildwood Scourge with a kicked Gnarlid Colony, and Mossborn Hydra with Doubling Season and Evolving Wilds. Bloodthirsty Conqueror and Marauding Blight-Priest can drain an opponent to zero, and the opponent can interrupt the loop with Unsummon. [Documented Conqueror combo](https://commanderspellbook.com/combo/110-6191/)
 

@@ -213,14 +213,16 @@ final class ForgeManual {
         var targets = new ArrayList<String>();
         for (var group : spell.getAllTargetChoices()) {
             for (GameObject target : group) {
-                if (target instanceof Player p) targets.add("Player " + (seat(p) + 1));
-                if (target instanceof SpellAbility ability) targets.add(ForgeMatch.publicName(ability.getHostCard()) + " (stack)");
-                if (target instanceof Card card) {
+                String targetLabel;
+                if (target instanceof Player p) targetLabel = "Player " + (seat(p) + 1);
+                else if (target instanceof SpellAbility ability) targetLabel = ForgeMatch.publicName(ability.getHostCard()) + " (stack)";
+                else if (target instanceof Card card) {
                     var zone = card.getZone();
                     if (zone != null && zone.getZoneType().isHidden()) {
-                        targets.add("A card in Player " + (seat(card.getOwner()) + 1) + "'s " + zone.getZoneType().getName());
-                    } else targets.add(ForgeMatch.publicName(card) + " (" + id(card) + ")");
-                }
+                        targetLabel = "A card in Player " + (seat(card.getOwner()) + 1) + "'s " + zone.getZoneType().getName();
+                    } else targetLabel = ForgeMatch.publicName(card) + " (" + id(card) + ")";
+                } else continue;
+                targets.add(ForgeMatch.targetWithAmount(targetLabel, group, target));
             }
         }
         out.put("targets", String.join(", ", targets));

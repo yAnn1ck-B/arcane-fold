@@ -20,6 +20,7 @@ export function CardReading({
   stats,
   damage,
   counters,
+  details,
 }: {
   name: string;
   art: ReactNode;
@@ -29,6 +30,7 @@ export function CardReading({
   stats?: string;
   damage?: number;
   counters?: Record<string, number>;
+  details?: string[];
 }) {
   return (
     <div className="pt-card-reading">
@@ -38,6 +40,7 @@ export function CardReading({
         {manaCost && <b>{manaCost}</b>}
         {typeLine && <span>{typeLine}</span>}
         {oracleText && <p>{oracleText}</p>}
+        {details?.map((detail) => <span key={detail}>{detail}</span>)}
         {stats && <b>{stats}</b>}
         {!!damage && <span>{damage} damage marked</span>}
         {counters &&

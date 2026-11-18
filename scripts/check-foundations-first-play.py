@@ -1,10 +1,12 @@
-"""Attempt every FDN name in Play, using combat or stack positions when needed."""
+"""Check first plays or permanent cards' activated abilities for every FDN name in Play."""
 
 import argparse
 import csv
+import json
 import os
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from itertools import groupby
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,7 +15,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = ROOT / "src-tauri/resources/game"
 UNITS = ("ForgeImports", "ForgeGame", "ForgeMatch", "ForgeReplay", "ForgeCombat",
-         "ForgeLibrary", "ForgeHistory", "ForgeManual")
+         "ForgeLibrary", "ForgeHistory", "ForgeManual", "ForgeNames")
 
 
 def isolated_environment(scratch):
@@ -26,7 +28,7 @@ def isolated_environment(scratch):
     return env
 
 
-def run_batch(install, jar, classes, start, batch):
+def run_batch(install, jar, classes, start, batch, activations):
     scratch = classes / str(start)
     scratch.mkdir()
     env = isolated_environment(scratch)
@@ -40,7 +42,7 @@ def run_batch(install, jar, classes, start, batch):
             "java", "-Xmx768m", "-Djava.awt.headless=true", "-Dfile.encoding=UTF-8",
             f"-Duser.home={scratch}", f"-Djava.io.tmpdir={scratch}",
             "-cp", os.pathsep.join([str(classes), str(jar)]), "FoundationsFirstPlay",
-            str(install), str(scratch), str(source), str(rows),
+            str(install), str(scratch), str(source), str(rows), "activations" if activations else "first-play",
         ], cwd=scratch, env=env, timeout=360)
         with rows.open(encoding="utf-8", newline="") as file:
             observed = list(csv.reader(file, delimiter="\t", quoting=csv.QUOTE_NONE))
@@ -52,20 +54,21 @@ def run_batch(install, jar, classes, start, batch):
     return reports
 
 
-def run(install, names, output, workers, check):
+def run(install, names, output, workers, check, activations):
     jar = install / "forge-gui-desktop-2.0.13-jar-with-dependencies.jar"
     with tempfile.TemporaryDirectory(prefix="foundations-first-play-") as folder:
         scratch = Path(folder).resolve()
         source = scratch / "FoundationsFirstPlay.java"
         units = [ADAPTER / f"{name}.java" for name in UNITS]
         units.append(ROOT / "src-tauri/test-fixtures/FoundationsFirstPlay.java")
+        units.append(ROOT / "src-tauri/test-fixtures/FoundationsActivations.java")
         source.write_text("\n".join(unit.read_text(encoding="utf-8") for unit in units), encoding="utf-8")
         subprocess.run(["javac", "-encoding", "UTF-8", "-cp", str(jar), str(source)],
                        cwd=scratch, env=isolated_environment(scratch), check=True)
         outcomes = []
         # Limit per-process caches and isolate concurrent Forge instances from each other.
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            jobs = [pool.submit(run_batch, install, jar, scratch, start, names[start:start + 40])
+            jobs = [pool.submit(run_batch, install, jar, scratch, start, names[start:start + 40], activations)
                     for start in range(0, len(names), 40)]
             for job in jobs:
                 outcomes.extend(job.result())
@@ -73,31 +76,41 @@ def run(install, names, output, workers, check):
         if [row[0] for row in outcomes] != names:
             raise RuntimeError("Forge results do not match the input card list")
     header = ["card", "first_play", "detail"]
+    if activations:
+        header = ["card", "ability", "cost", "activation", "detail"]
+        by_ability = []
+        for name, status, detail in outcomes:
+            rows = json.loads(detail) if status == "activation checks" else [["", "", status, detail]]
+            by_ability.extend([name, *row] for row in rows)
+        outcomes = by_ability
     if check:
         with output.open(encoding="utf-8", newline="") as file:
             reader = csv.reader(file, delimiter="\t")
             if next(reader) != header:
                 raise SystemExit(f"Unexpected header in {output}")
-            expected = {row[0]: row for row in reader}
-        actual = {row[0]: row for row in outcomes}
-        changed = [name for name in sorted(expected.keys() | actual.keys()) if expected.get(name) != actual.get(name)]
-        if changed:
-            raise SystemExit(f"First-play results changed for {', '.join(changed)}")
+            expected = list(reader)
+        if expected != outcomes:
+            def grouped(rows):
+                return {name: list(group) for name, group in groupby(rows, key=lambda row: row[0])}
+            before, after = grouped(expected), grouped(outcomes)
+            changes = sorted(name for name in before.keys() | after.keys() if before.get(name) != after.get(name))
+            raise SystemExit(f"Results changed for {', '.join(changes)}")
     else:
         with output.open("w", encoding="utf-8", newline="") as file:
             writer = csv.writer(file, delimiter="\t", lineterminator="\n")
             writer.writerow(header)
             writer.writerows(outcomes)
-    print(dict(Counter(row[1] for row in outcomes)))
+    print(dict(Counter(row[3 if activations else 1] for row in outcomes)))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("forge_install", type=Path)
     parser.add_argument("--ledger", type=Path, default=ROOT / "docs/foundations-card-audit.tsv")
-    parser.add_argument("--output", type=Path, default=ROOT / "docs/foundations-first-play.tsv")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--activations", action="store_true", help="exercise permanent cards' activated abilities in separate fresh matches")
     parser.add_argument("--workers", type=int, choices=range(1, 5), default=2)
-    parser.add_argument("--check", action="store_true", help="compare the run to the saved first-play report")
+    parser.add_argument("--check", action="store_true", help="compare the run to the saved report")
     args = parser.parse_args()
     with args.ledger.open(encoding="utf-8-sig", newline="") as file:
         reader = csv.DictReader(file, delimiter="\t")
@@ -105,4 +118,5 @@ if __name__ == "__main__":
         names = sorted(row[key] for row in reader)
     if not names or len(names) != len(set(names)):
         raise ValueError("Expected one row per distinct card")
-    run(args.forge_install.resolve(), names, args.output.resolve(), args.workers, args.check)
+    output = args.output or ROOT / "docs" / ("foundations-activations.tsv" if args.activations else "foundations-first-play.tsv")
+    run(args.forge_install.resolve(), names, output.resolve(), args.workers, args.check, args.activations)

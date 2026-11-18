@@ -39,7 +39,7 @@ type Artwork = {
   imageUri: string | null;
 };
 type ArtCache = Map<string, Promise<Artwork | undefined>>;
-const pileNames = { graveyard: "Graveyard", exile: "Exile" } as const;
+const pileNames = { graveyard: "Graveyard", exile: "Exile", library: "Top of library" } as const;
 type Pile = { seat: ForgeSeat; zone: keyof typeof pileNames };
 
 function AbilityLabel({ label }: { label: string }) {
@@ -101,16 +101,46 @@ function pileLabel(seat: ForgeSeat, viewer: ForgeSeat, zone: Pile["zone"]) {
   return `${seat === viewer ? "Your" : "Opponent's"} ${zone}`;
 }
 
+function NameChoice({
+  choice, locked, submit,
+}: {
+  choice: ForgeChoice;
+  locked: boolean;
+  submit: (action: string) => void;
+}) {
+  const [value, setValue] = useState("");
+  const name = value.trim();
+  const action = `${choice.id}|${name}`;
+  const valid = !!name && !name.includes("|") && new TextEncoder().encode(action).length <= 512;
+  return (
+    <form
+      className="pt-forge-options"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (valid && !locked) submit(action);
+      }}
+    >
+      <input
+        aria-label="Card name" placeholder="Card name" value={value} maxLength={512}
+        disabled={locked} onChange={(event) => setValue(event.target.value)}
+      />
+      <Button type="submit" disabled={!valid || locked}>Choose name</Button>
+    </form>
+  );
+}
+
 function ForgeArt({
   card,
   imageCacheDir,
   cache,
   inspect = false,
+  attachments = [],
 }: {
   card: ForgeCard;
   imageCacheDir: string;
   cache: ArtCache;
   inspect?: boolean;
+  attachments?: string[];
 }) {
   const { name, setCode = "", collectorNumber = "" } = card;
   const [art, setArt] = useState<Artwork>();
@@ -165,11 +195,16 @@ function ForgeArt({
   );
   return inspect ? (
     <CardReading
-      name={name}
+      name={card.token ? `${name} · Token` : name}
       art={image}
       manaCost={art?.manaCost || card.manaCost}
       typeLine={card.typeLine || art?.typeLine}
-      oracleText={art?.oracleText || card.oracleText}
+      oracleText={card.token ? card.oracleText : art?.oracleText || card.oracleText}
+      details={[
+        ...attachments,
+        ...(card.chosenColors?.map((color) => `Chosen color · ${color}`) ?? []),
+        ...(card.namedCards?.map((named) => `Named card · ${named}`) ?? []),
+      ]}
       damage={card.damage}
       counters={card.counters}
       stats={
@@ -221,6 +256,12 @@ export default function ForgeBoard({
   const seatOrder: ForgeSeat[] =
     viewer === "player" ? ["opponent", "player"] : ["player", "opponent"];
   const hand = players[handSeat].hand;
+  const battlefield = [...players.player.battlefield, ...players.opponent.battlefield];
+  const pieces = new Map(battlefield.map((piece) => [piece.id, piece]));
+  const attachments = new Map<string, string[]>();
+  for (const piece of battlefield) {
+    if (piece.attachedTo) attachments.set(piece.attachedTo, [...(attachments.get(piece.attachedTo) ?? []), piece.name]);
+  }
   const opening =
     state.stage === "decision" &&
     state.phase === "Opening hand" &&
@@ -229,25 +270,30 @@ export default function ForgeBoard({
   const handLabel = sharedSeats
     ? `Player ${viewer === "player" ? 1 : 2} hand`
     : "Your hand";
-  const pileCards = pile ? players[pile.seat][pile.zone] ?? [] : [];
+  const pileOwner = pile && players[pile.seat];
+  const pileCards = pile && pileOwner
+    ? pile.zone === "library"
+      ? pileOwner.libraryTop ? [pileOwner.libraryTop] : []
+      : pileOwner[pile.zone] ?? []
+    : [];
   const visibleCards = new Set(
     [
       ...hand,
       ...stack,
       ...pileCards,
       ...(librarySearch?.cards ?? []),
-      ...players.player.battlefield,
-      ...players.opponent.battlefield,
+      ...battlefield,
     ].map((card) => card.id),
   );
   const isLifeTarget = (choice: ForgeChoice) =>
     choice.kind === "target" && !!choice.seat && !choice.cardId;
   const typeChoices = choices.filter((choice) => choice.kind === "type");
+  const nameChoice = choices.find((choice) => choice.kind === "name");
   const toolbar = librarySearch
     ? []
     : choices.filter(
         (choice) =>
-          choice.kind !== "type" &&
+          choice.kind !== "type" && choice.kind !== "name" &&
           !isLifeTarget(choice) &&
           (!choice.cardId || !visibleCards.has(choice.cardId)),
       );
@@ -327,13 +373,26 @@ export default function ForgeBoard({
         : "";
     const combatLabel =
       card.blocking && card.target ? `Blocking ${card.target}` : combat;
-    const description = [name, stats, card.tapped && "Tapped", combatLabel]
+    const attached = attachments.get(card.id) ?? [];
+    const attachedTo = card.attachedTo ? pieces.get(card.attachedTo)?.name
+      : card.attachedToPlayer && (card.attachedToPlayer === viewer ? "you" : "opponent");
+    const description = [
+      name, card.token && "Token", stats, card.tapped && "Tapped", combatLabel,
+      attachedTo && `Attached to ${attachedTo}`, ...attached,
+    ]
       .filter(Boolean)
       .join(", ");
-    const label =
+    const actionLabel =
       actions.length > 1
         ? `Choose ${abilityCount === actions.length ? "an ability" : "action"} for ${name}`
-        : move?.label ?? description;
+        : move?.label;
+    const attachmentLabels = [
+      ...(attachedTo ? [`Attached to ${attachedTo}`] : []),
+      ...(attached.length ? [`Attachments · ${attached.join(", ")}`] : []),
+    ];
+    const label = actionLabel
+      ? [actionLabel, card.token && "Token", ...attachmentLabels].filter(Boolean).join(", ")
+      : description;
     return (
       <TableCard
         key={card.id}
@@ -347,11 +406,15 @@ export default function ForgeBoard({
             cache={cache.current}
             imageCacheDir={imageCacheDir}
             inspect
+            attachments={attachmentLabels}
           />
         }
         flags={
           <>
             {combat && <span>{combat}</span>}
+            {card.token && <span>Token</span>}
+            {attachedTo && <span>Attached to {attachedTo}</span>}
+            {attached.length > 0 && <span>{attached.join(", ")}</span>}
             {stats && <span>{stats}</span>}
             {card.chosenType && <span>Chosen type · {card.chosenType}</span>}
             {abilityCount > 1 && <span>{abilityCount} abilities</span>}
@@ -395,7 +458,9 @@ export default function ForgeBoard({
               <ZoneCounter
                 zone="library"
                 count={data.libraryCount}
-                label={`${own ? "Your" : "Opponent's"} library, ${data.libraryCount} cards`}
+                label={`${own ? "Your" : "Opponent's"} library, ${data.libraryCount} cards${data.libraryTop ? " · View top card" : ""}`}
+                open={pile?.seat === seat && pile.zone === "library"}
+                onOpen={data.libraryTop ? () => setPile({ seat, zone: "library" }) : undefined}
               />
             )}
             <ZoneCounter
@@ -550,6 +615,7 @@ export default function ForgeBoard({
                 choose={choose}
               />
             )}
+            {nameChoice && <NameChoice key={nameChoice.id} choice={nameChoice} locked={locked} submit={onChoose} />}
             {state.stage === "finished" && (
               <Button
                 ref={firstButton}

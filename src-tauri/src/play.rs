@@ -23,6 +23,10 @@ use replay::{GameSetup, LiveGame};
 #[cfg(test)]
 mod ability_tests;
 #[cfg(test)]
+mod board_tests;
+#[cfg(test)]
+mod decision_tests;
+#[cfg(test)]
 mod discard_tests;
 #[cfg(test)]
 mod foundations_tests;
@@ -34,6 +38,10 @@ mod history_tests;
 mod library_tests;
 #[cfg(test)]
 mod lifegain_combo_tests;
+#[cfg(test)]
+mod permission_tests;
+#[cfg(test)]
+mod target_tests;
 #[cfg(test)]
 mod trigger_combo_tests;
 #[cfg(test)]
@@ -53,6 +61,8 @@ const GAME_SOURCE: &str = concat!(
     include_str!("../resources/game/ForgeHistory.java"),
     "\n",
     include_str!("../resources/game/ForgeManual.java"),
+    "\n",
+    include_str!("../resources/game/ForgeNames.java"),
 );
 const JAR: &str = "forge-gui-desktop-2.0.13-jar-with-dependencies.jar";
 const CLOSED: &str = "This Forge game has ended.";
@@ -70,6 +80,8 @@ enum Scenario {
     Growth,
     #[cfg(test)]
     Library,
+    #[cfg(test)]
+    Position(&'static str),
 }
 
 #[cfg(test)]
@@ -82,6 +94,7 @@ impl Scenario {
             Self::Combat => Some("combat"),
             Self::Growth => Some("growth"),
             Self::Library => Some("library"),
+            Self::Position(name) => Some(name),
         }
     }
 }
@@ -121,6 +134,15 @@ fn seat_view(snapshot: &Value, viewer: Seat) -> Result<Value, String> {
     }
     if view.get("players").is_some() {
         view["players"][viewer.other().id()]["hand"] = Value::Array(Vec::new());
+        for seat in [Seat::Player, Seat::Opponent] {
+            if let Some(board) = view["players"][seat.id()].as_object_mut() {
+                if let Some(mut visible) = board.remove("libraryTopBySeat") {
+                    if let Some(card) = visible.get_mut(viewer.id()) {
+                        board.insert("libraryTop".into(), card.take());
+                    }
+                }
+            }
+        }
     }
     if shared && snapshot["actor"] != viewer.id() {
         let fields = view.as_object_mut().expect("shared practice snapshot");
@@ -191,7 +213,16 @@ impl Engine {
         let mut unit = String::from(include_str!("../resources/game/ForgeImports.java"));
         #[cfg(test)]
         if scenario.fixture().is_some() {
-            unit.push_str(include_str!("../test-fixtures/ForgeBoltTrial.java"));
+            unit.push_str(concat!(
+                include_str!("../test-fixtures/ForgeBoltTrial.java"),
+                "\n",
+                include_str!("../test-fixtures/TargetPosition.java"),
+                "\n",
+                include_str!("../test-fixtures/PermissionPosition.java"),
+                "\n",
+                include_str!("../test-fixtures/DecisionPosition.java"),
+                "\n",
+            ));
         }
         unit.push_str(GAME_SOURCE);
         let source = dir.join("ForgeGame.java");
@@ -350,13 +381,22 @@ impl Engine {
 }
 
 fn offered_action(state: &Value, action: &str) -> bool {
-    if action.is_empty() || action.len() > 128 || action.chars().any(char::is_control) {
+    if action.is_empty() || action.len() > 512 || action.chars().any(char::is_control) {
         return false;
     }
     if let Some(choices) = state["choices"].as_array() {
-        return choices
-            .iter()
-            .any(|choice| choice["id"].as_str() == Some(action));
+        let (id, input) = action
+            .split_once('|')
+            .map_or((action, None), |(id, name)| (id, Some(name)));
+        return choices.iter().any(|choice| {
+            choice["id"].as_str() == Some(id)
+                && match input {
+                    Some(name) => {
+                        choice["kind"] == "name" && !name.trim().is_empty() && !name.contains('|')
+                    }
+                    None => choice["kind"] != "name",
+                }
+        });
     }
     #[cfg(test)]
     {
@@ -636,6 +676,18 @@ mod tests {
         assert!(!offered_action(&second, "p1_0"));
         assert!(!offered_action(&second, "Pass priority"));
         assert!(!offered_action(&second, "p2_0\n"));
+        let naming = json!({"choices":[{"id":"p3_0","kind":"name"},{"id":"p3_1","kind":"option"}]});
+        assert!(offered_action(&naming, "p3_0|Soul-Guide Lantern"));
+        for invalid in [
+            "p3_0",
+            "p3_0| ",
+            "p3_0|Forest\nPass",
+            "p3_0|A|B",
+            "p3_1|Forest",
+            "p2_0|Forest",
+        ] {
+            assert!(!offered_action(&naming, invalid));
+        }
         assert!(offered_action(&json!({"stage":"ready"}), "playMountain"));
         assert!(!offered_action(
             &json!({"stage":"resolved"}),

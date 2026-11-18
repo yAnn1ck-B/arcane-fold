@@ -117,7 +117,7 @@ export function TableCard({
           <span>{name}</span>
         </button>
       ) : (
-        <div className="pt-piece-select" tabIndex={0}>
+        <div className="pt-piece-select" role="group" tabIndex={0} aria-label={label}>
           <span>{name}</span>
         </div>
       )}

@@ -147,7 +147,7 @@ class ForgeBoltTrial {
 
     public static void main(String[] args) {
         try {
-            ForgeGame.loadForge(Path.of(args[0]), Path.of(args[1]), args.length > 2 && args[2].equals("deck"));
+            ForgeGame.loadForge(Path.of(args[0]), Path.of(args[1]), args.length > 2 && !args[2].equals("bolt"));
             if (args.length > 3) forge.util.MyRandom.setRandom(new java.util.Random(Long.parseLong(args[3])));
             if (args.length > 2 && !args[2].equals("bolt")) {
                 new GuidedPosition(args[2], Path.of(args[1])).run();
@@ -177,9 +177,22 @@ class ForgeBoltTrial {
 // Guided positions exist only in the native integration-test source unit.
 final class GuidedPosition extends ForgeMatch {
     private final String mode;
+    private final Map<String, PaperCard> fixtureCards = new java.util.HashMap<>();
     GuidedPosition(String mode, Path scratch) {
         super(scratch, true);
         this.mode = mode;
+    }
+
+    @Override Card put(String name, Player owner, ZoneType zone) {
+        // Reuse the printing when a fixed position needs many copies of a basic land.
+        var paper = fixtureCards.computeIfAbsent(name, key -> {
+            var catalog = StaticData.instance();
+            catalog.attemptToLoadCard(key);
+            return catalog.getCommonCards().getCard(key);
+        });
+        var card = CardFactory.getCard(paper, owner, game);
+        owner.getZone(zone).add(card);
+        return card;
     }
 
     @Override
@@ -222,7 +235,13 @@ final class GuidedPosition extends ForgeMatch {
                 }
                 case "combat", "growth" -> combatSetup(this, mode);
                 case "library" -> librarySetup(this);
-                default -> throw new IllegalArgumentException("Unknown practice scenario.");
+                default -> {
+                    setupPosition();
+                    for (Player seat : game.getPlayers()) {
+                        // Respect any library order supplied by the position.
+                        for (int i = 0; i < 10; i++) put("Island", seat, ZoneType.Library);
+                    }
+                }
             }
             game.setAge(GameStage.Play);
             phases.setupFirstTurn(player, null);
@@ -247,6 +266,32 @@ final class GuidedPosition extends ForgeMatch {
         } catch (EndInput closed) {
             // The table closed while Forge was waiting for a controller decision.
         }
+    }
+
+    private void setupPosition() {
+        if (mode.startsWith("target-")) TargetPosition.setup(this, mode);
+        else if (mode.startsWith("permission-")) PermissionPosition.setup(this, mode);
+        else if (mode.startsWith("decision-")) DecisionPosition.setup(this, mode);
+        else if (mode.startsWith("board-")) {
+            put("Forest", player, ZoneType.Hand); // Inspect the board at the next main phase.
+            switch (mode) {
+                case "board-damage", "board-trample" -> {
+                    put(mode.equals("board-trample") ? "Rampaging Baloths" : "Llanowar Elves",
+                            player, ZoneType.Battlefield).setSickness(false);
+                    put("Savannah Lions", opponent, ZoneType.Battlefield);
+                    put("Helpful Hunter", opponent, ZoneType.Battlefield);
+                }
+                case "board-gear", "board-copy" -> {
+                    put("Healer's Hawk", player, ZoneType.Battlefield).setSickness(false);
+                    put("Llanowar Elves", player, ZoneType.Battlefield);
+                    boolean copy = mode.equals("board-copy");
+                    put(copy ? "Chandra, Flameshaper" : "Goldvein Pick", player, ZoneType.Hand);
+                    for (int i = 0; i < (copy ? 7 : 3); i++) put("Mountain", player, ZoneType.Battlefield);
+                }
+                default -> throw new IllegalArgumentException(mode);
+            }
+        }
+        else throw new IllegalArgumentException("Unknown Forge test position: " + mode);
     }
 
 }

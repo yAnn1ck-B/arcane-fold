@@ -1,0 +1,544 @@
+card	ability	cost	activation	detail
+Abrade			not a permanent	
+Abyssal Harvester	{T}: Exile target creature card from a graveyard that was put there this turn. Create a token that's a copy of it, except it's a Nightmare in addition to its other types. Then exile all other Nightmare tokens you control.	{T}	resolved	A creature entered the graveyard this turn / Target Walking Corpse
+Adamant Will			not a permanent	
+Adaptive Automaton			no battlefield ability	
+Adventuring Gear	Equip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)	{1}	resolved	Target Grizzly Bears
+Aegis Turtle			no battlefield ability	
+Aetherize			not a permanent	
+Affectionate Indrik			no battlefield ability	
+Aggressive Mammoth			no battlefield ability	
+Ajani's Pridemate			no battlefield ability	
+Ajani, Caller of the Pride	+1: Put a +1/+1 counter on up to one target creature.	+1	resolved	Target Grizzly Bears
+Ajani, Caller of the Pride	-3: Target creature gains flying and double strike until end of turn.	-3	resolved	Target Grizzly Bears
+Ajani, Caller of the Pride	-8: Create X 2/2 white Cat creature tokens, where X is your life total.	-8	resolved	
+Alesha, Who Laughs at Fate			no battlefield ability	
+Ambush Wolf			no battlefield ability	
+An Offer You Can't Refuse			not a permanent	
+Ancestor Dragon			no battlefield ability	
+Angel of Finality			no battlefield ability	
+Angel of Vitality			no battlefield ability	
+Angelic Destiny			no battlefield ability	
+Angelic Edict			not a permanent	
+Anthem of Champions			no battlefield ability	
+Apothecary Stomper			no battlefield ability	
+Arahbo, the First Fang			no battlefield ability	
+Arbiter of Woe			no battlefield ability	
+Arcane Epiphany			not a permanent	
+Arcanis the Omnipotent	{T}: Draw three cards.	{T}	resolved	
+Arcanis the Omnipotent	{2}{U}{U}: Return Arcanis the Omnipotent to its owner's hand.	{2}{U}{U}	resolved	
+Archmage of Runes			no battlefield ability	
+Archway Angel			no battlefield ability	
+Armasaur Guide			no battlefield ability	
+Ashroot Animist			no battlefield ability	
+Aurelia, the Warleader			no battlefield ability	
+Authority of the Consuls			no battlefield ability	
+Axgard Cavalry	{T}: Target creature gains haste until end of turn.	{T}	resolved	Target Grizzly Bears
+Ayli, Eternal Pilgrim	{1}, Sacrifice another creature: You gain life equal to the sacrificed creature's toughness.	{1}, Sacrifice another creature	resolved	Player is 10 life above starting life / Sacrifice Grizzly Bears
+Ayli, Eternal Pilgrim	{1}{W}{B}, Sacrifice another creature: Exile target nonland permanent. Activate only if you have at least 10 life more than your starting life total.	{1}{W}{B}, Sacrifice another creature	resolved	Player is 10 life above starting life / Target Grizzly Bears / Sacrifice Grizzly Bears
+Azorius Guildgate	{T}: Add {W} or {U}.	{T}	produced mana	white / Produced 1 mana from the source
+Bake into a Pie			not a permanent	
+Ball Lightning			no battlefield ability	
+Ballyrush Banneret			no battlefield ability	
+Balmor, Battlemage Captain			no battlefield ability	
+Banishing Light			no battlefield ability	
+Banner of Kinship			no battlefield ability	
+Basilisk Collar	Equip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)	{2}	resolved	Target Grizzly Bears
+Battle-Rattle Shaman			no battlefield ability	
+Battlesong Berserker			no battlefield ability	
+Bear Cub			no battlefield ability	
+Beast-Kin Ranger			no battlefield ability	
+Bigfin Bouncer			no battlefield ability	
+Billowing Shriekmass			no battlefield ability	
+Biogenic Upgrade			not a permanent	
+Bishop's Soldier			no battlefield ability	
+Bite Down			not a permanent	
+Blanchwood Armor			no battlefield ability	
+Blasphemous Edict			not a permanent	
+Bloodfell Caves	{T}: Add {B} or {R}.	{T}	produced mana	black / Produced 1 mana from the source
+Bloodthirsty Conqueror			no battlefield ability	
+Bloodtithe Collector			no battlefield ability	
+Blossoming Sands	{T}: Add {G} or {W}.	{T}	produced mana	green / Produced 1 mana from the source
+Bolt Bend			not a permanent	
+Boltwave			not a permanent	
+Boros Charm			not a permanent	
+Boros Guildgate	{T}: Add {R} or {W}.	{T}	produced mana	red / Produced 1 mana from the source
+Brass's Bounty			not a permanent	
+Brazen Scourge			no battlefield ability	
+Brineborn Cutthroat			no battlefield ability	
+Broken Wings			not a permanent	
+Bulk Up			not a permanent	
+Burglar Rat			no battlefield ability	
+Burnished Hart	{3}, Sacrifice Burnished Hart: Search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle.	{3}, Sacrifice Burnished Hart	resolved	Finish search
+Burrog Befuddler			no battlefield ability	
+Burst Lightning			not a permanent	
+Bushwhack			not a permanent	
+Cackling Prowler			no battlefield ability	
+Campus Guide			no battlefield ability	
+Cancel			not a permanent	
+Carnelian Orb of Dragonkind	{T}: Add {R}. If that mana is spent on a Dragon creature spell, it gains haste until end of turn.	{T}	produced mana	Produced 1 mana from the source
+Cat Collector			no battlefield ability	
+Cathar Commando	{1}, Sacrifice Cathar Commando: Destroy target artifact or enchantment.	{1}, Sacrifice Cathar Commando	resolved	Target Ornithopter
+Celestial Armor	Equip {3}{W} ({3}{W}: Attach to target creature you control. Equip only as a sorcery.)	{3}{W}	resolved	Target Grizzly Bears
+Cemetery Recruitment			not a permanent	
+Cephalid Inkmage			no battlefield ability	
+Chandra, Flameshaper	+2: Add {R}{R}{R}.	+2	resolved	Choose Forest
+Chandra, Flameshaper	"+1: Create a token that's a copy of target creature you control, except it has haste and ""At the beginning of the end step, sacrifice this token."""	+1	resolved	Target Grizzly Bears
+Chandra, Flameshaper	-4: Chandra, Flameshaper deals 8 damage divided as you choose among any number of target creatures and/or planeswalkers.	-4	resolved	Target Grizzly Bears / Target Ornithopter / Target Chandra, Flameshaper / Target Grizzly Bears / Target Ornithopter / Target Shivan Dragon / Assign 1 / Assign 1 / Assign 1 / Assign 1 / Assign 1
+Charming Prince			no battlefield ability	
+Chart a Course			not a permanent	
+Circuitous Route			not a permanent	
+Claws Out			not a permanent	
+Clinquant Skymage			no battlefield ability	
+Cloudblazer			no battlefield ability	
+Confiscate			no battlefield ability	
+Consuming Aberration			no battlefield ability	
+Corsair Captain			no battlefield ability	
+Courageous Goblin			no battlefield ability	
+Crackling Cyclops			no battlefield ability	
+Crash Through			not a permanent	
+Crawling Barrens	{4}: Put two +1/+1 counters on Crawling Barrens. Then you may have it become a 0/0 Elemental creature until end of turn. It's still a land.	{4}	resolved	
+Crawling Barrens	{T}: Add {C}.	{T}	produced mana	Produced 1 mana from the source
+Crossway Troublemakers			no battlefield ability	
+Crow of Dark Tidings			no battlefield ability	
+Crusader of Odric			no battlefield ability	
+Crypt Feaster			no battlefield ability	
+Cryptic Caves	{1}, {T}, Sacrifice Cryptic Caves: Draw a card. Activate only if you control five or more lands.	{T}, {1}, Sacrifice Cryptic Caves	resolved	
+Cryptic Caves	{T}: Add {C}.	{T}	produced mana	Produced 1 mana from the source
+Crystal Barricade			no battlefield ability	
+Cultivator's Caravan	Crew 3 (Tap any number of creatures you control with total power 3 or more: Cultivator's Caravan becomes an artifact creature until end of turn.)	Tap any number of untapped creatures you control other than Cultivator's Caravan with total power 3or greater	resolved	
+Cultivator's Caravan	{T}: Add one mana of any color.	{T}	produced mana	white / Produced 1 mana from the source
+Curator of Destinies			no battlefield ability	
+Darksteel Colossus			no battlefield ability	
+Dauntless Veteran			no battlefield ability	
+Dawnwing Marshal	{4}{W}: Creatures you control get +1/+1 until end of turn.	{4}{W}	resolved	
+Day of Judgment			not a permanent	
+Dazzling Angel			no battlefield ability	
+Deadly Brew			not a permanent	
+Deadly Plot			not a permanent	
+Deadly Riposte			not a permanent	
+Death Baron			no battlefield ability	
+Deathmark			not a permanent	
+Demolition Field	{2}, {T}, Sacrifice Demolition Field: Destroy target nonbasic land an opponent controls. That land's controller may search their library for a basic land card, put it onto the battlefield, then shuffle. You may search your library for a basic land card, put it onto the battlefield, then shuffle.	{T}, {2}, Sacrifice Demolition Field	resolved	Opponent controls a nonbasic land / Target Evolving Wilds / Finish search / Finish search
+Demolition Field	{T}: Add {C}.	{T}	produced mana	Opponent controls a nonbasic land / Produced 1 mana from the source
+Demonic Pact			no battlefield ability	
+Desecration Demon			no battlefield ability	
+Devout Decree			not a permanent	
+Diamond Mare			no battlefield ability	
+Dictate of Kruphix			no battlefield ability	
+Dimir Guildgate	{T}: Add {U} or {B}.	{T}	produced mana	blue / Produced 1 mana from the source
+Diregraf Ghoul			no battlefield ability	
+Disenchant			not a permanent	
+Dismal Backwater	{T}: Add {U} or {B}.	{T}	produced mana	blue / Produced 1 mana from the source
+Dive Down			not a permanent	
+Divine Resilience			not a permanent	
+Doubling Season			no battlefield ability	
+Dragon Fodder			not a permanent	
+Dragon Mage			no battlefield ability	
+Dragon Trainer			no battlefield ability	
+Dragonlord's Servant			no battlefield ability	
+Dragonmaster Outcast			no battlefield ability	
+Drake Hatcher	Remove three incubation counters from Drake Hatcher: Create a 2/2 blue Drake creature token with flying.	Remove three incubation counters from Drake Hatcher	resolved	Source has three incubation counters
+Drakuseth, Maw of Flames			no battlefield ability	
+Dread Summons			not a permanent	
+Dreadwing Scavenger			no battlefield ability	
+Driver of the Dead			no battlefield ability	
+Drogskol Reaver			no battlefield ability	
+Dropkick Bomber	"{R}: Until end of turn, another target Goblin you control gains flying and ""When this creature deals combat damage, sacrifice it."""	{R}	resolved	Player controls another Goblin / Target Goblin Piker
+Druid of the Cowl	{T}: Add {G}.	{T}	produced mana	Produced 1 mana from the source
+Dryad Militant			no battlefield ability	
+Duress			not a permanent	
+Dwynen's Elite			no battlefield ability	
+Dwynen, Gilt-Leaf Daen			no battlefield ability	
+Eager Trufflesnout			no battlefield ability	
+Eaten Alive			not a permanent	
+Eaten by Piranhas			no battlefield ability	
+Electroduplicate			not a permanent	
+Elementalist Adept			no battlefield ability	
+Elenda, Saint of Dusk			no battlefield ability	
+Elfsworn Giant			no battlefield ability	
+Elspeth's Smite			not a permanent	
+Elvish Archdruid	{T}: Add {G} for each Elf you control.	{T}	produced mana	Produced 1 mana from the source
+Elvish Regrower			no battlefield ability	
+Empyrean Eagle			no battlefield ability	
+Enigma Drake			no battlefield ability	
+Erudite Wizard			no battlefield ability	
+Essence Scatter			not a permanent	
+Etali, Primal Storm			no battlefield ability	
+Evolving Wilds	{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.	{T}, Sacrifice Evolving Wilds	resolved	Finish search
+Exclusion Mage			no battlefield ability	
+Exemplar of Light			no battlefield ability	
+Expedition Map	{2}, {T}, Sacrifice Expedition Map: Search your library for a land card, reveal it, put it into your hand, then shuffle.	{T}, {2}, Sacrifice Expedition Map	resolved	Finish search
+Exsanguinate			not a permanent	
+Extravagant Replication			no battlefield ability	
+Faebloom Trick			not a permanent	
+Fake Your Own Death			not a permanent	
+Fanatical Firebrand	{T}, Sacrifice Fanatical Firebrand: It deals 1 damage to any target.	{T}, Sacrifice Fanatical Firebrand	resolved	Target Player 1
+Feed the Swarm			not a permanent	
+Feldon's Cane	{T}, Exile Feldon's Cane: Shuffle your graveyard into your library.	{T}, Exile Feldon's Cane	resolved	
+Felidar Cub	Sacrifice Felidar Cub: Destroy target enchantment.	Sacrifice Felidar Cub	resolved	Target Glorious Anthem
+Felidar Retreat			no battlefield ability	
+Felidar Savior			no battlefield ability	
+Felling Blow			not a permanent	
+Fiendish Panda			no battlefield ability	
+Fierce Empath			no battlefield ability	
+Fiery Annihilation			not a permanent	
+Finale of Revelation			not a permanent	
+Fire Elemental			no battlefield ability	
+Firebrand Archer			no battlefield ability	
+Fireshrieker	Equip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)	{2}	resolved	Target Grizzly Bears
+Firespitter Whelp			no battlefield ability	
+Fishing Pole	Equip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)	{2}	resolved	Target Grizzly Bears
+Flamewake Phoenix			no battlefield ability	
+Flashfreeze			not a permanent	
+Fleeting Distraction			not a permanent	
+Fleeting Flight			not a permanent	
+Fog Bank			no battlefield ability	
+Forest	{T}: Add {G}.	{T}	produced mana	Produced 1 mana from the source
+Frenzied Goblin			no battlefield ability	
+Fumigate			not a permanent	
+Fynn, the Fangbearer			no battlefield ability	
+Garna, Bloodfist of Keld			no battlefield ability	
+Garruk's Uprising			no battlefield ability	
+Gate Colossus			no battlefield ability	
+Gatekeeper of Malakir			no battlefield ability	
+Gateway Sneak			no battlefield ability	
+Genesis Wave			not a permanent	
+Ghalta, Primal Hunger			no battlefield ability	
+Ghitu Lavarunner			no battlefield ability	
+Giada, Font of Hope	{T}: Add {W}. Spend this mana only to cast an Angel spell.	{T}	produced mana	Produced 1 mana from the source
+Giant Cindermaw			no battlefield ability	
+Giant Growth			not a permanent	
+Gigantosaurus			no battlefield ability	
+Gilded Lotus	{T}: Add three mana of any one color.	{T}	produced mana	white / Produced 3 mana from the source
+Gleaming Barrier			no battlefield ability	
+Gnarlback Rhino			no battlefield ability	
+Gnarlid Colony			no battlefield ability	
+Goblin Boarders			no battlefield ability	
+Goblin Firebomb	{7}, {T}, Sacrifice Goblin Firebomb: Destroy target permanent.	{T}, {7}, Sacrifice Goblin Firebomb	resolved	Target Grizzly Bears
+Goblin Negotiation			not a permanent	
+Goblin Oriflamme			no battlefield ability	
+Goblin Smuggler	{T}: Another target creature with power 2 or less can't be blocked this turn.	{T}	resolved	Target Ornithopter
+Goblin Surprise			not a permanent	
+Goldvein Pick	Equip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)	{1}	resolved	Target Grizzly Bears
+Golgari Guildgate	{T}: Add {B} or {G}.	{T}	produced mana	black / Produced 1 mana from the source
+Good-Fortune Unicorn			no battlefield ability	
+Gorehorn Raider			no battlefield ability	
+Grappling Kraken			no battlefield ability	
+Gratuitous Violence			no battlefield ability	
+Grow from the Ashes			not a permanent	
+Gruul Guildgate	{T}: Add {R} or {G}.	{T}	produced mana	red / Produced 1 mana from the source
+Guarded Heir			no battlefield ability	
+Gutless Plunderer			no battlefield ability	
+Guttersnipe			no battlefield ability	
+Halana and Alena, Partners			no battlefield ability	
+Harbinger of the Tides			no battlefield ability	
+Hare Apparent			no battlefield ability	
+Harmless Offering			not a permanent	
+Healer's Hawk			no battlefield ability	
+Heartfire Immolator	{R}, Sacrifice Heartfire Immolator: It deals damage equal to its power to target creature or planeswalker.	{R}, Sacrifice Heartfire Immolator	resolved	Target Grizzly Bears
+Hedron Archive	{2}, {T}, Sacrifice Hedron Archive: Draw two cards.	{T}, {2}, Sacrifice Hedron Archive	resolved	
+Hedron Archive	{T}: Add {C}{C}.	{T}	produced mana	Produced 2 mana from the source
+Helpful Hunter			no battlefield ability	
+Herald of Eternal Dawn			no battlefield ability	
+Herald of Faith			no battlefield ability	
+Heraldic Banner	{T}: Add one mana of the chosen color.	{T}	produced mana	Produced 1 mana from the source
+Hero's Downfall			not a permanent	
+Heroes' Bane	{2}{G}{G}: Put X +1/+1 counters on Heroes' Bane, where X is its power.	{2}{G}{G}	resolved	
+Heroic Reinforcements			not a permanent	
+Hidetsugu's Second Rite			not a permanent	
+High Fae Trickster			no battlefield ability	
+High-Society Hunter			no battlefield ability	
+Highborn Vampire			no battlefield ability	
+Hinterland Sanctifier			no battlefield ability	
+Hoarding Dragon			no battlefield ability	
+Homunculus Horde			no battlefield ability	
+Hungry Ghoul	{1}, Sacrifice another creature: Put a +1/+1 counter on this creature.	{1}, Sacrifice another creature	resolved	Sacrifice Grizzly Bears
+Icewind Elemental			no battlefield ability	
+Immersturm Predator	Sacrifice another creature: Immersturm Predator gains indestructible until end of turn. Tap it.	Sacrifice another creature	resolved	Sacrifice Grizzly Bears
+Impact Tremors			no battlefield ability	
+Imperious Perfect	{G}, {T}: Create a 1/1 green Elf Warrior creature token.	{T}, {G}	resolved	
+Imprisoned in the Moon			no battlefield ability	
+Incinerating Blast			not a permanent	
+Infernal Vessel			no battlefield ability	
+Infestation Sage			no battlefield ability	
+Ingenious Leonin	{3}{W}: Put a +1/+1 counter on another target attacking creature you control.	{3}{W}	resolved	Active player's Grizzly Bears is attacking / Target Grizzly Bears
+Inspiration from Beyond			not a permanent	
+Inspiring Call			not a permanent	
+Inspiring Overseer			no battlefield ability	
+Inspiring Paladin			no battlefield ability	
+Into the Roil			not a permanent	
+Involuntary Employment			not a permanent	
+Island	{T}: Add {U}.	{T}	produced mana	Produced 1 mana from the source
+Izzet Guildgate	{T}: Add {U} or {R}.	{T}	produced mana	blue / Produced 1 mana from the source
+Jazal Goldmane	{3}{W}{W}: Attacking creatures you control get +X/+X until end of turn, where X is the number of attacking creatures.	{3}{W}{W}	resolved	
+Joraga Invocation			not a permanent	
+Joust Through			not a permanent	
+Juggernaut			no battlefield ability	
+Jungle Hollow	{T}: Add {B} or {G}.	{T}	produced mana	black / Produced 1 mana from the source
+Kaito, Cunning Infiltrator	+1: Up to one target creature you control can't be blocked this turn. Draw a card, then discard a card.	+1	resolved	Target Grizzly Bears / Discard Forest
+Kaito, Cunning Infiltrator	-2: Create a 2/1 blue Ninja creature token.	-2	resolved	
+Kaito, Cunning Infiltrator	"-9: You get an emblem with ""Whenever a player casts a spell, you create a 2/1 blue Ninja creature token."""	-9	resolved	
+Kalastria Highborn			no battlefield ability	
+Kargan Dragonrider			no battlefield ability	
+Kellan, Planar Trailblazer	"{1}{R}: If Kellan, Planar Trailblazer is a Scout, it becomes a Human Faerie Detective and gains ""Whenever Kellan, Planar Trailblazer deals combat damage to a player, exile the top card of your library. You may play that card this turn."""	{1}{R}	resolved	
+Kellan, Planar Trailblazer	{2}{R}: If Kellan, Planar Trailblazer is a Detective, it becomes a 3/2 Human Faerie Rogue and gains double strike.	{2}{R}	resolved	
+Kindled Fury			not a permanent	
+Kiora, the Rising Tide			no battlefield ability	
+Kitesail Corsair			no battlefield ability	
+Knight of Grace			no battlefield ability	
+Knight of Malice			no battlefield ability	
+Koma, World-Eater			no battlefield ability	
+Krenko, Mob Boss	{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control.	{T}	resolved	
+Kykar, Zephyr Awakener			no battlefield ability	
+Lathliss, Dragon Queen	{1}{R}: Dragons you control get +1/+0 until end of turn.	{1}{R}	resolved	
+Lathril, Blade of the Elves	{T}, Tap ten untapped Elfs you control: Each opponent loses 10 life and you gain 10 life.	{T}, Tap ten untapped Elfs you control	resolved	Player controls eleven other untapped Elves / Tap Elvish Warrior / Tap Elvish Warrior / Tap Elvish Warrior / Tap Elvish Warrior / Tap Elvish Warrior / Tap Elvish Warrior / Tap Elvish Warrior / Tap Elvish Warrior / Tap Elvish Warrior / Tap Elvish Warrior
+Leonin Skyhunter			no battlefield ability	
+Leonin Vanguard			no battlefield ability	
+Leyline Axe	Equip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)	{3}	resolved	Target Grizzly Bears
+Lightshell Duo			no battlefield ability	
+Liliana, Dreadhorde General	+1: Create a 2/2 black Zombie creature token.	+1	resolved	
+Liliana, Dreadhorde General	-4: Each player sacrifices two creatures.	-4	resolved	Sacrifice Grizzly Bears / Sacrifice Ornithopter
+Liliana, Dreadhorde General	-9: Each opponent chooses a permanent they control of each permanent type and sacrifices the rest.	-9	resolved	Choose Grizzly Bears
+Linden, the Steadfast Queen			no battlefield ability	
+Llanowar Elves	{T}: Add {G}.	{T}	produced mana	Produced 1 mana from the source
+Loot, Exuberant Explorer	{4}{G}{G}, {T}: Look at the top six cards of your library. You may reveal a creature card with mana value less than or equal to the number of lands you control from among them and put it onto the battlefield. Put the rest on the bottom in a random order.	{T}, {4}{G}{G}	resolved	
+Luminous Rebuke			not a permanent	
+Lunar Insight			not a permanent	
+Lyra Dawnbringer			no battlefield ability	
+Maalfeld Twins			no battlefield ability	
+Macabre Waltz			not a permanent	
+Maelstrom Pulse			not a permanent	
+Magnigoth Sentry			no battlefield ability	
+Make Your Move			not a permanent	
+Make a Stand			not a permanent	
+Marauding Blight-Priest			no battlefield ability	
+Massacre Wurm			no battlefield ability	
+Maze's End	{3}, {T}, Return Maze's End to its owner's hand: Search your library for a Gate card, put it onto the battlefield, then shuffle. If you control ten or more Gates with different names, you win the game.	{T}, {3}, Return Maze's End to its owner's hand	resolved	
+Maze's End	{T}: Add {C}.	{T}	produced mana	Produced 1 mana from the source
+Mazemind Tome	{T}, Put a Page counter on Mazemind Tome: Scry 1.	{T}, Put a Page counter on Mazemind Tome	resolved	Put Forest on the bottom
+Mazemind Tome	{2}, {T}, Put a Page counter on Mazemind Tome: Draw a card.	{T}, {2}, Put a Page counter on Mazemind Tome	resolved	
+Mentor of the Meek			no battlefield ability	
+Meteor Golem			no battlefield ability	
+Micromancer			no battlefield ability	
+Midnight Reaper			no battlefield ability	
+Midnight Snack	{2}{B}, Sacrifice Midnight Snack: Target opponent loses X life, where X is the amount of life you gained this turn.	{2}{B}, Sacrifice Midnight Snack	resolved	Target Player 2
+Mild-Mannered Librarian	{3}{G}: Mild-Mannered Librarian becomes a Werewolf. Put two +1/+1 counters on it and you draw a card. Activate only once.	{3}{G}	resolved	
+Mindsparker			no battlefield ability	
+Mischievous Mystic			no battlefield ability	
+Mischievous Pup			no battlefield ability	
+Mocking Sprite			no battlefield ability	
+Mold Adder			no battlefield ability	
+Moment of Craving			not a permanent	
+Moment of Triumph			not a permanent	
+Mortify			not a permanent	
+Mossborn Hydra			no battlefield ability	
+Mountain	{T}: Add {R}.	{T}	produced mana	Produced 1 mana from the source
+Muldrotha, the Gravetide			no battlefield ability	
+Myojin of Night's Reach	Remove a divinity counter from Myojin of Night's Reach: Each opponent discards their hand.	Remove a divinity counter from Myojin of Night's Reach	resolved	
+Mystic Archaeologist	{3}{U}{U}: Draw two cards.	{3}{U}{U}	resolved	
+Mystical Teachings			not a permanent	
+Needletooth Pack			no battlefield ability	
+Negate			not a permanent	
+Nessian Hornbeetle			no battlefield ability	
+New Horizons			no battlefield ability	
+Nine-Lives Familiar			no battlefield ability	
+Niv-Mizzet, Visionary			no battlefield ability	
+Nullpriest of Oblivion			no battlefield ability	
+Obliterating Bolt			not a permanent	
+Offer Immortality			not a permanent	
+Omniscience			no battlefield ability	
+Opt			not a permanent	
+Ordeal of Nylea			no battlefield ability	
+Orzhov Guildgate	{T}: Add {W} or {B}.	{T}	produced mana	white / Produced 1 mana from the source
+Overrun			not a permanent	
+Ovika, Enigma Goliath			no battlefield ability	
+Pacifism			no battlefield ability	
+Painful Quandary			no battlefield ability	
+Pelakka Wurm			no battlefield ability	
+Perforating Artist			no battlefield ability	
+Phyrexian Arena			no battlefield ability	
+Pilfer			not a permanent	
+Pirate's Cutlass	Equip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)	{2}	resolved	Target Grizzly Bears
+Plains	{T}: Add {W}.	{T}	produced mana	Produced 1 mana from the source
+Prayer of Binding			no battlefield ability	
+Predator Ooze			no battlefield ability	
+Preposterous Proportions			not a permanent	
+Prideful Parent			no battlefield ability	
+Primal Might			not a permanent	
+Prime Speaker Zegana			no battlefield ability	
+Primeval Bounty			no battlefield ability	
+Progenitus			no battlefield ability	
+Pulse Tracker			no battlefield ability	
+Pyromancer's Goggles	{T}: Add {R}. When that mana is spent to cast a red instant or sorcery spell, copy that spell and you may choose new targets for the copy.	{T}	produced mana	Produced 1 mana from the source
+Quakestrider Ceratops			no battlefield ability	
+Quick Study			not a permanent	
+Quick-Draw Katana	Equip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)	{2}	resolved	Target Grizzly Bears
+Quilled Greatwurm			no battlefield ability	
+Raging Redcap			no battlefield ability	
+Raise the Past			not a permanent	
+Rakdos Guildgate	{T}: Add {B} or {R}.	{T}	produced mana	black / Produced 1 mana from the source
+Ramos, Dragon Engine	Remove five +1/+1 counters from Ramos, Dragon Engine: Add {W}{W}{U}{U}{B}{B}{R}{R}{G}{G}. Activate only once each turn.	Remove five +1/+1 counters from Ramos, Dragon Engine	produced mana	Source has five +1/+1 counters / Produced 10 mana from the source
+Rampaging Baloths			no battlefield ability	
+Rapacious Dragon			no battlefield ability	
+Ravenous Amulet	{1}, {T}, Sacrifice a creature: Draw a card and put a soul counter on this artifact. Activate only as a sorcery.	{T}, {1}, Sacrifice a creature	resolved	Sacrifice Grizzly Bears
+Ravenous Amulet	{4}, {T}, Sacrifice Ravenous Amulet: Each opponent loses life equal to the number of soul counters on this artifact.	{T}, {4}, Sacrifice Ravenous Amulet	resolved	
+Ravenous Giant			no battlefield ability	
+Reassembling Skeleton	{1}{B}: Return Reassembling Skeleton from your graveyard to the battlefield tapped.	{1}{B}	resolved	Source is in its owner's graveyard
+Reclamation Sage			no battlefield ability	
+Redcap Gutter-Dweller			no battlefield ability	
+Refute			not a permanent	
+Regal Caracal			no battlefield ability	
+Release the Dogs			not a permanent	
+Resolute Reinforcements			no battlefield ability	
+Revenge of the Rats			not a permanent	
+Rise of the Dark Realms			not a permanent	
+Rite of Replication			not a permanent	
+Rite of the Dragoncaller			no battlefield ability	
+River's Rebuke			not a permanent	
+Rogue's Passage	{4}, {T}: Target creature can't be blocked this turn.	{T}, {4}	resolved	Target Grizzly Bears
+Rogue's Passage	{T}: Add {C}.	{T}	produced mana	Produced 1 mana from the source
+Ruby, Daring Tracker	{T}: Add {R} or {G}.	{T}	produced mana	red / Produced 1 mana from the source
+Rugged Highlands	{T}: Add {R} or {G}.	{T}	produced mana	red / Produced 1 mana from the source
+Run Away Together			not a permanent	
+Rune-Scarred Demon			no battlefield ability	
+Rune-Sealed Wall	{T}: Surveil 1. (Look at the top card of your library. You may put that card into your graveyard.)	{T}	resolved	Put Forest into your graveyard
+Sanguine Indulgence			not a permanent	
+Sanguine Syphoner			no battlefield ability	
+Savage Ventmaw			no battlefield ability	
+Savannah Lions			no battlefield ability	
+Scavenging Ooze	{G}: Exile target card from a graveyard. If it was a creature card, put a +1/+1 counter on Scavenging Ooze and you gain 1 life.	{G}	resolved	Target Llanowar Elves
+Scorching Dragonfire			not a permanent	
+Scoured Barrens	{T}: Add {W} or {B}.	{T}	produced mana	white / Produced 1 mana from the source
+Scrawling Crawler			no battlefield ability	
+Searslicer Goblin			no battlefield ability	
+Secluded Courtyard	{T}: Add {C}.	{T}	produced mana	Produced 1 mana from the source
+Secluded Courtyard	{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type or activate an ability of a creature or creature card of the chosen type.	{T}	produced mana	white / Produced 1 mana from the source
+Seeker's Folly			not a permanent	
+Seismic Rupture			not a permanent	
+Seize the Spoils			not a permanent	
+Selesnya Guildgate	{T}: Add {G} or {W}.	{T}	produced mana	green / Produced 1 mana from the source
+Self-Reflection			not a permanent	
+Serra Angel			no battlefield ability	
+Shipwreck Dowser			no battlefield ability	
+Shivan Dragon	{R}: Shivan Dragon gets +1/+0 until end of turn.	{R}	resolved	
+Simic Guildgate	{T}: Add {U} or {G}.	{T}	produced mana	green / Produced 1 mana from the source
+Sire of Seven Deaths			no battlefield ability	
+Skeleton Archer			no battlefield ability	
+Skyknight Squire			no battlefield ability	
+Skyraker Giant			no battlefield ability	
+Skyship Buccaneer			no battlefield ability	
+Slagstorm			not a permanent	
+Slumbering Cerberus			no battlefield ability	
+Snakeskin Veil			not a permanent	
+Solemn Simulacrum			no battlefield ability	
+Sorcerous Spyglass			no battlefield ability	
+Soul-Guide Lantern	{T}, Sacrifice Soul-Guide Lantern: Exile each opponent's graveyard.	{T}, Sacrifice Soul-Guide Lantern	resolved	
+Soul-Guide Lantern	{1}, {T}, Sacrifice Soul-Guide Lantern: Draw a card.	{T}, {1}, Sacrifice Soul-Guide Lantern	resolved	
+Soul-Shackled Zombie			no battlefield ability	
+Soulstone Sanctuary	{4}: This land becomes a 3/3 creature with vigilance and all creature types. It's still a land.	{4}	resolved	
+Soulstone Sanctuary	{T}: Add {C}.	{T}	produced mana	Produced 1 mana from the source
+Sower of Chaos	{2}{R}: Target creature can't block this turn.	{2}{R}	resolved	Target Grizzly Bears
+Spectral Sailor	{3}{U}: Draw a card.	{3}{U}	resolved	
+Sphinx of Forgotten Lore			no battlefield ability	
+Sphinx of the Final Word			no battlefield ability	
+Spinner of Souls			no battlefield ability	
+Spitfire Lagac			no battlefield ability	
+Springbloom Druid			no battlefield ability	
+Squad Rallier	{2}{W}: Look at the top four cards of your library. You may reveal a creature card with power 2 or less from among them and put it into your hand. Put the rest on the bottom of your library in a random order.	{2}{W}	resolved	
+Stab			not a permanent	
+Starlight Snare			no battlefield ability	
+Stasis Snare			no battlefield ability	
+Steel Hellkite	{2}: Steel Hellkite gets +1/+0 until end of turn.	{2}	resolved	
+Steel Hellkite	{X}: Destroy each nonland permanent with mana value X whose controller was dealt combat damage by Steel Hellkite this turn. Activate only once each turn.	{X}	resolved	X = 1
+Storm Fleet Spy			no battlefield ability	
+Strix Lookout	{1}{U}, {T}: Draw a card, then discard a card.	{T}, {1}{U}	resolved	Discard Forest
+Stroke of Midnight			not a permanent	
+Stromkirk Bloodthief			no battlefield ability	
+Stromkirk Noble			no battlefield ability	
+Strongbox Raider			no battlefield ability	
+Sun-Blessed Healer			no battlefield ability	
+Sure Strike			not a permanent	
+Surrak, the Hunt Caller			no battlefield ability	
+Suspicious Shambler	{4}{B}{B}, Exile Suspicious Shambler from your graveyard: Create two 2/2 black Zombie creature token. Activate only as a sorcery.	{4}{B}{B}, Exile Suspicious Shambler from your graveyard	resolved	Source is in its owner's graveyard
+Swab Goblin			no battlefield ability	
+Swamp	{T}: Add {B}.	{T}	produced mana	Produced 1 mana from the source
+Swiftblade Vindicator			no battlefield ability	
+Swiftfoot Boots	Equip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)	{1}	resolved	Target Grizzly Bears
+Swiftwater Cliffs	{T}: Add {U} or {R}.	{T}	produced mana	blue / Produced 1 mana from the source
+Sylvan Scavenging			no battlefield ability	
+Syr Alin, the Lion's Claw			no battlefield ability	
+Tajuru Pathwarden			no battlefield ability	
+Tatyova, Benthic Druid			no battlefield ability	
+Taurean Mauler			no battlefield ability	
+Teach by Example			not a permanent	
+Tempest Djinn			no battlefield ability	
+Temple of Abandon	{T}: Add {R} or {G}.	{T}	produced mana	red / Produced 1 mana from the source
+Temple of Deceit	{T}: Add {U} or {B}.	{T}	produced mana	blue / Produced 1 mana from the source
+Temple of Enlightenment	{T}: Add {W} or {U}.	{T}	produced mana	white / Produced 1 mana from the source
+Temple of Epiphany	{T}: Add {U} or {R}.	{T}	produced mana	blue / Produced 1 mana from the source
+Temple of Malady	{T}: Add {B} or {G}.	{T}	produced mana	black / Produced 1 mana from the source
+Temple of Malice	{T}: Add {B} or {R}.	{T}	produced mana	black / Produced 1 mana from the source
+Temple of Mystery	{T}: Add {U} or {G}.	{T}	produced mana	green / Produced 1 mana from the source
+Temple of Plenty	{T}: Add {G} or {W}.	{T}	produced mana	green / Produced 1 mana from the source
+Temple of Silence	{T}: Add {W} or {B}.	{T}	produced mana	white / Produced 1 mana from the source
+Temple of Triumph	{T}: Add {R} or {W}.	{T}	produced mana	red / Produced 1 mana from the source
+Terror of Mount Velus			no battlefield ability	
+Think Twice			not a permanent	
+Thornweald Archer			no battlefield ability	
+Thornwood Falls	{T}: Add {G} or {U}.	{T}	produced mana	green / Produced 1 mana from the source
+Thousand-Year Storm			no battlefield ability	
+Thrashing Brontodon	{1}, Sacrifice Thrashing Brontodon: Destroy target artifact or enchantment.	{1}, Sacrifice Thrashing Brontodon	resolved	Target Ornithopter
+Three Tree Mascot	{1}: Add one mana of any color. Activate only once each turn.	{1}	produced mana	white / Produced 1 mana from the source
+Thrill of Possibility			not a permanent	
+Time Stop			not a permanent	
+Tinybones, Bauble Burglar	{3}{B}, {T}: Each opponent discards a card. Activate only as a sorcery.	{T}, {3}{B}	resolved	
+Tolarian Terror			no battlefield ability	
+Tragic Banshee			no battlefield ability	
+Tranquil Cove	{T}: Add {W} or {U}.	{T}	produced mana	white / Produced 1 mana from the source
+Treetop Snarespinner	{2}{G}: Put a +1/+1 counter on target creature you control. Activate only as a sorcery.	{2}{G}	resolved	Target Grizzly Bears
+Tribute to Hunger			not a permanent	
+Trygon Predator			no battlefield ability	
+Twinblade Blessing			no battlefield ability	
+Twinblade Paladin			no battlefield ability	
+Twinflame Tyrant			no battlefield ability	
+Uncharted Haven	{T}: Add one mana of the chosen color.	{T}	produced mana	Produced 1 mana from the source
+Uncharted Voyage			not a permanent	
+Undying Malice			not a permanent	
+Unflinching Courage			no battlefield ability	
+Unsummon			not a permanent	
+Untamed Hunger			no battlefield ability	
+Valkyrie's Call			no battlefield ability	
+Valorous Stance			not a permanent	
+Vampire Gourmand			no battlefield ability	
+Vampire Interloper			no battlefield ability	
+Vampire Neonate	{2}, {T}: Each opponent loses 1 life and you gain 1 life.	{T}, {2}	resolved	
+Vampire Nighthawk			no battlefield ability	
+Vampire Soulcaller			no battlefield ability	
+Vampire Spawn			no battlefield ability	
+Vampiric Rites	{1}{B}, Sacrifice a creature: You gain 1 life and draw a card.	{1}{B}, Sacrifice a creature	resolved	Sacrifice Grizzly Bears
+Vanguard Seraph			no battlefield ability	
+Vengeful Bloodwitch			no battlefield ability	
+Venom Connoisseur			no battlefield ability	
+Viashino Pyromancer			no battlefield ability	
+Vile Entomber			no battlefield ability	
+Vivien Reid	+1: Look at the top four cards of your library. You may reveal a creature or land card from among them and put it into your hand. Put the rest on the bottom of your library in any order.	+1	resolved	
+Vivien Reid	-3: Destroy target artifact, enchantment or creature with flying.	-3	resolved	Target Ornithopter
+Vivien Reid	"-8: You get an emblem with ""Creatures you control get +2/+2 and have vigilance, trample, and indestructible."""	-8	resolved	
+Vizier of the Menagerie			no battlefield ability	
+Volley Veteran			no battlefield ability	
+Voracious Greatshark			no battlefield ability	
+Wardens of the Cycle			no battlefield ability	
+Wary Thespian			no battlefield ability	
+Wildborn Preserver			no battlefield ability	
+Wildheart Invoker	{8}: Target creature gets +5/+5 and gains trample until end of turn.	{8}	resolved	Target Grizzly Bears
+Wildwood Scourge			no battlefield ability	
+Wilt-Leaf Liege			no battlefield ability	
+Wind-Scarred Crag	{T}: Add {R} or {W}.	{T}	produced mana	red / Produced 1 mana from the source
+Wishclaw Talisman	{1}, {T}, Remove a wish counter from Wishclaw Talisman: Search your library for a card and put that card into your hand, then shuffle. An opponent gains control of Wishclaw Talisman. Activate only during your turn.	{T}, {1}, Remove a wish counter from Wishclaw Talisman	resolved	Finish search
+Witness Protection			no battlefield ability	
+Youthful Valkyrie			no battlefield ability	
+Zetalpa, Primal Dawn			no battlefield ability	
+Zimone, Paradox Sculptor	{G}{U}, {T}: Double the number of each kind of counter on up to two target creatures and/or artifacts you control.	{T}, {G}{U}	resolved	Target Grizzly Bears / Target Ornithopter
+Zombify			not a permanent	
+Zul Ashur, Lich Lord	{T}: You may cast target Zombie creature card from your graveyard this turn.	{T}	resolved	Player has a Zombie creature in the graveyard / Target Walking Corpse

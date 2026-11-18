@@ -46,7 +46,7 @@ Bear Cub	spell resolved
 Beast-Kin Ranger	spell resolved	
 Bigfin Bouncer	spell resolved	
 Billowing Shriekmass	spell resolved	
-Biogenic Upgrade	exception	"java.lang.NullPointerException: Cannot invoke ""java.lang.Integer.intValue()"" because the return value of ""forge.game.spellability.SpellAbility.getDividedValue(forge.game.GameObject)"" is null"
+Biogenic Upgrade	spell resolved	
 Bishop's Soldier	spell resolved	
 Bite Down	spell resolved	
 Blanchwood Armor	spell resolved	

@@ -61,6 +61,37 @@ WITNESSES = {
     "foundations_wildwood_scourge_uses_chosen_x_and_triggers_once_for_kicked_colony": ("Wildwood Scourge", "Gnarlid Colony"),
     "double_x_is_paid_twice_and_announced_before_essence_scatter": ("Essence Scatter",),
     "undo_restores_opts_private_scry_draw_and_public_history": ("Opt",),
+    "foundations_divided_targets_keep_their_announced_amounts": ("Biogenic Upgrade",),
+    "foundations_copied_division_can_change_targets_but_preserves_each_amount": ("Biogenic Upgrade", "Teach by Example"),
+    "foundations_bolt_bend_changes_the_opponents_target_when_possible": ("Bolt Bend", "Burst Lightning"),
+    "foundations_chandra_divides_damage_before_players_respond": ("Chandra, Flameshaper",),
+    "foundations_mentor_draw_requires_accepting_and_paying_one_on_resolution": ("Mentor of the Meek",),
+    "foundations_perforating_artist_lets_opponent_discard_sacrifice_or_lose_life": ("Perforating Artist",),
+    "foundations_optional_death_triggers_use_their_human_decider": ("Kalastria Highborn", "Solemn Simulacrum"),
+    "foundations_vizier_private_top_card_and_off_color_payment": ("Vizier of the Menagerie",),
+    "foundations_omniscience_casts_from_hand_without_mana": ("Omniscience",),
+    "foundations_blasphemous_edict_offers_alt_cost_only_at_thirteen": ("Blasphemous Edict",),
+    "foundations_muldrotha_uses_a_land_drop_from_the_graveyard": ("Muldrotha, the Gravetide",),
+    "foundations_chandra_exiled_choice_expires_at_end_of_turn": ("Chandra, Flameshaper",),
+    "foundations_tinybones_plays_only_the_stashed_opponents_card": ("Tinybones, Bauble Burglar",),
+    "foundations_strongbox_raid_exiles_and_permits_until_next_end_step": ("Strongbox Raider",),
+    "foundations_etali_casts_in_chosen_order_with_human_targets": ("Etali, Primal Storm",),
+    "foundations_etali_may_decline_and_cannot_play_a_land": ("Etali, Primal Storm",),
+    "foundations_etali_allows_paying_or_skipping_kicker_during_resolution": ("Etali, Primal Storm", "Burst Lightning"),
+    "foundations_discard_and_sacrifice_pay_the_selected_card": ("Thrill of Possibility", "Hungry Ghoul"),
+    "foundations_curator_splits_privately_and_the_opponent_chooses": ("Curator of Destinies",),
+    "foundations_inspiration_returns_the_selected_spell": ("Inspiration from Beyond",),
+    "foundations_banner_retains_the_selected_color": ("Heraldic Banner",),
+    "foundations_spyglass_reveals_privately_and_accepts_any_printed_name": ("Sorcerous Spyglass",),
+    "attacker_can_assign_damage_to_either_blocker": ("Llanowar Elves",),
+    "trample_requires_lethal_before_assigning_the_rest_to_the_defender": ("Rampaging Baloths",),
+    "goldvein_pick_shows_its_bearer_and_creates_a_treasure_token": ("Goldvein Pick", "Healer's Hawk"),
+    "chandras_token_copy_displays_its_haste_and_sacrifice_ability": ("Chandra, Flameshaper",),
+    "foundations_keyword_leyline_axe_after_both_seats_keep": ("Leyline Axe",),
+    "foundations_keyword_eaten_alive_requires_and_spends_one_full_cost": ("Eaten Alive",),
+    "foundations_keyword_harbinger_charges_for_instant_timing": ("Harbinger of the Tides",),
+    "foundations_lathril_player_selects_ten_untapped_elves_to_pay_once": ("Lathril, Blade of the Elves",),
+    "foundations_pyromancers_goggles_only_copies_shock_when_its_mana_is_spent": ("Pyromancer's Goggles",),
 }
 
 
@@ -185,7 +216,13 @@ def inspect_script(source):
         result["decisions"].add("announce spell X")
     if "AlternateAdditionalCost" in result["keywords"]:
         result["decisions"].add("choose an additional cost")
+    if "MayEffectFromOpeningHand" in result["keywords"]:
+        result["decisions"].add("use an opening-hand action")
+    if "MayFlashCost" in result["keywords"]:
+        result["decisions"].add("pay for instant timing")
     for cost in result["costs"]:
+        if "tapXType<" in cost:
+            result["decisions"].add("choose permanents to tap as payment")
         if "Discard<" in cost:
             result["decisions"].add("discard as payment")
         if re.search(r"Sac<[^/>]+/(?!CARDNAME\b)", cost):

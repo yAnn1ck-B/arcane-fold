@@ -18,6 +18,17 @@ final class ForgeLibrary {
         return operation;
     }
 
+    CardCollection showPileCards(CardCollectionView cards, java.util.function.Supplier<CardCollection> choose) {
+        operation = "Separate piles";
+        candidates = List.copyOf(cards);
+        try {
+            return choose.get();
+        } finally {
+            candidates = null;
+            operation = "Library search";
+        }
+    }
+
     // Forge consumes (top in next-draw order, cards moved away in selection order).
     org.apache.commons.lang3.tuple.ImmutablePair<CardCollection, CardCollection> arrange(
             Player actor, CardCollection cards, boolean surveil) {
@@ -68,6 +79,14 @@ final class ForgeLibrary {
 
     List<String> takeReveal(Player recipient) {
         return revealed.remove(recipient);
+    }
+
+    List<String> peekReveal(Player recipient) {
+        return revealed.getOrDefault(recipient, List.of());
+    }
+
+    void repeatReveal(Player recipient, List<String> names) {
+        if (!names.isEmpty()) revealed.put(recipient, names);
     }
 
     Card choose(Player actor, SpellAbility effect, CardCollection options, String title, boolean optional) {

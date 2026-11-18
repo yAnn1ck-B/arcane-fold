@@ -1,5 +1,54 @@
 // Compiled in the same Java 17 source unit as ForgeMatch and its imports.
 final class ForgeCombat {
+    static Map<Card, Integer> damage(ForgeMatch match, Player chooser, Card source, CardCollectionView recipients,
+            CardCollectionView attackers, int total, forge.game.GameEntity defender) {
+        boolean tramples = defender != null && source.isAttacking() && source.hasKeyword(forge.game.keyword.Keyword.TRAMPLE);
+        boolean deathtouch = source.hasKeyword(forge.game.keyword.Keyword.DEATHTOUCH);
+        Map<Card, Integer> assigned = new LinkedHashMap<>();
+        boolean canDefer = attackers != null && source.isAttacking() && recipients.stream().anyMatch(blocker ->
+                match.phases.getCombat().getAttackersBlockedBy(blocker).stream().anyMatch(other -> other != source && attackers.contains(other)));
+        int left = total;
+        if (recipients.size() == 1 && !canDefer) {
+            Card only = recipients.getFirst();
+            int forced = tramples ? Math.min(left, Math.max(0, only.getExcessDamageValue(deathtouch))) : left;
+            if (forced > 0) assigned.put(only, forced);
+            left -= forced;
+        }
+        while (left > 0) {
+            List<ForgeMatch.Choice> options = new ArrayList<>();
+            boolean blockersHaveLethal = true;
+            for (Card card : recipients) {
+                int needed = Math.max(0, card.getExcessDamageValue(deathtouch) - assigned.getOrDefault(card, 0));
+                if (needed > 0) blockersHaveLethal = false;
+                damageOptions(match, options, assigned, card, ForgeMatch.publicName(card), left, needed);
+            }
+            if (tramples && blockersHaveLethal) {
+                String name = defender instanceof Card c ? ForgeMatch.publicName(c) : defender.getName();
+                // Forge represents damage to the attacked player, planeswalker or battle with a null key.
+                damageOptions(match, options, assigned, null, name, left, 0);
+            }
+            var defer = match.choice("Assign another attacker's damage first", "option", null, null, null);
+            if (canDefer && left == total) options.add(defer);
+            var selected = match.ask(chooser, "Assign combat damage from " + ForgeMatch.publicName(source)
+                    + " (" + left + " remaining)", options);
+            if (selected == defer) return null;
+            selected.run();
+            left = total - assigned.values().stream().mapToInt(Integer::intValue).sum();
+        }
+        return assigned;
+    }
+
+    private static void damageOptions(ForgeMatch match, List<ForgeMatch.Choice> choices, Map<Card, Integer> assigned,
+            Card card, String name, int left, int lethal) {
+        var amounts = new java.util.LinkedHashSet<Integer>();
+        amounts.add(1);
+        if (lethal > 1 && lethal < left) amounts.add(lethal);
+        if (left > 8) amounts.add(left / 2);
+        amounts.add(left);
+        for (int amount : amounts) choices.add(match.choice("Assign " + amount + " to " + name,
+                "option", card, null, () -> assigned.merge(card, amount, Integer::sum)));
+    }
+
     static void attackers(ForgeMatch practice, Player player, Combat combat) {
         if (!practice.human(player) && CombatUtil.validateAttackers(combat)) return;
         while (true) {

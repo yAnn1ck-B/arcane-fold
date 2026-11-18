@@ -111,11 +111,30 @@ class ForgeMatch {
         try {
             prepareDeck();
             game.setAge(GameStage.Play);
-            phases.setupFirstTurn(player, null);
+            Player first = runOpeningHandActions();
+            game.getAction().checkStateEffects(true);
+            game.setStartingPlayer(first);
+            phases.setupFirstTurn(first, null);
             while (!game.isGameOver()) phases.mainLoopStep();
             emit(player, String.join(" ", game.getOutcome().getOutcomeStrings()), List.of(), true);
         } catch (EndInput closed) {
             // The table closed while Forge was waiting for a controller decision.
+        }
+    }
+
+    private Player runOpeningHandActions() {
+        // Forge 2.0.13 keeps this step of GameAction.startGame private. The saved-deck
+        // table initializes its own decks, mulligans and priority loop around it.
+        try {
+            var action = game.getAction();
+            var opening = forge.game.GameAction.class.getDeclaredMethod("runOpeningHandActions", Player.class);
+            opening.setAccessible(true);
+            return (Player) opening.invoke(action, player);
+        } catch (java.lang.reflect.InvocationTargetException error) {
+            if (error.getCause() instanceof RuntimeException cause) throw cause;
+            throw new IllegalStateException("Forge failed to resolve an opening-hand action.", error.getCause());
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("This Forge installation cannot run opening-hand actions.", error);
         }
     }
 
@@ -153,6 +172,9 @@ class ForgeMatch {
             });
             if (selected == null) throw new EndInput();
             for (int i = 0; i < choices.size(); i++) {
+                if (choices.get(i).kind().equals("name") && selected.startsWith(choiceId(i) + "|")) {
+                    return new Choice(selected.substring(choiceId(i).length() + 1).strip(), "name", null, null, null);
+                }
                 if (choiceId(i).equals(selected)) {
                     Choice choice = choices.get(i);
                     if (choice.kind().equals("pass")) history.pass(actor);
@@ -206,12 +228,18 @@ class ForgeMatch {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", cardId(card));
         out.put("name", publicName(card));
+        if (card.isToken()) out.put("token", true);
+        if (card.getAttachedTo() != null) out.put("attachedTo", cardId(card.getAttachedTo()));
+        if (card.getPlayerAttachedTo() != null) out.put("attachedToPlayer", seatId(card.getPlayerAttachedTo()));
         if (card.isFaceDown()) {
             out.put("faceDown", true);
         } else {
-            out.put("oracleText", card.getOracleText().replace("\\n", "\n"));
+            String rules = card.isToken() ? card.getAbilityText() : card.getOracleText();
+            out.put("oracleText", rules.replace("\\n", "\n").strip());
             out.put("typeLine", card.getType().toString());
             if (card.isInZone(ZoneType.Battlefield) && card.hasChosenType()) out.put("chosenType", card.getChosenType());
+            if (card.isInZone(ZoneType.Battlefield) && card.hasNamedCard()) out.put("namedCards", card.getNamedCards());
+            if (card.isInZone(ZoneType.Battlefield) && card.hasChosenColor()) out.put("chosenColors", card.getChosenColors());
             if (!card.getManaCost().isNoCost()) out.put("manaCost", card.getManaCost().toString());
             out.put("setCode", card.getSetCode());
             if (card.getPaperCard() != null) out.put("collectorNumber", card.getPaperCard().getCollectorNumber());
@@ -240,18 +268,31 @@ class ForgeMatch {
 
     private Map<String, Object> board(Player p, boolean revealHand) {
         var hand = p.getCardsIn(ZoneType.Hand);
-        return Map.of("life", p.getLife(), "mana", p.getManaPool().totalMana(),
+        Map<String, Object> board = new LinkedHashMap<>(Map.of("life", p.getLife(), "mana", p.getManaPool().totalMana(),
                 "libraryCount", p.getCardsIn(ZoneType.Library).size(), "handCount", hand.size(),
                 "hand", revealHand ? hand.stream().map(this::cardState).toList() : List.of(),
                 "battlefield", p.getCardsIn(ZoneType.Battlefield).stream().map(this::cardState).toList(),
                 "exile", p.getCardsIn(ZoneType.Exile).stream().map(this::cardState).toList(),
-                "graveyard", p.getCardsIn(ZoneType.Graveyard).stream().map(this::cardState).toList());
+                "graveyard", p.getCardsIn(ZoneType.Graveyard).stream().map(this::cardState).toList()));
+        for (Card top : p.getTopXCardsFromLibrary(1)) {
+            Map<String, Object> visible = new LinkedHashMap<>();
+            for (Player viewer : game.getPlayers()) {
+                if (top.mayPlayerLook(viewer)) visible.put(seatId(viewer), cardState(top));
+            }
+            if (!visible.isEmpty()) board.put("libraryTopBySeat", visible);
+        }
+        return board;
     }
 
     private static String targetName(GameObject obj) {
         if (obj instanceof SpellAbility spell) return publicName(spell.getHostCard());
         if (obj instanceof Player p) return p.getName();
         return publicName((Card)obj);
+    }
+
+    static String targetWithAmount(String name, forge.game.spellability.TargetChoices group, GameObject target) {
+        Integer amount = group.getDividedValue(target);
+        return amount == null ? name : name + " (" + amount + ")";
     }
 
     void emit(Player actor, String prompt, List<Choice> choices, boolean finished) throws IOException {
@@ -274,7 +315,9 @@ class ForgeMatch {
             }
             var targets = new ArrayList<String>();
             for (var group : instance.getSpellAbility().getAllTargetChoices()) {
-                for (GameObject t : group) targets.add(targetName(t));
+                for (GameObject t : group) {
+                    targets.add(targetWithAmount(targetName(t), group, t));
+                }
             }
             if (!targets.isEmpty()) out.put("target", String.join(", ", targets));
             stack.add(out);
@@ -345,27 +388,33 @@ class ForgeMatch {
         for (var sa = root; sa != null; sa = sa.getSubAbility()) {
             if (!sa.usesTargeting()) continue;
             sa.setActivatingPlayer(actor);
-            sa.resetTargets();
+            // This also initializes the total to distribute after X has been announced.
+            sa.clearTargets();
             if (!pickTargets(sa, actor)) throw new IllegalStateException("Forge rejected the selected targets.");
         }
     }
 
+    private Choice targetChoice(GameObject target, Runnable select) {
+        String anchor = target instanceof Card c ? cardId(c) : null;
+        if (target instanceof SpellAbility spell) {
+            for (var entry : game.getStack()) {
+                if (entry.getSpellAbility() == spell) {
+                    anchor = spell.isSpell() ? cardId(entry.getSourceCard()) : "s" + entry.getId();
+                    break;
+                }
+            }
+        }
+        return new Choice("Target " + targetName(target), "target", anchor, target instanceof Player p ? p : null, select);
+    }
+
     private boolean pickTargets(SpellAbility ability, Player actor) {
-        while (ability.canAddMoreTarget()) {
+        int max = ability.getMaxTargets();
+        if (ability.isDividedAsYouChoose()) max = Math.min(max, ability.getDividedValue());
+        while (ability.getTargets().size() < max) {
             List<Choice> choices = new ArrayList<>();
             for (GameObject target : targets(ability)) {
                 if (ability.getTargets().contains(target)) continue;
-                String anchor = target instanceof Card c ? cardId(c) : null;
-                if (target instanceof SpellAbility spell) {
-                    for (var entry : game.getStack()) {
-                        if (entry.getSpellAbility() == spell) {
-                            anchor = spell.isSpell() ? cardId(entry.getSourceCard()) : "s" + entry.getId();
-                            break;
-                        }
-                    }
-                }
-                choices.add(new Choice("Target " + targetName(target), "target", anchor, target instanceof Player p ? p : null,
-                        () -> ability.getTargets().add(target)));
+                choices.add(targetChoice(target, () -> ability.getTargets().add(target)));
             }
             if (choices.isEmpty()) break;
             Choice done = choice("Confirm targets", "option", null, null, null);
@@ -374,7 +423,42 @@ class ForgeMatch {
             if (selected == done) break;
             selected.run();
         }
-        return ability.isTargetNumberValid();
+        if (!ability.isTargetNumberValid()) return false;
+        if (ability.isDividedAsYouChoose()) allocateTargets(ability, actor);
+        return true;
+    }
+
+    private void allocateTargets(SpellAbility ability, Player actor) {
+        var selected = ability.getTargets();
+        for (int index = 0; index < selected.size(); index++) {
+            GameObject target = selected.get(index);
+            int remaining = ability.getStillToDivide();
+            int later = selected.size() - index - 1;
+            int maximum = remaining - later;
+            if (later == 0 || maximum == 1) {
+                ability.addDividedAllocation(target, maximum);
+                continue;
+            }
+            String prompt = "Divide " + publicName(ability.getHostCard()) + " — amount for " + targetName(target);
+            ability.addDividedAllocation(target, chooseAllocation(actor, prompt, maximum));
+        }
+    }
+
+    private int chooseAllocation(Player actor, String prompt, int maximum) {
+        int low = 1, high = maximum;
+        // A divided X spell can announce a much larger amount than fits in one menu.
+        while (high - low >= 16) {
+            int middle = low + (high - low) / 2;
+            Choice lower = choice("Assign " + low + "–" + middle, "option", null, null, null);
+            Choice upper = choice("Assign " + (middle + 1) + "–" + high, "option", null, null, null);
+            if (ask(actor, prompt, List.of(lower, upper)) == lower) high = middle;
+            else low = middle + 1;
+        }
+        List<Choice> choices = new ArrayList<>();
+        for (int offset = 0; offset <= high - low; offset++) {
+            choices.add(choice("Assign " + (low + offset), "option", null, null, null));
+        }
+        return low + choices.indexOf(ask(actor, prompt, choices));
     }
 
     private static boolean announcesManaX(SpellAbility ability) {
@@ -438,6 +522,26 @@ class ForgeMatch {
         }
 
         @Override
+        public List<SpellAbility> chooseSaToActivateFromOpeningHand(List<SpellAbility> available) {
+            if (!human(seat)) return super.chooseSaToActivateFromOpeningHand(available);
+            var remaining = new ArrayList<>(available);
+            var selected = new ArrayList<SpellAbility>();
+            while (!remaining.isEmpty()) {
+                var options = new ArrayList<Choice>();
+                for (var ability : remaining) {
+                    var card = ability.getHostCard();
+                    options.add(choice("Use " + publicName(card), "card", card, null, null));
+                }
+                var done = choice("Finish opening hand actions", "option", null, null, null);
+                options.add(done);
+                var chosen = ask(seat, "Choose opening hand actions in the order to perform them", options);
+                if (chosen == done) break;
+                selected.add(remaining.remove(options.indexOf(chosen)));
+            }
+            return selected;
+        }
+
+        @Override
         public CardCollectionView chooseCardsToDiscardToMaximumHandSize(int count) {
             if (!human(seat)) return super.chooseCardsToDiscardToMaximumHandSize(count);
             return pickCards(seat.getCardsIn(ZoneType.Hand), count, "Discard", "Discard to your maximum hand size");
@@ -467,6 +571,40 @@ class ForgeMatch {
                     effect.getHostCard().getName() + " — Choose permanents to sacrifice");
         }
 
+        @Override
+        public CardCollectionView chooseCardsForEffect(CardCollectionView cards, SpellAbility effect, String title,
+                int min, int max, boolean optional, Map<String, Object> params) {
+            if (!human(seat)) return super.chooseCardsForEffect(cards, effect, title, min, max, optional, params);
+            if (optional && min > 1 && !cards.isEmpty()) {
+                var select = choice("Choose cards", "option", null, null, null);
+                var decline = choice("Decline", "option", null, null, null);
+                if (ask(seat, title, List.of(select, decline)) == decline) return CardCollection.EMPTY;
+            }
+            int required = optional && min == 1 ? 0 : min;
+            if (required >= cards.size()) return cards;
+            if (effect.getApi() == forge.game.ability.ApiType.TwoPiles) {
+                return library.showPileCards(cards, () -> pickCards(cards, required, max, "Choose", title));
+            }
+            return pickCards(cards, required, max, "Choose", effect.getHostCard().getName() + " — " + title);
+        }
+
+        @Override
+        public boolean chooseCardsPile(SpellAbility effect, CardCollectionView first, CardCollectionView second, String faceDown) {
+            if (!human(seat)) return super.chooseCardsPile(effect, first, second, faceDown);
+            boolean hideBoth = faceDown.equals("True");
+            boolean hideFirst = faceDown.equals("One") || hideBoth;
+            var a = choice(pileLabel("First", first, hideFirst), "option", null, null, null);
+            var b = choice(pileLabel("Second", second, hideBoth), "option", null, null, null);
+            return ask(seat, "Choose a pile for " + publicName(effect.getHostCard()), List.of(a, b)) == a;
+        }
+
+        private String pileLabel(String position, CardCollectionView cards, boolean hidden) {
+            String count = cards.size() + (cards.size() == 1 ? " card" : " cards");
+            if (hidden) return position + " pile (face down, " + count + ")";
+            return position + " pile (" + count + ")"
+                    + (cards.isEmpty() ? "" : " — " + String.join(", ", cards.stream().map(Card::getName).toList()));
+        }
+
         private CardCollection pickCards(CardCollectionView available, int count, String verb, String prompt) {
             return pickCards(available, count, count, verb, prompt);
         }
@@ -484,11 +622,74 @@ class ForgeMatch {
                 }
                 var done = choice("Finish selection", "option", null, null, null);
                 if (picked.size() >= min) choices.add(done);
-                var selected = ask(seat, prompt + " (" + (picked.size() + 1) + " of " + limit + ")", choices);
+                String progress = prompt + " (" + (picked.size() + 1) + " of " + limit + ")";
+                if (!picked.isEmpty()) progress += " — Selected " + String.join(", ", picked.stream().map(ForgeMatch::publicName).toList());
+                var selected = ask(seat, progress, choices);
                 if (selected == done) break;
                 selected.run();
             }
             return picked;
+        }
+
+        private boolean hasChosenCost(SpellAbility play) {
+            return play.getPayCosts() != null && play.getPayCosts().getCostParts().stream().anyMatch(part ->
+                    !part.payCostFromSource() && (part instanceof forge.game.cost.CostDiscard || part instanceof forge.game.cost.CostSacrifice
+                            || part instanceof forge.game.cost.CostTapType));
+        }
+
+        @Override
+        public forge.game.cost.CostDecisionMakerBase getCostDecisionMaker(Player payer, SpellAbility ability, boolean effect, String prompt) {
+            if (!human(payer)) return super.getCostDecisionMaker(payer, ability, effect, prompt);
+            return new forge.ai.AiCostDecision(payer, ability, effect) {
+                private forge.game.cost.PaymentDecision payWithCards(forge.game.cost.CostPart part, ZoneType zone, String verb) {
+                    var cards = forge.game.card.CardLists.getValidCards(payer.getCardsIn(zone), part.getType().split(";"),
+                            payer, ability.getHostCard(), ability);
+                    cards.removeIf(c -> zone == ZoneType.Hand ? !c.canBeDiscardedBy(ability, effect) : !c.canBeSacrificedBy(ability, effect));
+                    int count = part.getAbilityAmount(ability);
+                    if (count > cards.size()) return null;
+                    var chosen = count == cards.size() ? cards : pickCards(cards, count, verb,
+                            ability.getHostCard().getName() + " — Choose cards to pay the cost");
+                    return forge.game.cost.PaymentDecision.card(chosen);
+                }
+
+                @Override public forge.game.cost.PaymentDecision visit(forge.game.cost.CostDiscard part) {
+                    if (part.payCostFromSource() || Set.of("Hand", "Random", "LastDrawn").contains(part.getType())
+                            || part.getType().contains("+With")) return super.visit(part);
+                    return payWithCards(part, ZoneType.Hand, "Discard");
+                }
+
+                @Override public forge.game.cost.PaymentDecision visit(forge.game.cost.CostSacrifice part) {
+                    if (part.payCostFromSource() || part.getType().equals("OriginalHost") || part.getAmount().equals("All")
+                            || part.getType().contains("+With")) return super.visit(part);
+                    return payWithCards(part, ZoneType.Battlefield, "Sacrifice");
+                }
+
+                @Override public forge.game.cost.PaymentDecision visit(forge.game.cost.CostTapType part) {
+                    String type = part.getType();
+                    if (part.payCostFromSource() || type.equals("OriginalHost") || type.contains(".sharesCreatureTypeWith")
+                            || type.contains("+withTotalPowerGE")) return super.visit(part);
+                    var cards = forge.game.card.CardLists.getValidCards(payer.getCardsIn(ZoneType.Battlefield),
+                            type.split(";"), payer, ability.getHostCard(), ability);
+                    if (!part.canTapSource) cards.remove(ability.getHostCard());
+                    var eligible = forge.game.card.CardLists.filter(cards, ability.isCrew()
+                            ? forge.game.card.CardPredicates.CAN_CREW : forge.game.card.CardPredicates.CAN_TAP);
+                    int count = part.getAbilityAmount(ability);
+                    if (count > eligible.size()) return null;
+                    var chosen = count == eligible.size() ? eligible : pickCards(eligible, count, "Tap",
+                            ability.getHostCard().getName() + " — Choose permanents to tap");
+                    return forge.game.cost.PaymentDecision.card(chosen);
+                }
+            };
+        }
+
+        @Override
+        public Map<Card, Integer> assignCombatDamage(Card source, CardCollectionView recipients, CardCollectionView attackers,
+                int amount, forge.game.GameEntity defender, boolean overrideOrder) {
+            if (!human(seat) || !overrideOrder || recipients.isEmpty() || source.hasKeyword("Trample:Planeswalker")
+                    || source.hasKeyword("You may assign CARDNAME's combat damage divided as you choose among defending player and/or any number of creatures they control.")) {
+                return super.assignCombatDamage(source, recipients, attackers, amount, defender, overrideOrder);
+            }
+            return ForgeCombat.damage(ForgeMatch.this, seat, source, recipients, attackers, amount, defender);
         }
 
         @Override
@@ -535,9 +736,17 @@ class ForgeMatch {
                 return;
             }
             for (var ability : orderSimultaneousSa(abilities)) {
-                if (ability.isTrigger() && !ability.isCopied()
-                        && (!ability.isOptionalTrigger() || optionalEffect(ability))
-                        && !ability.getAllTargetChoices().isEmpty()) {
+                if (ability.isCopied() && ability.isMayChooseNewTargets()) {
+                    // Preserve the copied number of targets and the announced amounts, as
+                    // Forge's desktop human controller does when putting a copy on the stack.
+                    if (ability.isSpell()) {
+                        Card copy = ability.getHostCard();
+                        if (copy.isInZone(ZoneType.Stack)) game.getStackZone().add(copy);
+                        else ability.setHostCard(game.getAction().moveToStack(copy, ability));
+                    }
+                    ability.setupNewTargets(seat);
+                    game.getStack().add(ability);
+                } else if (ability.isTrigger() && !ability.isCopied() && !ability.getAllTargetChoices().isEmpty()) {
                     // The desktop human controller lets Forge set up each target group
                     // and its chooser. The AI controller picks trigger targets internally.
                     forge.game.player.PlaySpellAbility.playSpellAbility(this, seat, ability);
@@ -547,26 +756,26 @@ class ForgeMatch {
             }
         }
 
-        private boolean optionalEffect(SpellAbility ability) {
-            // Forge also flags some triggered costs as optional. Their payment
-            // stays with the engine's cost handler.
-            return ability instanceof forge.game.trigger.WrappedAbility wrapped
-                    && wrapped.getTrigger().hasParam("OptionalDecider")
-                    && !wrapped.getWrappedAbility().hasParam("Cost");
-        }
-
         @Override
         public boolean confirmTrigger(forge.game.trigger.WrappedAbility ability) {
             SpellAbility effect = ability.getWrappedAbility();
-            if (human(seat) && seat == effect.getActivatingPlayer()
-                    && announcesManaX(effect) && effect.getPayCosts().isOnlyManaCost()) {
+            var trigger = ability.getTrigger();
+            // Forge 2.0.13 marks this raid trigger optional. The Foundations release notes
+            // require the exile and choice after a qualifying attack. Only playing the
+            // chosen card is optional. Forge still checks raid on entry and resolution.
+            // https://magic.wizards.com/en/news/feature/foundations-release-notes
+            if (effect.getHostCard().getName().equals("Strongbox Raider")
+                    && trigger.getMode() == forge.game.trigger.TriggerType.ChangesZone
+                    && "RaidTest".equals(trigger.getParam("CheckSVar"))
+                    && "TrigExile".equals(trigger.getParam("Execute"))) return true;
+            if (!human(seat)) return super.confirmTrigger(ability);
+            if (seat == effect.getActivatingPlayer() && effect.hasParam("Cost") && effect.getPayCosts() != null) {
                 // Forge pays this cost and runs the effect only if the decider accepts.
                 // Paying zero can still create a separate "when you do" trigger.
-                return chooseManaX(effect, true);
+                if (announcesManaX(effect) && effect.getPayCosts().isOnlyManaCost()) return chooseManaX(effect, true);
+                if (!effect.getParam("Cost").equals("0")) return offerPayment(effect.getPayCosts(), effect);
             }
-            if (!human(seat) || !optionalEffect(ability) || ability.getAllTargetChoices().isEmpty()) {
-                return super.confirmTrigger(ability);
-            }
+            if (!ability.getTrigger().hasParam("OptionalDecider")) return super.confirmTrigger(ability);
             // Forge asks the decider during resolution, after opponents can respond.
             var use = choice("Use ability", "option", null, null, null);
             var decline = choice("Decline", "option", null, null, null);
@@ -574,10 +783,80 @@ class ForgeMatch {
                     List.of(use, decline)) == use;
         }
 
+        private boolean offerPayment(forge.game.cost.Cost cost, SpellAbility effect) {
+            if (!ComputerUtilCost.canPayCost(cost, effect, seat, true)) return false;
+            var pay = choice("Pay " + cost.toSimpleString(), "option", null, null, null);
+            var decline = choice("Decline", "option", null, null, null);
+            return ask(seat, "Pay the cost for " + publicName(effect.getHostCard()) + "?", List.of(pay, decline)) == pay;
+        }
+
+        @Override
+        public boolean payCostToPreventEffect(forge.game.cost.Cost cost, SpellAbility effect, boolean alreadyPaid,
+                forge.util.collect.FCollectionView<Player> payers) {
+            if (!human(seat)) return super.payCostToPreventEffect(cost, effect, alreadyPaid, payers);
+            if (!offerPayment(cost, effect)) return false;
+            return new forge.game.cost.CostPayment(cost, effect).payComputerCosts(getCostDecisionMaker(seat, effect, true, ""));
+        }
+
+        @Override
+        public List<SpellAbility> chooseSpellAbilitiesForEffect(List<SpellAbility> abilities, SpellAbility effect,
+                String prompt, int count, Map<String, Object> params) {
+            if (!human(seat)) return super.chooseSpellAbilitiesForEffect(abilities, effect, prompt, count, params);
+            var remaining = new ArrayList<>(abilities);
+            var chosen = new ArrayList<SpellAbility>();
+            while (chosen.size() < count && !remaining.isEmpty()) {
+                List<Choice> options = new ArrayList<>();
+                for (SpellAbility ability : remaining) {
+                    options.add(choice(ability.getDescription(), "option", null, null, null));
+                }
+                var selected = ask(seat, publicName(effect.getHostCard()) + " — " + prompt, options);
+                chosen.add(remaining.remove(options.indexOf(selected)));
+            }
+            return chosen;
+        }
+
         @Override
         public boolean chooseTargetsFor(SpellAbility ability) {
-            if (!human(seat) || ability.isDividedAsYouChoose()) return super.chooseTargetsFor(ability);
+            if (!human(seat)) return super.chooseTargetsFor(ability);
             return pickTargets(ability, seat);
+        }
+
+        @Override
+        public forge.game.spellability.TargetChoices chooseNewTargetsFor(SpellAbility spell,
+                java.util.function.Predicate<GameObject> restriction, boolean optional) {
+            if (!human(seat)) return super.chooseNewTargetsFor(spell, restriction, optional);
+            SpellAbility ability = spell instanceof forge.game.trigger.WrappedAbility wrapped ? wrapped.getWrappedAbility() : spell;
+            if (!ability.usesTargeting()) return null;
+            var original = ability.getTargets();
+            var replacement = new forge.game.spellability.TargetChoices();
+            for (GameObject old : original) {
+                List<Choice> options = new ArrayList<>();
+                // Forge considers the other selections in this group when determining
+                // legal candidates. Keep the original stack visible until the choice finishes.
+                ability.setTargets(replacement);
+                try {
+                    for (var target : targets(ability)) {
+                        if (target.equals(old) || replacement.contains(target) || restriction != null && !restriction.test(target)) continue;
+                        options.add(targetChoice(target, () -> replacement.add(target)));
+                    }
+                } finally {
+                    ability.setTargets(original);
+                }
+                if (optional && !replacement.contains(old)) {
+                    options.add(choice("Keep " + targetName(old), "option", null, null, () -> replacement.add(old)));
+                }
+                if (options.isEmpty()) return null; // A required change with no legal replacement does nothing.
+                var restart = choice("Keep original targets", "option", null, null, null);
+                if (optional && !replacement.isEmpty() && original.size() > 1) options.add(restart);
+                Integer amount = original.getDividedValue(old);
+                String prompt = "Choose a new target for " + publicName(ability.getHostCard()) + " in place of " + targetName(old);
+                Choice selected = ask(seat, amount == null ? prompt : prompt + " (" + amount + " assigned)", options);
+                if (selected == restart) return null;
+                selected.run();
+                if (amount != null) replacement.addDividedAllocation(replacement.get(replacement.size() - 1), amount);
+            }
+            ability.setTargets(replacement);
+            return replacement;
         }
 
         @Override
@@ -586,14 +865,7 @@ class ForgeMatch {
             List<Choice> choices = new ArrayList<>();
             Map<Choice, SpellAbility> plays = new java.util.IdentityHashMap<>();
             for (Card card : seat.getCardsIn(ZoneType.Hand)) {
-                if (card.isLand() && seat.canPlayLand(card, false, null)) {
-                    addPlay(card, new LandAbility(card, card.getCurrentState()), "Play " + card.getName(), choices, plays);
-                }
-                for (SpellAbility printed : card.getSpellAbilities()) {
-                    if (printed.isSpell()) {
-                        addPlay(card, printed.copy(), "Cast " + card.getName(), choices, plays);
-                    }
-                }
+                addZonePlays(card, choices, plays);
             }
             for (Card card : seat.getCardsIn(ZoneType.Battlefield)) {
                 for (SpellAbility ability : card.getNonManaAbilities()) {
@@ -601,35 +873,114 @@ class ForgeMatch {
                 }
             }
             for (Card card : seat.getCardsIn(ZoneType.Graveyard)) {
-                // Forge enumerates alternative costs and checks permission to play from this zone.
-                for (SpellAbility ability : card.getAllPossibleAbilities(seat, true)) {
-                    if (ability.isSpell()) {
-                        String label = (ability.isFlashback() ? "Flashback " : "Cast ") + publicName(card)
-                                + " from graveyard (" + ability.getPayCosts().toSimpleString() + ")";
-                        addPlay(card, ability.copy(), label, choices, plays);
-                    } else if (ability.isActivatedAbility() && !ability.isManaAbility() && !ability.isLandAbility()) {
-                        addActivation(card, ability, choices, plays);
+                addZonePlays(card, choices, plays);
+            }
+            for (Player owner : game.getPlayers()) {
+                for (Card card : owner.getCardsIn(ZoneType.Exile)) {
+                    if (!card.mayPlay(seat).isEmpty()) addZonePlays(card, choices, plays);
+                }
+                for (Card card : owner.getTopXCardsFromLibrary(1)) {
+                    if (!card.mayPlay(seat).isEmpty()) addZonePlays(card, choices, plays);
+                }
+                if (owner != seat) {
+                    for (Card card : owner.getCardsIn(ZoneType.Graveyard)) {
+                        if (!card.mayPlay(seat).isEmpty()) addZonePlays(card, choices, plays);
                     }
                 }
             }
             if (choices.isEmpty()) return null;
-            // Multi-ability sources can float mana in an existing decision window.
-            // Untapped mana sources alone never make Forge stop at each priority.
+            // A player with priority can float mana from a specific source before
+            // casting. Mana abilities alone do not create an extra priority stop.
             for (Card card : seat.getCardsIn(ZoneType.Battlefield)) {
-                var mana = card.getManaAbilities();
-                if (mana.isEmpty()) continue;
-                if (mana.size() > 1 || card.getNonManaAbilities().stream().anyMatch(SpellAbility::isActivatedAbility)) {
-                    for (SpellAbility ability : mana) addActivation(card, ability, choices, plays);
-                }
+                for (SpellAbility ability : card.getManaAbilities()) addActivation(card, ability, choices, plays);
             }
             choices.add(choice("Pass priority", "pass", null, null, null));
             Choice selected = ask(seat, "Choose a play", choices);
             return plays.containsKey(selected) ? List.of(plays.get(selected)) : null;
         }
 
+        @Override
+        public <T extends forge.game.GameEntity> T chooseSingleEntityForEffect(
+                forge.util.collect.FCollectionView<T> candidates, forge.game.player.DelayedReveal reveal,
+                SpellAbility effect, String title, boolean optional, Player related, Map<String, Object> params) {
+            boolean playEffect = effect != null && effect.getApi() == forge.game.ability.ApiType.Play;
+            if (!human(seat) || effect == null || !playEffect && effect.getApi() != forge.game.ability.ApiType.ChooseCard) {
+                return super.chooseSingleEntityForEffect(candidates, reveal, effect, title, optional, related, params);
+            }
+            if (reveal != null) reveal(reveal);
+            if (candidates.isEmpty()) return null;
+            if (!optional && candidates.size() == 1) return candidates.getFirst();
+            var choices = new ArrayList<Choice>();
+            for (T candidate : candidates) {
+                Card card = (Card) candidate; // Both effects supply their filtered card candidates.
+                choices.add(choice((playEffect ? "Play " : "Choose ") + publicName(card), "card", card, null, null));
+            }
+            var skip = choice("Decline", "option", null, null, null);
+            if (optional) choices.add(skip);
+            String prompt = title == null || title.isBlank() ? "Choose a card" : title;
+            Choice selected = ask(seat, publicName(effect.getHostCard()) + " — " + prompt, choices);
+            return selected == skip ? null : candidates.get(choices.indexOf(selected));
+        }
+
+        @Override
+        public SpellAbility getAbilityToPlay(Card card, List<SpellAbility> routes, forge.util.ITriggerEvent event) {
+            if (!human(seat) || routes.size() < 2) return super.getAbilityToPlay(card, routes, event);
+            var options = new ArrayList<Choice>();
+            for (SpellAbility route : routes) {
+                options.add(choice(route.toString(), "option", card, null, null));
+            }
+            return routes.get(options.indexOf(ask(seat, "Choose how to play " + publicName(card), options)));
+        }
+
+        @Override
+        public boolean playSaFromPlayEffect(SpellAbility spell) {
+            if (!human(seat)) return super.playSaFromPlayEffect(spell);
+            // PlayEffect has already granted permission and supplied the casting cost.
+            // The same Forge flow used by its desktop human controller obtains targets
+            // and additional payments while the original effect is still resolving.
+            return forge.game.player.PlaySpellAbility.playSpellAbility(this, seat, spell);
+        }
+
+        private void addZonePlays(Card card, List<Choice> choices, Map<Choice, SpellAbility> plays) {
+            ZoneType zone = card.getZone().getZoneType();
+            // Each route carries its own payment and zone permission. In particular, the
+            // chosen Muldrotha route consumes the allowance for that permanent type.
+            for (SpellAbility ability : card.getAllPossibleAbilities(seat, true)) {
+                if (ability.isLandAbility() || ability.isSpell()) {
+                    String verb = ability.isLandAbility() ? "Play " : ability.isFlashback() ? "Flashback " : "Cast ";
+                    String label = verb + publicName(card);
+                    if (zone != ZoneType.Hand) label += " from " + zone.name().toLowerCase(java.util.Locale.ROOT);
+                    if (ability.getMayPlay() != null) {
+                        var source = ability.getMayPlay();
+                        label += " via " + publicName(source.getHostCard());
+                        if (source.hasParam("MayPlayText")) label += " (" + source.getParam("MayPlayText") + ")";
+                    }
+                    var base = ability.copy();
+                    base.setActivatingPlayer(seat);
+                    for (var route : forge.game.GameActionUtil.getAdditionalCostSpell(base)) {
+                        boolean showCost = !route.isLandAbility() && (zone != ZoneType.Hand || !route.isBasicSpell() || route.getMayPlay() != null);
+                        String cost = showCost ? route.getPayCosts().toSimpleString() : "";
+                        addPlay(card, route, showCost ? label + " (" + (cost.isBlank() ? "{0}" : cost) + ")" : label, choices, plays);
+                        // A timing-granting payment must be considered before discarding a
+                        // creature spell that cannot be cast at this priority for its base cost.
+                        if (route.isSpell() && card.hasStartOfKeyword("MayFlashCost")) {
+                            for (var extra : forge.game.GameActionUtil.getOptionalCostValues(route)) {
+                                if (extra.getType() != forge.game.spellability.OptionalCost.Flash) continue;
+                                var flash = forge.game.GameActionUtil.addOptionalCosts(route, List.of(extra));
+                                addPlay(card, flash, label + " with flash (" + flash.getPayCosts().toSimpleString() + ")", choices, plays);
+                            }
+                        }
+                    }
+                } else if (ability.isActivatedAbility() && !ability.isManaAbility() && card.getOwner() == seat) {
+                    addActivation(card, ability, choices, plays);
+                }
+            }
+        }
+
         private void addPlay(Card card, SpellAbility sa, String label, List<Choice> choices, Map<Choice, SpellAbility> plays) {
             sa.setActivatingPlayer(seat);
-            if (!sa.canPlay() || !sa.isLandAbility() && !canPayWithTargets(sa)) return;
+            if (!sa.canPlay() || sa.isActivatedAbility() && !sa.checkRestrictions(seat) ||
+                    !sa.isLandAbility() && !canPayWithTargets(sa)) return;
             Choice c = choice(label, sa.isActivatedAbility() && !sa.isLandAbility() ? "ability" : "card", card, null, null);
             choices.add(c);
             plays.put(c, sa);
@@ -637,7 +988,8 @@ class ForgeMatch {
 
         private void addActivation(Card card, SpellAbility ability, List<Choice> choices, Map<Choice, SpellAbility> plays) {
             // Activation limits and paid costs belong to this Forge ability instance.
-            addPlay(card, ability, ability.getDescription().replace("CARDNAME", publicName(card)), choices, plays);
+            String label = ability.getDescription().replace("CARDNAME", publicName(card)).replace("NICKNAME", publicName(card));
+            addPlay(card, ability, label, choices, plays);
         }
 
         private boolean canPayWithTargets(SpellAbility ability) {
@@ -689,26 +1041,48 @@ class ForgeMatch {
         }
 
         @Override
-        public boolean playChosenSpellAbility(SpellAbility sa) {
-            if (sa.isLandAbility()) return super.playChosenSpellAbility(sa);
-            var withCosts = sa;
-            if (sa.isSpell()) {
-                for (var extra : forge.game.GameActionUtil.getOptionalCostValues(sa)) {
-                    var payable = forge.game.GameActionUtil.addOptionalCosts(withCosts, List.of(extra));
-                    if (!payable.canPlay() || !canPayWithTargets(payable)) continue;
-                    var pay = choice(extra.toString(), "option", null, null, null);
-                    var skip = choice("Skip optional cost", "option", null, null, null);
-                    if (ask(seat, "Optional cost for " + sa.getHostCard().getName(), List.of(pay, skip)) == pay) withCosts = payable;
+        public List<forge.game.spellability.OptionalCostValue> chooseOptionalCosts(SpellAbility spell,
+                List<forge.game.spellability.OptionalCostValue> options) {
+            if (!human(seat)) return super.chooseOptionalCosts(spell, options);
+            // PlayEffect has already authorized the cast during resolution.
+            return pickOptionalCosts(spell, options, true);
+        }
+
+        private List<forge.game.spellability.OptionalCostValue> pickOptionalCosts(SpellAbility spell,
+                List<forge.game.spellability.OptionalCostValue> options, boolean duringEffect) {
+            var selected = new ArrayList<forge.game.spellability.OptionalCostValue>();
+            var withCosts = spell;
+            for (var extra : options) {
+                if (extra.getType() == forge.game.spellability.OptionalCost.Flash) continue; // chosen with the cast timing
+                var payable = forge.game.GameActionUtil.addOptionalCosts(withCosts, List.of(extra));
+                if ((!duringEffect && !payable.canPlay()) || !canPayWithTargets(payable)) continue;
+                var pay = choice(extra.toString(), "option", null, null, null);
+                var skip = choice("Skip optional cost", "option", null, null, null);
+                if (ask(seat, "Optional cost for " + spell.getHostCard().getName(), List.of(pay, skip)) == pay) {
+                    withCosts = payable;
+                    selected.add(extra);
                 }
             }
-            final var play = withCosts;
+            return selected;
+        }
+
+        @Override
+        public boolean playChosenSpellAbility(SpellAbility sa) {
+            if (sa.isLandAbility()) return super.playChosenSpellAbility(sa);
+            final var play = sa.isSpell() ? forge.game.GameActionUtil.addOptionalCosts(sa,
+                    pickOptionalCosts(sa, forge.game.GameActionUtil.getOptionalCostValues(sa), false)) : sa;
             if (announcesManaX(play)) chooseManaX(play, false);
             if (play.isManaAbility()) {
                 manualMana = play;
                 play.getManaPart().clearExpressChoice();
             }
             try {
-                if (!ComputerUtil.handlePlayingSpellAbility(seat, play, () -> selectTargets(play, seat))) {
+                // ComputerUtil always installs its own AI cost visitor. The normal human
+                // cast path asks this controller which cards to spend and Forge pays them.
+                boolean played = hasChosenCost(play)
+                        ? new forge.game.player.PlaySpellAbility(this, play).playAbility(true, false, false)
+                        : ComputerUtil.handlePlayingSpellAbility(seat, play, () -> selectTargets(play, seat));
+                if (!played) {
                     throw new IllegalStateException("Forge could not complete the cost or choices for " + play.getHostCard().getName() + ".");
                 }
             } finally {
@@ -732,6 +1106,62 @@ class ForgeMatch {
         }
 
         @Override
+        public forge.card.ColorSet chooseColors(String prompt, SpellAbility ability, int min, int max, forge.card.ColorSet colors) {
+            if (!human(seat)) return super.chooseColors(prompt, ability, min, max, colors);
+            int mask = 0;
+            for (int count = 0; count < Math.min(max, colors.countColors()); count++) {
+                List<Choice> options = new ArrayList<>();
+                List<Byte> masks = new ArrayList<>();
+                for (var color : colors) {
+                    if ((color.getColorMask() & mask) == 0) {
+                        options.add(choice(color.getName(), "option", null, null, null));
+                        masks.add(color.getColorMask());
+                    }
+                }
+                Choice finish = choice("Finish choosing colors", "option", null, null, null);
+                if (count >= min) options.add(finish);
+                Choice answer = ask(seat, "Choose a color for " + publicName(ability.getHostCard()), options);
+                if (answer == finish) break;
+                mask |= masks.get(options.indexOf(answer));
+            }
+            return forge.card.ColorSet.fromMask(mask);
+        }
+
+        @Override
+        public String chooseCardName(SpellAbility effect, List<forge.card.ICardFace> valid, String message) {
+            if (!human(seat)) return super.chooseCardName(effect, valid, message);
+            List<Choice> names = valid.stream().map(forge.card.ICardFace::getName).distinct().sorted()
+                    .map(name -> choice(name, "option", null, null, null)).toList();
+            return names.isEmpty() ? "" : ask(seat, "Choose a card name for " + publicName(effect.getHostCard()), names).label();
+        }
+
+        @Override
+        public String chooseCardName(SpellAbility effect, java.util.function.Predicate<forge.card.ICardFace> valid,
+                String description, String message) {
+            if (!human(seat)) return super.chooseCardName(effect, valid, description, message);
+            // Only suggest names the player already knows. The lazy-loaded database includes opponents' hidden cards.
+            List<String> revealed = library.peekReveal(seat);
+            var suggestions = new java.util.TreeSet<String>(revealed);
+            for (Card c : seat.getCardsIn(ZoneType.Hand)) suggestions.add(c.getName());
+            for (Card c : game.getCardsIn(ZoneType.Battlefield)) if (!c.isFaceDown()) suggestions.add(c.getName());
+            List<Choice> options = new ArrayList<>();
+            for (String name : suggestions) {
+                var face = StaticData.instance().getCommonCards().getFaceByName(name);
+                if (face != null && valid.test(face)) options.add(choice(name, "option", null, null, null));
+            }
+            options.add(choice("Enter a card name", "name", null, null, null));
+            String prompt = "Choose a card name for " + publicName(effect.getHostCard());
+            while (true) {
+                Choice answer = ask(seat, prompt, options);
+                if (!answer.kind().equals("name")) return answer.label();
+                var face = ForgeNames.face(answer.label());
+                if (face != null && valid.test(face)) return face.getName();
+                library.repeatReveal(seat, revealed);
+                prompt = "That name is unavailable. Choose a card name for " + publicName(effect.getHostCard());
+            }
+        }
+
+        @Override
         public String chooseSomeType(String type, SpellAbility ability, java.util.Collection<String> valid, boolean optional) {
             if (!human(seat) || valid.isEmpty()) return super.chooseSomeType(type, ability, valid, optional);
             List<Choice> options = new ArrayList<>();
@@ -746,10 +1176,15 @@ class ForgeMatch {
         @Override
         public Card chooseSingleCardForZoneChange(ZoneType destination, List<ZoneType> origins, SpellAbility effect,
                 CardCollection options, forge.game.player.DelayedReveal delayedReveal, String title, boolean optional, Player decider) {
-            if (!human(seat) || !origins.contains(ZoneType.Library)) {
+            if (!human(seat)) {
                 return super.chooseSingleCardForZoneChange(destination, origins, effect, options, delayedReveal, title, optional, decider);
             }
             if (delayedReveal != null) reveal(delayedReveal);
+            if (!origins.contains(ZoneType.Library)) {
+                if (options.isEmpty()) return null;
+                if (!optional && options.size() == 1) return options.getFirst();
+                return pickCards(options, optional ? 0 : 1, 1, "Choose", effect.getHostCard().getName() + " — " + title).stream().findFirst().orElse(null);
+            }
             history.add(seat.getName() + " searched a library.");
             return library.choose(seat, effect, options, title, optional);
         }
@@ -757,10 +1192,14 @@ class ForgeMatch {
         @Override
         public List<Card> chooseCardsForZoneChange(ZoneType destination, List<ZoneType> origins, SpellAbility effect,
                 CardCollection options, int min, int max, forge.game.player.DelayedReveal delayedReveal, String title, Player decider) {
-            if (!human(seat) || !origins.contains(ZoneType.Library)) {
+            if (!human(seat)) {
                 return super.chooseCardsForZoneChange(destination, origins, effect, options, min, max, delayedReveal, title, decider);
             }
             if (delayedReveal != null) reveal(delayedReveal);
+            if (!origins.contains(ZoneType.Library)) {
+                if (min >= options.size()) return options;
+                return pickCards(options, min, max, "Choose", effect.getHostCard().getName() + " — " + title);
+            }
             history.add(seat.getName() + " searched a library.");
             return library.chooseMany(seat, effect, options, min, max, title);
         }
@@ -768,6 +1207,11 @@ class ForgeMatch {
         @Override
         public boolean confirmAction(SpellAbility effect, forge.game.player.PlayerActionConfirmMode mode, String message,
                 List<String> options, Card display, Map<String, Object> params) {
+            if (human(seat) && effect != null && effect.getApi() == forge.game.ability.ApiType.Play && display != null && mode == null) {
+                var play = choice("Play " + publicName(display), "card", display, null, null);
+                var decline = choice("Decline", "option", null, null, null);
+                return ask(seat, message, List.of(play, decline)) == play;
+            }
             return library.confirmedFinish(effect, mode) || super.confirmAction(effect, mode, message, options, display, params);
         }
 

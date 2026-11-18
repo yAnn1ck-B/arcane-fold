@@ -56,9 +56,12 @@ final class ForgeHistory {
             var spell = entry.getSpellAbility();
             for (var group : spell.getAllTargetChoices()) {
                 for (var target : group) {
-                    if (target instanceof Player p) targets.add(p.getName());
-                    else if (target instanceof Card c) targets.add(name(c.getView()));
-                    else if (target instanceof SpellAbility s) targets.add(name(s.getHostCard().getView()));
+                    String label;
+                    if (target instanceof Player p) label = p.getName();
+                    else if (target instanceof Card c) label = name(c.getView());
+                    else if (target instanceof SpellAbility s) label = name(s.getHostCard().getView());
+                    else continue;
+                    targets.add(ForgeMatch.targetWithAmount(label, group, target));
                 }
             }
             // Printed rules distinguish a permanent's multiple activated abilities.

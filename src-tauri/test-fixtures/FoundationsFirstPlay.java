@@ -25,7 +25,7 @@ class FoundationsFirstPlay extends ForgeMatch {
     private static final Map<String, PaperCard> fixturePrintings = new java.util.HashMap<>();
     private final Position position;
     private Card setupCard;
-    private Card subject;
+    Card subject;
     private boolean selected, cast, resolved, fizzled, landPlayed, offeredPriority;
     private int answers;
 
@@ -35,7 +35,7 @@ class FoundationsFirstPlay extends ForgeMatch {
         game.subscribeToEvents(this);
     }
 
-    private Card addFixtureCard(String name, Player owner, ZoneType zone) {
+    Card addFixtureCard(String name, Player owner, ZoneType zone) {
         PaperCard printing = fixturePrintings.computeIfAbsent(name, key -> {
             var catalog = StaticData.instance();
             catalog.attemptToLoadCard(key);
@@ -63,6 +63,9 @@ class FoundationsFirstPlay extends ForgeMatch {
 
     @Override Choice ask(Player actor, String prompt, List<Choice> choices) {
         if (++answers > 150) throw new IllegalStateException("fixture decision limit");
+        if (choices.stream().anyMatch(c -> c.kind().equals("name"))) {
+            return new Choice("Forest", "name", null, null, null);
+        }
         if (position == Position.ATTACK && actor == opponent && prompt.equals("Declare attackers")) {
             if (phases.getCombat().getAttackers().isEmpty()) {
                 return choices.stream().filter(c -> c.kind().equals("attack") && ("c" + setupCard.getId()).equals(c.cardId()))
@@ -89,11 +92,22 @@ class FoundationsFirstPlay extends ForgeMatch {
         }
         // Exercise targeting even when the controller also offers an immediate confirmation.
         if (prompt.startsWith("Choose a target for ")) {
+            // These costs can legally sacrifice their own target. Aim at a surviving opposing creature.
+            if (prompt.equals("Choose a target for Eaten Alive") || prompt.equals("Choose a target for Ayli, Eternal Pilgrim")) {
+                for (Card creature : opponent.getCreaturesInPlay()) {
+                    for (Choice option : choices) if (("c" + creature.getId()).equals(option.cardId())) return option;
+                }
+            }
             for (Choice option : choices) if (option.kind().equals("target")) return option;
         }
-        for (String preferred : List.of("X = 1", "Skip optional cost", "Confirm targets", "Confirm modes",
+        for (String preferred : List.of("No attacks", "Confirm attackers", "No blocks", "Confirm blockers",
+                "X = 1", "Skip optional cost", "Confirm targets", "Confirm modes",
                 "Finish selection", "Finish search", "Decline")) {
             for (Choice option : choices) if (option.label().equals(preferred)) return option;
+        }
+        // Forge withholds confirmation until all mandatory attackers or blockers are declared.
+        for (Choice option : choices) {
+            if (option.label().startsWith("Attack ") || option.label().startsWith("Block ")) return option;
         }
         return choices.get(0);
     }
@@ -112,7 +126,7 @@ class FoundationsFirstPlay extends ForgeMatch {
         return phases.is(PhaseType.MAIN1, player);
     }
 
-    private String probe(String name) {
+    String probe(String name) {
         var catalog = StaticData.instance();
         catalog.attemptToLoadCard(name, "FDN");
         PaperCard printing = catalog.getCommonCards().getCard(name, "FDN");
@@ -150,10 +164,19 @@ class FoundationsFirstPlay extends ForgeMatch {
         game.setStartingPlayer(active);
         game.setAge(GameStage.Play);
         phases.setupFirstTurn(active, null);
-        for (int step = 0; step < 80 && !game.isGameOver(); step++) {
+        // Run through the resulting triggers as well as the original spell.
+        // Forge can queue an enters trigger immediately after the spell-resolved event.
+        boolean firstPlaySeen = false;
+        for (int step = 0; step < 120 && !game.isGameOver(); step++) {
             phases.mainLoopStep();
-            if (landPlayed) return "land played";
-            if (resolved) return "spell resolved";
+            if (resolved || landPlayed) {
+                if ((firstPlaySeen || game.isGameOver()) && game.getStack().isEmpty() &&
+                        new ForgeManual(game, player).pendingEffects().isEmpty()) {
+                    return landPlayed ? "land played" : "spell resolved";
+                }
+                firstPlaySeen = true;
+                continue;
+            }
             if (fizzled) return "spell fizzled";
             if (offeredPriority && !selected) return "no play offered in fixture";
             if (phases.getTurn() > 1) break;
@@ -165,27 +188,38 @@ class FoundationsFirstPlay extends ForgeMatch {
         Path scratch = Path.of(args[1]);
         ForgeGame.loadForge(Path.of(args[0]), scratch, true);
         var watchdog = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+        boolean activations = args.length > 4 && args[4].equals("activations");
+        // An activation row can run several independent games for a single multi-ability card.
+        int timeoutSeconds = activations ? 90 : 30;
         try (var results = Files.newBufferedWriter(Path.of(args[3]), StandardCharsets.UTF_8)) {
             for (String name : Files.readAllLines(Path.of(args[2]), StandardCharsets.UTF_8)) {
                 var timeout = watchdog.schedule(() -> {
                     try {
-                        results.write(name + "\tfixture timeout\t30 seconds without finishing this play\n");
+                        results.write(name + "\tfixture timeout\t" + timeoutSeconds + " seconds without finishing this play\n");
                         results.flush();
                     } catch (IOException ex) {
                         ex.printStackTrace(System.err);
                     }
                     Runtime.getRuntime().halt(75);
-                }, 30, java.util.concurrent.TimeUnit.SECONDS);
+                }, timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
                 String status;
                 String detail = "";
                 try {
                     forge.util.MyRandom.setRandom(new java.util.Random(42));
-                    status = new FoundationsFirstPlay(scratch, Position.MAIN).probe(name);
-                    if (status.equals("no play offered in fixture")) {
-                        Position next = Position.secondPosition(name);
-                        detail = next.description;
-                        forge.util.MyRandom.setRandom(new java.util.Random(42));
-                        status = new FoundationsFirstPlay(scratch, next).probe(name);
+                    if (activations) {
+                        var rows = FoundationsActivations.inspect(scratch, name);
+                        var json = new StringWriter();
+                        new JsonObjectWriter(json, 6).value(NoOpLogger.getInstance(), rows);
+                        status = "activation checks";
+                        detail = json.toString();
+                    } else {
+                        status = new FoundationsFirstPlay(scratch, Position.MAIN).probe(name);
+                        if (status.equals("no play offered in fixture")) {
+                            Position next = Position.secondPosition(name);
+                            detail = next.description;
+                            forge.util.MyRandom.setRandom(new java.util.Random(42));
+                            status = new FoundationsFirstPlay(scratch, next).probe(name);
+                        }
                     }
                 } catch (RuntimeException | LinkageError ex) {
                     status = "exception";

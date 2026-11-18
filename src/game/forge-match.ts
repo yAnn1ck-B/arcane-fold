@@ -7,6 +7,9 @@ export interface ForgeCard {
   id: string;
   name: string;
   faceDown?: boolean;
+  token?: boolean;
+  attachedTo?: string;
+  attachedToPlayer?: ForgeSeat;
   tapped: boolean;
   setCode?: string;
   collectorNumber?: string;
@@ -19,6 +22,8 @@ export interface ForgeCard {
   oracleText?: string;
   typeLine?: string;
   chosenType?: string;
+  namedCards?: string[];
+  chosenColors?: string[];
   manaCost?: string;
   damage?: number;
   counters?: Record<string, number>;
@@ -31,6 +36,7 @@ export interface ForgeChoice {
     | "card"
     | "ability"
     | "type"
+    | "name"
     | "target"
     | "pass"
     | "option"
@@ -44,6 +50,7 @@ interface ForgePlayer {
   life: number;
   mana: number;
   libraryCount?: number;
+  libraryTop?: ForgeCard;
   handCount: number;
   hand: ForgeCard[];
   battlefield: ForgeCard[];
