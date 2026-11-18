@@ -40,7 +40,8 @@ export function readVersionState(root = projectRoot, tag) {
   const lockedCrateVersion = cargoLock.match(/\[\[package\]\]\s*\nname = "eternal-league"\s*\nversion = "([^"]+)"/)?.[1];
   const version = validateVersionValues({ 'package.json': pkg.version, 'package-lock.json': lock.version, 'package-lock root': lock.packages?.['']?.version, 'Cargo.toml': crateVersion, 'Cargo.lock': lockedCrateVersion, 'tauri.conf.json': config.version }, tag);
   if (config.identifier !== 'com.eternalleague.desktop') throw new Error('Production must use its clean, permanent desktop identifier.');
-  if (json('src-tauri/tauri.dev.conf.json').identifier !== 'com.eternalleague.app') throw new Error('Development must keep its separate legacy profile.');
+  const policy = json('release-policy.json'), development = json('src-tauri/tauri.dev.conf.json');
+  if (development.identifier !== 'com.eternalleague.preview' || development.identifier !== policy.developmentIdentifier) throw new Error('Development must use the established played profile.');
   if (config.bundle?.createUpdaterArtifacts !== true) throw new Error('Release updater artifacts must be enabled.');
   const updater = config.plugins?.updater;
   if (!updater?.endpoints?.includes('https://github.com/yAnn1ck-B/eternal-league/releases/latest/download/latest.json')) throw new Error('The release updater endpoint is not configured.');
@@ -48,7 +49,7 @@ export function readVersionState(root = projectRoot, tag) {
   if (!publicKey.startsWith('untrusted comment: minisign public key:') || Buffer.from(publicKey.trim().split(/\r?\n/)[1] ?? '', 'base64').length !== 42) throw new Error('A real updater public key is required.');
   const serialized = JSON.stringify(config);
   if (/com\.eternalleague\.preview|\.verification|PREVIEW_WEEKS/i.test(serialized)) throw new Error('Preview configuration cannot be part of the production bundle.');
-  const policy = json('release-policy.json'), rules = json('src-tauri/league-rules.json');
+  const rules = json('src-tauri/league-rules.json');
   if (rules.startedAt !== policy.leagueStartedAt || !Number.isSafeInteger(rules.startedAt) || rules.startedAt <= 0) throw new Error('The established shared league start changed.');
   if (policy.productionIdentifier !== config.identifier) throw new Error('Production identifier changed from the release policy.');
   if (tag && compareVersions(version, policy.initialVersion) < 0) throw new Error('Release predates the initial production version.');
