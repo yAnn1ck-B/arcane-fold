@@ -23,7 +23,8 @@ const explicitConfig = optionArgs.some(
     (arg.startsWith("-c") && arg.length > 2),
 );
 if (cliArgs[0] === "dev" && !explicitConfig) {
-  // Keep existing development progress separate from the production profile.
+  // Normal development continues the played profile's four-week calendar.
+  env.ETERNAL_LEAGUE_PREVIEW_WEEKS ??= "4";
   cliArgs.splice(
     separator < 0 ? cliArgs.length : separator,
     0,

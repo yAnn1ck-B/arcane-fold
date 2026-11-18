@@ -1,7 +1,7 @@
 {
   "repository": "yAnn1ck-B/eternal-league",
   "productionIdentifier": "com.eternalleague.desktop",
-  "developmentIdentifier": "com.eternalleague.app",
+  "developmentIdentifier": "com.eternalleague.preview",
   "initialVersion": "0.2.1",
   "leagueStartedAt": 1794847589
 }
