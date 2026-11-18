@@ -378,7 +378,7 @@
 .deck-browser-card-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 7px;
   margin-top: 7px;
 }
@@ -551,8 +551,9 @@
   color: var(--tone-secondary, #91a680);
   font-size: calc(10px * var(--font-scale, 1));
 }
-.deck-browser-card-actions > .ui-button {
-  margin-left: auto;
+.deck-browser-card-remaining {
+  color: var(--tone-secondary, #91a680);
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 560px) {
