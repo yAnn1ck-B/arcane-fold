@@ -3103,6 +3103,7 @@ mod tests {
             cmc: 0.0,
             type_line: kind.into(),
             oracle_text: String::new(),
+            produced_mana: Vec::new(),
             colors: Vec::new(),
             image_uri: None,
             back_image_uri: None,

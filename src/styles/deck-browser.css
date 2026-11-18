@@ -323,6 +323,14 @@
 .deck-workbench .deck-curve-track {
   height: 40px;
 }
+.deck-land-count {
+  flex: 1.3;
+}
+.deck-land-count p {
+  margin-top: 6px;
+  color: var(--tone-secondary, #91a680);
+  font-size: calc(11px * var(--font-scale, 1));
+}
 .deck-workbench .deck-validation {
   padding: 13px 16px;
 }

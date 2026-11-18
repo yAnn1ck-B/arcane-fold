@@ -89,6 +89,7 @@ export interface CatalogCard {
   cmc: number;
   typeLine: string;
   oracleText: string;
+  producedMana?: string[];
   colors: string[];
   imageUri: string | null;
   backImageUri: string | null;
