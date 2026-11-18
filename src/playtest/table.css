@@ -31,6 +31,32 @@
   width: 100%;
   gap: 0.75rem 1rem;
 }
+.pt-ability-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: 10px;
+}
+.pt-ability-option {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--tone-border, #bbc7ba);
+  border-radius: 8px;
+  background: var(--tone-bg1, #fafbf7);
+  color: inherit;
+  font: inherit;
+  line-height: 1.45;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.pt-ability-option strong {
+  color: var(--tone-secondary, #486651);
+}
+.pt-ability-option:is(:hover, :focus-visible):enabled {
+  background: var(--tone-bg2, #eef1eb);
+  border-color: var(--tone-accent, #547d5b);
+}
 .pt-forge-prompt {
   display: grid;
   gap: 0.15rem;
@@ -387,6 +413,9 @@ button.pt-piece-select::after {
   border-bottom: 1px solid var(--tone-border, #bac6b9);
   margin: 0;
 }
+.pt-zone-dialog > .pt-pile-heading > div:first-child {
+  margin-right: auto;
+}
 .pt-zone-dialog .pt-zone-body {
   overflow: auto;
   overscroll-behavior: contain;
@@ -451,45 +480,9 @@ button.pt-piece-select::after {
 .pt-reading-rules b {
   font-variant-numeric: tabular-nums;
 }
-.pt-reading-dialog[open] {
-  width: min(660px, calc(100vw - 24px));
-}
-.pt-inspect-button {
-  position: absolute;
-  z-index: 2;
-  left: 3px;
-  top: 3px;
-  width: 25px;
-  height: 25px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid #ffffff88;
-  border-radius: 5px;
-  background: #13241bee;
-  color: white;
-  opacity: 0;
-}
-.pt-piece:hover .pt-inspect-button,
-.pt-piece:focus-within .pt-inspect-button {
-  opacity: 1;
-}
-.pt-stack-card-name button {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  text-align: start;
-  font: inherit;
+.pt-stack-card-name strong {
   text-decoration: underline dotted;
   text-underline-offset: 3px;
-}
-@media (hover: none), (pointer: coarse) {
-  .pt-inspect-button {
-    opacity: 1;
-    width: 30px;
-    height: 30px;
-  }
 }
 @media (max-width: 420px) {
   .pt-card-reading {

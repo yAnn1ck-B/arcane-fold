@@ -1,5 +1,5 @@
 use super::tests::{choose, practice_engine, zone};
-use super::{Engine, Scenario};
+use super::{seat_view, Engine, Scenario, Seat};
 
 fn has_card(engine: &Engine, seat: &str, pile: &str, name: &str) -> bool {
     zone(engine, seat, pile)
@@ -24,6 +24,9 @@ fn real_forge_bushwhack_search_can_find_a_basic_or_decline() {
         choose(&mut game, "Cast Bushwhack");
         choose(&mut game, "Search your library");
         let eligible = game.current["librarySearch"]["cards"].as_array().unwrap();
+        let observer = seat_view(&game.current, Seat::Opponent).unwrap();
+        assert!(observer.get("librarySearch").is_none());
+        assert_eq!(observer["choices"], serde_json::json!([]));
         let names: Vec<_> = eligible
             .iter()
             .map(|c| c["name"].as_str().unwrap())
@@ -56,14 +59,20 @@ fn real_forge_bushwhack_search_can_find_a_basic_or_decline() {
         );
         assert!(game.current.get("revealedToYou").is_none());
         choose(&mut game, "Pass priority");
-        choose(&mut game, "Attack opponent with Mild-Mannered Librarian");
+        choose(&mut game, "Attack Player 2 with Mild-Mannered Librarian");
         choose(&mut game, "Confirm attackers");
         assert_eq!(game.current["actor"], "opponent");
-        assert!(zone(&game, "player", "hand").is_empty());
+        let opponent_view = seat_view(&game.current, Seat::Opponent).unwrap();
+        assert_eq!(
+            opponent_view["players"]["player"]["hand"],
+            serde_json::json!([])
+        );
+        let player_view = seat_view(&game.current, Seat::Player).unwrap();
+        assert!(player_view.get("revealedToYou").is_none());
         assert!(game.current.get("librarySearch").is_none());
         if find {
             assert_eq!(
-                game.current["revealedToYou"],
+                opponent_view["revealedToYou"],
                 serde_json::json!(["Mountain"])
             );
         } else {

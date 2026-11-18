@@ -1,7 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { HistoryEntry } from "./types";
 
 export type Scenario =
-  "bolt" | "response" | "deck" | "combat" | "growth" | "library";
+  | "bolt"
+  | "response"
+  | "deck"
+  | "combat"
+  | "growth"
+  | "library";
 export type ForgeSeat = "player" | "opponent";
 
 export interface ForgeCard {
@@ -19,6 +25,7 @@ export interface ForgeCard {
   description?: string;
   oracleText?: string;
   typeLine?: string;
+  chosenType?: string;
   manaCost?: string;
   damage?: number;
   counters?: Record<string, number>;
@@ -27,7 +34,15 @@ export interface ForgeCard {
 export interface ForgeChoice {
   id: string;
   label: string;
-  kind: "card" | "target" | "pass" | "option" | "attack" | "block";
+  kind:
+    | "card"
+    | "ability"
+    | "type"
+    | "target"
+    | "pass"
+    | "option"
+    | "attack"
+    | "block";
   cardId?: string;
   seat?: ForgeSeat;
 }
@@ -44,6 +59,10 @@ interface ForgePlayer {
 }
 
 export interface ForgeMatch {
+  history: HistoryEntry[];
+  canUndo: boolean;
+  revision: number;
+  sharedSeats: boolean;
   stage: "decision" | "finished";
   prompt: string;
   active: ForgeSeat;
@@ -51,7 +70,7 @@ export interface ForgeMatch {
   turn: number;
   phase: string;
   step?: string;
-  librarySearch?: { title: string; cards: ForgeCard[] };
+  librarySearch?: { title: string; operation?: string; cards: ForgeCard[] };
   revealedToYou?: string[];
   players: Record<ForgeSeat, ForgePlayer>;
   stack: ForgeCard[];
@@ -61,8 +80,15 @@ export interface ForgeMatch {
 // The original two-card regression has a fixed command and snapshot format.
 // Adapt that format at the IPC boundary so it uses the regular Forge board.
 interface BoltPosition {
+  history: HistoryEntry[];
+  canUndo: boolean;
+  revision: number;
   stage:
-    "ready" | "landPlayed" | "chooseTarget" | "opponentPriority" | "resolved";
+    | "ready"
+    | "landPlayed"
+    | "chooseTarget"
+    | "opponentPriority"
+    | "resolved";
   playerLife: number;
   opponentLife: number;
   hand: string[];
@@ -128,6 +154,10 @@ function boltMatch(position: BoltPosition): ForgeMatch {
     stack[0].target = position.target === "player" ? "you" : "opponent";
   }
   return {
+    sharedSeats: false,
+    history: position.history,
+    canUndo: position.canUndo,
+    revision: position.revision,
     stage: position.stage === "resolved" ? "finished" : "decision",
     actor: position.stage === "opponentPriority" ? "opponent" : "player",
     active: "player",
@@ -180,12 +210,31 @@ export async function chooseForge(
   sessionId: string,
   scenario: Scenario,
   action: string,
+  viewer: ForgeSeat,
+  revision: number,
 ) {
-  const args = { sessionId, action };
+  const args = { sessionId, action, viewer, revision };
   if (scenario === "bolt") {
     return boltMatch(await invoke<BoltPosition>("act_bolt_trial", args));
   }
   return invoke<ForgeMatch>("act_bolt_trial", args);
+}
+
+export async function undoForge(
+  sessionId: string,
+  scenario: Scenario,
+  viewer: ForgeSeat,
+  revision: number,
+) {
+  const args = { sessionId, viewer, revision };
+  if (scenario === "bolt") {
+    return boltMatch(await invoke<BoltPosition>("undo_forge_action", args));
+  }
+  return invoke<ForgeMatch>("undo_forge_action", args);
+}
+
+export function viewForgeSeat(sessionId: string, viewer: ForgeSeat) {
+  return invoke<ForgeMatch>("view_forge_seat", { sessionId, viewer });
 }
 
 export function stopForge(sessionId: string) {

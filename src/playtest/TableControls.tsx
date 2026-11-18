@@ -481,7 +481,6 @@ function StackItem({
       </div>
       {card ? (
         <StackCardName
-          name={card.name}
           label={entry.label}
           reading={
             <CardReading

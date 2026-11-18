@@ -5,9 +5,10 @@ import { moduleUrl, deck } from "./playtest-test-support.mjs";
 const types = moduleUrl("types");
 const engine = moduleUrl("engine", { "./types": types });
 const guard = moduleUrl("validate-action", { "./types": types });
+const history = moduleUrl("manual-history", { "./engine": engine });
 const { createMatch, prepareShuffle } = await import(engine);
 const { newSession, restoreSession, playAction, undoAction } = await import(
-  moduleUrl("session", { "./engine": engine, "./validate-action": guard })
+  moduleUrl("session", { "./engine": engine, "./validate-action": guard, "./manual-history": history })
 );
 const fresh = () => newSession(createMatch([deck("a"), deck("b")]));
 const save = (session) => JSON.parse(JSON.stringify(session.saved));
@@ -32,11 +33,38 @@ test("compaction checkpoints the oldest actions and preserves all remaining undo
     session = playAction(session, { type: "life", seat: 0, delta: -1 });
   assert.equal(session.saved.actions.length, limit);
   assert.equal(session.saved.base.players[0].life, 17);
+  assert.equal(session.history.length, limit + 4);
+  const fullHistory = session.history;
   session = restoreSession(save(session));
+  assert.deepEqual(session.history, fullHistory);
   assert.equal(session.match.players[0].life, 17 - limit);
   while (session.saved.actions.length) session = undoAction(session);
   assert.equal(session.match.players[0].life, 17);
+  assert.deepEqual(session.history, fullHistory.slice(0, 4));
   assert.throws(() => undoAction(session), /undo/);
+});
+
+test("legacy saves recover their retained history and public entries protect hidden cards", () => {
+  const game = fresh();
+  const card = game.match.players[0].zones.library[0];
+  const name = game.match.catalog[game.match.pieces[card].printing].name;
+  const drawn = playAction(game, { type: "draw", seat: 0 });
+  const legacy = save(drawn);
+  delete legacy.earlierHistory;
+  const resumed = restoreSession(legacy);
+  assert.deepEqual(resumed.history, [{ turn: 1, text: "Player 1 drew a card." }]);
+  const back = playAction(resumed, { type: "move", id: card, zone: "library" });
+  assert.ok(!JSON.stringify(back.history).includes(name));
+  const faceDown = playAction(resumed, { type: "faceDown", id: card });
+  const cast = playAction(faceDown, { type: "cast", id: card });
+  assert.ok(!JSON.stringify(cast.history).includes(name));
+  const resolved = playAction(cast, { type: "resolve", entry: cast.match.stack[0].id });
+  const faceUp = playAction(resolved, { type: "faceDown", id: card });
+  assert.ok(!JSON.stringify(resolved.history).includes(name));
+  assert.equal(faceUp.history.at(-1).text, `Player 1 turned ${name} face up.`);
+  const revealed = playAction(resumed, { type: "reveal", id: card });
+  assert.ok(revealed.history.at(-1).text.includes(name));
+  assert.deepEqual(undoAction(revealed).history, resumed.history);
 });
 
 test("restore rejects corrupt journals, malformed arguments, and actions that break card conservation", () => {

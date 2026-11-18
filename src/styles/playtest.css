@@ -9,6 +9,22 @@
   padding: 0;
   min-width: 0;
 }
+.pt-game-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pt-game-log li {
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.pt-game-log h3 {
+  color: var(--tone-secondary);
+  font-weight: 650;
+  margin: 0.8rem 0 0.35rem;
+}
+.pt-game-log li:first-child h3 { margin-top: 0; }
 .pt-resume,
 .pt-match-toolbar,
 .pt-match-toolbar > div:last-child,

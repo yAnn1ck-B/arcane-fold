@@ -17,6 +17,19 @@ use std::{
 use tauri::{AppHandle, State};
 use tempfile::TempDir;
 
+mod replay;
+use replay::{GameSetup, PracticeGame};
+
+#[cfg(test)]
+mod ability_tests;
+#[cfg(test)]
+mod foundations_tests;
+#[cfg(test)]
+mod history_tests;
+#[cfg(test)]
+mod graveyard_tests;
+#[cfg(test)]
+mod discard_tests;
 #[cfg(test)]
 mod library_tests;
 
@@ -25,9 +38,13 @@ const SOURCE: &str = concat!(
     "\n",
     include_str!("../resources/playtest/ForgePractice.java"),
     "\n",
+    include_str!("../resources/playtest/PracticeReplay.java"),
+    "\n",
     include_str!("../resources/playtest/PracticeCombat.java"),
     "\n",
     include_str!("../resources/playtest/PracticeLibrary.java"),
+    "\n",
+    include_str!("../resources/playtest/PracticeHistory.java"),
 );
 const JAR: &str = "forge-gui-desktop-2.0.13-jar-with-dependencies.jar";
 const CLOSED: &str = "This Forge trial has ended.";
@@ -57,6 +74,59 @@ impl Scenario {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Seat {
+    #[default]
+    Player,
+    Opponent,
+}
+
+impl Seat {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Player => "player",
+            Self::Opponent => "opponent",
+        }
+    }
+
+    fn other(self) -> Self {
+        match self {
+            Self::Player => Self::Opponent,
+            Self::Opponent => Self::Player,
+        }
+    }
+}
+
+fn seat_view(snapshot: &Value, viewer: Seat) -> Result<Value, String> {
+    let shared = snapshot["sharedSeats"] == true;
+    if !shared && viewer != Seat::Player {
+        return Err("This practice has one playable seat.".into());
+    }
+    let mut view = snapshot.clone();
+    if let Some(fields) = view.as_object_mut() {
+        fields.remove("replayState");
+    }
+    if view.get("players").is_some() {
+        view["players"][viewer.other().id()]["hand"] = Value::Array(Vec::new());
+    }
+    if shared && snapshot["actor"] != viewer.id() {
+        let fields = view.as_object_mut().expect("shared practice snapshot");
+        fields.remove("librarySearch");
+        fields.remove("revealedToYou");
+        view["choices"] = Value::Array(Vec::new());
+        if snapshot["stage"] == "decision" {
+            let name = if viewer == Seat::Player {
+                "Player 2"
+            } else {
+                "Player 1"
+            };
+            view["prompt"] = format!("{name} has a decision.").into();
+        }
+    }
+    Ok(view)
+}
+
 struct Engine {
     child: Child,
     replies: Receiver<String>,
@@ -65,11 +135,22 @@ struct Engine {
 }
 
 impl Engine {
+    #[cfg(test)]
     fn launch(
         install: &Path,
         scenario: Scenario,
         deck: Option<&str>,
         opponent: Option<&str>,
+    ) -> Result<Self, String> {
+        Self::launch_seeded(install, scenario, deck, opponent, rand::random())
+    }
+
+    fn launch_seeded(
+        install: &Path,
+        scenario: Scenario,
+        deck: Option<&str>,
+        opponent: Option<&str>,
+        seed: i64,
     ) -> Result<Self, String> {
         let jar = install.join(JAR);
         if !install.is_absolute() || !jar.is_file() {
@@ -107,6 +188,7 @@ impl Engine {
             .arg(install)
             .arg(dir)
             .arg(scenario.argument())
+            .arg(seed.to_string())
             .env_remove("JDK_JAVA_OPTIONS")
             .env_remove("JAVA_TOOL_OPTIONS")
             .env_remove("_JAVA_OPTIONS")
@@ -158,7 +240,7 @@ impl Engine {
         &mut self,
         action: Option<&str>,
         cancelled: &AtomicBool,
-    ) -> Result<Value, String> {
+    ) -> Result<&Value, String> {
         if let Some(action) = action {
             let input = self.child.stdin.as_mut().ok_or(CLOSED)?;
             writeln!(input, "{action}")
@@ -176,10 +258,13 @@ impl Engine {
                     if let Some(error) = line.strip_prefix("BOLT_ERROR ") {
                         return Err(format!("Forge trial: {error}"));
                     }
-                    let state = serde_json::from_str(line.trim_start_matches("BOLT_STATE "))
-                        .map_err(|e| format!("Forge returned an invalid trial view: {e}"))?;
+                    let mut state: Value =
+                        serde_json::from_str(line.trim_start_matches("BOLT_STATE "))
+                            .map_err(|e| format!("Forge returned an invalid trial view: {e}"))?;
+                    // Java's Map.of does not guarantee field order between JVMs.
+                    state.sort_all_objects();
                     self.current = state;
-                    return Ok(self.current.clone());
+                    return Ok(&self.current);
                 }
                 Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => {
@@ -221,10 +306,60 @@ impl Drop for Engine {
     }
 }
 
+#[derive(Default)]
+enum Table {
+    #[default]
+    Closed,
+    Playing(Engine),
+    Finished(Value),
+}
+
+impl Table {
+    fn snapshot(&self) -> Result<&Value, String> {
+        match self {
+            Self::Playing(engine) => Ok(&engine.current),
+            Self::Finished(snapshot) => Ok(snapshot),
+            Self::Closed => Err(CLOSED.into()),
+        }
+    }
+
+    fn view(&self, viewer: Seat) -> Result<Value, String> {
+        seat_view(self.snapshot()?, viewer)
+    }
+
+    fn act(&mut self, viewer: Seat, action: &str, cancelled: &AtomicBool) -> Result<Value, String> {
+        let Self::Playing(engine) = self else {
+            return Err(CLOSED.into());
+        };
+        let snapshot = &engine.current;
+        let can_act = if snapshot["sharedSeats"] == true {
+            snapshot["actor"] == viewer.id()
+        } else {
+            viewer == Seat::Player
+        };
+        if !can_act || !offered_action(snapshot, action) {
+            return Err("That choice is no longer available to this player.".into());
+        }
+        match engine.next_state(Some(action), cancelled) {
+            Ok(snapshot) => {
+                let view = seat_view(snapshot, viewer)?;
+                if matches!(snapshot["stage"].as_str(), Some("resolved" | "finished")) {
+                    *self = Self::Finished(std::mem::take(&mut engine.current));
+                }
+                Ok(view)
+            }
+            Err(error) => {
+                *self = Self::Closed;
+                Err(error)
+            }
+        }
+    }
+}
+
 struct Session {
     id: String,
     cancelled: AtomicBool,
-    engine: Mutex<Option<Engine>>,
+    table: Mutex<Option<PracticeGame>>,
 }
 
 #[derive(Default)]
@@ -235,7 +370,7 @@ impl Trials {
         let session = Arc::new(Session {
             id,
             cancelled: false.into(),
-            engine: Mutex::default(),
+            table: Mutex::default(),
         });
         let old = self.0.lock().unwrap().replace(Arc::clone(&session));
         if let Some(old) = old {
@@ -312,10 +447,10 @@ pub async fn start_bolt_trial(
                 .as_ref()
                 .map(|deck| crate::decks::practice_snapshot(deck, &install))
                 .transpose()?;
-            let mut engine =
-                Engine::launch(&install, scenario, snapshot.as_deref(), opponent.as_deref())?;
-            let state = engine.next_state(None, &session.cancelled)?;
-            *session.engine.lock().unwrap() = Some(engine);
+            let setup = GameSetup::new(install, scenario, snapshot, opponent);
+            let table = PracticeGame::start(setup, &session.cancelled)?;
+            let state = table.view(Seat::Player)?;
+            *session.table.lock().unwrap() = Some(table);
             Ok(state)
         })
         .await
@@ -333,21 +468,56 @@ pub async fn act_bolt_trial(
     trials: State<'_, Trials>,
     session_id: String,
     action: String,
+    viewer: Option<Seat>,
+    revision: Option<u64>,
 ) -> Result<Value, String> {
     let session = trials.get(&session_id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let mut guard = session.engine.lock().unwrap();
-        let engine = guard.as_mut().ok_or(CLOSED)?;
-        if !offered_action(&engine.current, &action) {
-            return Err("That choice is no longer available.".into());
-        }
-        let state = engine.next_state(Some(&action), &session.cancelled);
-        if state.as_ref().map_or(true, |view| {
-            matches!(view["stage"].as_str(), Some("resolved" | "finished"))
-        }) {
-            guard.take();
-        }
-        state
+        session.table.lock().unwrap().as_mut().ok_or(CLOSED)?.act(
+            viewer.unwrap_or_default(),
+            &action,
+            revision,
+            &session.cancelled,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn undo_forge_action(
+    trials: State<'_, Trials>,
+    session_id: String,
+    viewer: Seat,
+    revision: u64,
+) -> Result<Value, String> {
+    let session = trials.get(&session_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        session.table.lock().unwrap().as_mut().ok_or(CLOSED)?.undo(
+            viewer,
+            revision,
+            &session.cancelled,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn view_forge_seat(
+    trials: State<'_, Trials>,
+    session_id: String,
+    viewer: Seat,
+) -> Result<Value, String> {
+    let session = trials.get(&session_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        session
+            .table
+            .lock()
+            .unwrap()
+            .as_ref()
+            .ok_or(CLOSED)?
+            .view(viewer)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -390,6 +560,44 @@ mod tests {
             &json!({"stage":"resolved"}),
             "passPriority"
         ));
+    }
+
+    #[test]
+    fn seat_views_preserve_the_pending_decision_and_hide_private_information() {
+        let snapshot = json!({
+            "stage": "decision", "sharedSeats": true, "turn": 2,
+            "active": "opponent", "actor": "player", "prompt": "Search for a card",
+            "players": {
+                "player": { "hand": ["Forest"], "handCount": 1 },
+                "opponent": { "hand": ["Mountain"], "handCount": 1 }
+            },
+            "choices": [{ "id": "p3_0" }],
+            "librarySearch": { "cards": ["Island"] }, "revealedToYou": ["Plains"]
+        });
+        let first = seat_view(&snapshot, Seat::Player).unwrap();
+        assert_eq!(first["players"]["opponent"]["hand"], json!([]));
+        assert_eq!(first["players"]["player"]["hand"], json!(["Forest"]));
+        assert_eq!(first["librarySearch"], snapshot["librarySearch"]);
+        assert_eq!(first["revealedToYou"], snapshot["revealedToYou"]);
+        let other = seat_view(&snapshot, Seat::Opponent).unwrap();
+        assert_eq!(other["players"]["player"]["hand"], json!([]));
+        assert_eq!(other["players"]["player"]["handCount"], 1);
+        assert_eq!(other["players"]["opponent"]["hand"], json!(["Mountain"]));
+        assert_eq!(other["choices"], json!([]));
+        assert_eq!(other["prompt"], "Player 1 has a decision.");
+        assert!(other.get("librarySearch").is_none());
+        assert!(other.get("revealedToYou").is_none());
+        assert_eq!(other["actor"], "player");
+        assert_eq!(other["active"], "opponent");
+        assert_eq!(seat_view(&snapshot, Seat::Player).unwrap(), first);
+        assert!(offered_action(&first, "p3_0"));
+
+        let legacy = json!({ "stage": "opponentPriority" });
+        assert_eq!(seat_view(&legacy, Seat::Player).unwrap(), legacy);
+        assert!(seat_view(&legacy, Seat::Opponent).is_err());
+        let mut solo = snapshot;
+        solo["sharedSeats"] = false.into();
+        assert!(seat_view(&solo, Seat::Opponent).is_err());
     }
 
     #[test]
@@ -461,10 +669,31 @@ mod tests {
         engine
     }
 
-    fn forge_install() -> PathBuf {
+    pub(super) fn forge_install() -> PathBuf {
         std::env::var_os("FORGE_BOLT_TEST_INSTALL")
             .map(PathBuf::from)
             .expect("Set FORGE_BOLT_TEST_INSTALL to the Forge 2.0.13 folder")
+    }
+
+    pub(super) fn play_until(game: &mut Engine, prefix: &str, setup: &[&str]) {
+        for _ in 0..100 {
+            let choices = game.current["choices"].as_array().unwrap();
+            let offers = |prefix: &str| {
+                choices
+                    .iter()
+                    .any(|option| option["label"].as_str().unwrap().starts_with(prefix))
+            };
+            if offers(prefix) {
+                return;
+            }
+            let next = setup
+                .iter()
+                .copied()
+                .find(|label| offers(label))
+                .unwrap_or_else(|| panic!("Expected {prefix} or a setup action in {}", game.current));
+            choose(game, next);
+        }
+        panic!("Never reached {prefix}");
     }
 
     pub(super) fn choose(engine: &mut Engine, label: &str) {
@@ -512,7 +741,7 @@ mod tests {
             let mut engine = practice_engine(Scenario::Response, None);
             choose(&mut engine, "Play Mountain");
             choose(&mut engine, "Cast Lightning Bolt");
-            choose(&mut engine, "Target opponent");
+            choose(&mut engine, "Target Player 2");
             assert_eq!(engine.current["players"]["opponent"]["life"], 20);
             assert_eq!(engine.current["stack"][0]["name"], "Lightning Bolt");
             if counter {
@@ -552,7 +781,7 @@ mod tests {
     fn real_forge_combat_with_and_without_a_blocker() {
         for block in [true, false] {
             let mut engine = practice_engine(Scenario::Combat, None);
-            choose(&mut engine, "Attack opponent with Grizzly Bears");
+            choose(&mut engine, "Attack Player 2 with Grizzly Bears");
             choose(&mut engine, "Confirm attackers");
             if block {
                 choose(&mut engine, "Block Grizzly Bears with Runeclaw Bear");
@@ -650,33 +879,124 @@ mod tests {
         let mut engine = Engine::launch(
             &forge_install(),
             Scenario::Deck,
-            Some("[Main]\n12 Forest\n"),
-            Some("[Main]\n12 Mountain\n"),
+            Some("[Main]\n8 Forest\n"),
+            Some("[Main]\n8 Mountain\n"),
+        )
+        .unwrap();
+        let cancelled = AtomicBool::new(false);
+        engine.next_state(None, &cancelled).unwrap();
+        let mut table = Table::Playing(engine);
+        let first = table.view(Seat::Player).unwrap();
+        assert_eq!(
+            first["players"]["player"]["hand"].as_array().unwrap().len(),
+            7
+        );
+        assert_eq!(first["players"]["opponent"]["hand"], json!([]));
+        let other = table.view(Seat::Opponent).unwrap();
+        assert_eq!(other["choices"], json!([]));
+        assert_eq!(other["players"]["player"]["hand"], json!([]));
+        assert_eq!(other["players"]["opponent"]["hand"][0]["name"], "Mountain");
+        let keep = first["choices"][0]["id"].as_str().unwrap();
+        assert!(table.act(Seat::Opponent, keep, &cancelled).is_err());
+        assert_eq!(table.view(Seat::Player).unwrap(), first);
+
+        let play = |table: &mut Table, viewer: Seat, label: &str| {
+            let view = table.view(viewer).unwrap();
+            let id = view["choices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["label"] == label)
+                .unwrap()["id"]
+                .as_str()
+                .unwrap();
+            table.act(viewer, id, &cancelled).unwrap()
+        };
+        let waiting = play(&mut table, Seat::Player, "Keep hand");
+        assert_eq!(waiting["actor"], "opponent");
+        assert_eq!(waiting["choices"], json!([]));
+        assert_eq!(waiting["players"]["opponent"]["hand"], json!([]));
+        assert!(table.act(Seat::Opponent, keep, &cancelled).is_err());
+        let waiting = play(&mut table, Seat::Opponent, "Keep hand");
+        assert_eq!(waiting["phase"], "Precombat main phase");
+        assert_eq!(
+            play(&mut table, Seat::Player, "Pass priority")["phase"],
+            "Postcombat main phase"
+        );
+        let next_turn = play(&mut table, Seat::Player, "Play Forest");
+        assert_eq!(next_turn["turn"], 2);
+        assert_eq!(next_turn["actor"], "opponent");
+        assert_eq!(next_turn["active"], "opponent");
+        let next_turn = play(&mut table, Seat::Opponent, "Play Mountain");
+        assert_eq!(next_turn["turn"], 3);
+        assert_eq!(next_turn["actor"], "player");
+        assert_eq!(
+            next_turn["players"]["player"]["battlefield"][0]["name"],
+            "Forest"
+        );
+        assert_eq!(
+            next_turn["players"]["opponent"]["battlefield"][0]["name"],
+            "Mountain"
+        );
+
+        let end = play(&mut table, Seat::Player, "Play Forest");
+        assert_eq!(end["stage"], "finished");
+        assert!(matches!(table, Table::Finished(_)));
+        let end_other = table.view(Seat::Opponent).unwrap();
+        assert_eq!(end_other["prompt"], end["prompt"]);
+        assert_eq!(end_other["players"]["player"]["hand"], json!([]));
+        assert_eq!(
+            end_other["players"]["opponent"]["hand"][0]["name"],
+            "Mountain"
+        );
+        assert_eq!(table.view(Seat::Player).unwrap(), end);
+    }
+
+    #[test]
+    #[ignore = "requires a real Forge Desktop 2.0.13 install and JDK 17"]
+    fn real_forge_player_one_can_respond_during_player_twos_turn() {
+        let mut engine = Engine::launch(
+            &forge_install(),
+            Scenario::Deck,
+            Some("[Main]\n5 Mountain\n5 Lightning Bolt\n"),
+            Some("[Main]\n10 Forest\n"),
         )
         .unwrap();
         engine.next_state(None, &AtomicBool::new(false)).unwrap();
-        assert_eq!(zone(&engine, "player", "hand").len(), 7);
-        assert!(zone(&engine, "opponent", "hand").is_empty());
         choose(&mut engine, "Keep hand");
-        assert_eq!(engine.current["actor"], "opponent");
-        assert!(zone(&engine, "player", "hand").is_empty());
-        assert_eq!(zone(&engine, "opponent", "hand").len(), 7);
         choose(&mut engine, "Keep hand");
-        assert_eq!(engine.current["phase"], "Precombat main phase");
-        choose(&mut engine, "Pass priority");
-        assert_eq!(engine.current["phase"], "Postcombat main phase");
-        choose(&mut engine, "Play Forest");
-        assert_eq!(engine.current["turn"], 2);
-        assert_eq!(engine.current["actor"], "opponent");
-        assert_eq!(engine.current["active"], "opponent");
         choose(&mut engine, "Play Mountain");
-        assert_eq!(engine.current["turn"], 3);
+        for _ in 0..16 {
+            if engine.current["active"] == "opponent" {
+                break;
+            }
+            choose(&mut engine, "Pass priority");
+        }
+        assert_eq!(engine.current["turn"], 2);
+        assert_eq!(engine.current["active"], "opponent");
         assert_eq!(engine.current["actor"], "player");
-        assert_eq!(zone(&engine, "player", "battlefield")[0]["name"], "Forest");
-        assert_eq!(
-            zone(&engine, "opponent", "battlefield")[0]["name"],
-            "Mountain"
-        );
+        let mut table = Table::Playing(engine);
+        let player = table.view(Seat::Player).unwrap();
+        let bolt_id = player["choices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["label"] == "Cast Lightning Bolt")
+            .unwrap()["id"]
+            .as_str()
+            .unwrap();
+        let observer = table.view(Seat::Opponent).unwrap();
+        assert_eq!(observer["players"]["opponent"]["hand"][0]["name"], "Forest");
+        assert_eq!(observer["choices"], json!([]));
+        assert!(table
+            .act(Seat::Opponent, bolt_id, &AtomicBool::new(false))
+            .is_err());
+        assert_eq!(table.view(Seat::Player).unwrap(), player);
+        let targets = table
+            .act(Seat::Player, bolt_id, &AtomicBool::new(false))
+            .unwrap();
+        assert_eq!(targets["prompt"], "Choose a target for Lightning Bolt");
+        assert_eq!(targets["active"], "opponent");
     }
 
     #[test]

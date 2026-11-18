@@ -12,7 +12,7 @@ import {
 import CardImage from "@/components/CardImage";
 import type { Action, MatchView, Seat, Zone } from "./types";
 import { seats } from "./types";
-import { CardReading, InspectButton, PreviewAnchor } from "./CardPreview";
+import { CardReading, PreviewAnchor } from "./CardPreview";
 
 export function pieceName(view: MatchView, id: string) {
   const piece = view.pieces[id];
@@ -68,6 +68,7 @@ export function TableCard({
   quickAction,
   onClick,
   disabled,
+  opensDialog,
   focusRef,
   reading,
 }: {
@@ -79,36 +80,38 @@ export function TableCard({
   quickAction?: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
+  opensDialog?: boolean;
   focusRef?: Ref<HTMLButtonElement>;
   reading: ReactNode;
 }) {
   return (
     <PreviewAnchor
-      name={name}
       reading={reading}
       className={`pt-piece ${tapped ? "is-tapped" : ""} ${onClick ? "has-action" : ""}`}
     >
-      {(inspect) => (
-        <>
-          {art}
-          <div className="pt-piece-flags" aria-hidden="true">
-            {tapped && <RotateCw size={14} />}
-            {flags}
-          </div>
-          <button
-            ref={focusRef}
-            type="button"
-            className="pt-piece-select"
-            onClick={onClick ?? inspect}
-            disabled={!!onClick && disabled}
-            aria-label={onClick ? label : `Inspect ${name}`}
-          >
-            <span>{name}</span>
-          </button>
-          {onClick && <InspectButton name={name} onClick={inspect} />}
-          {quickAction}
-        </>
+      {art}
+      <div className="pt-piece-flags" aria-hidden="true">
+        {tapped && <RotateCw size={14} />}
+        {flags}
+      </div>
+      {onClick ? (
+        <button
+          ref={focusRef}
+          type="button"
+          className="pt-piece-select"
+          onClick={onClick}
+          disabled={disabled}
+          aria-label={label}
+          aria-haspopup={opensDialog ? "dialog" : undefined}
+        >
+          <span>{name}</span>
+        </button>
+      ) : (
+        <div className="pt-piece-select" tabIndex={0}>
+          <span>{name}</span>
+        </div>
       )}
+      {quickAction}
     </PreviewAnchor>
   );
 }

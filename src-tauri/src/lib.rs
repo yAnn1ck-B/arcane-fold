@@ -94,6 +94,10 @@ pub fn run() {
             #[cfg(debug_assertions)]
             bolt_trial::act_bolt_trial,
             #[cfg(debug_assertions)]
+            bolt_trial::undo_forge_action,
+            #[cfg(debug_assertions)]
+            bolt_trial::view_forge_seat,
+            #[cfg(debug_assertions)]
             bolt_trial::stop_bolt_trial,
             forge::detect_forge_paths,
             forge::test_forge_integration,

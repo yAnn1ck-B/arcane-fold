@@ -18,7 +18,11 @@ Table actions update an independent match model. A local checkpoint records shuf
 
 ### Forge practice (unreleased)
 
-Saved-deck games support both seats on one device and solo practice. Forge advances through all turn phases and steps, passing priority when a seat has no available play. When control changes, the table hides private information until the next player takes their seat. Guided positions cover Lightning Bolt, Counterspell, combat damage, Giant Growth after blockers, library searches to different zones and a once-only activated ability. Visible cards can be inspected on the shared table. Graveyards and searches open in dialogs.
+Saved-deck games support both seats on one device and solo practice. Forge advances through all turn phases and steps, passing priority when a seat has no available play. At a two-player table, either seat can be viewed at any time. Each seat sees its own hand, and the table hides private information during handoffs. Only the seat with the pending decision can act, including during the other player's turn. Guided positions cover Lightning Bolt, Counterspell, combat damage, Giant Growth after blockers, library searches to different zones and a once-only activated ability. Visible cards can be inspected on the shared table. Graveyards and searches open in dialogs.
+
+Both tables have a public game log grouped by turn. Manual games save it alongside the existing checkpoint. Forge practice records public engine events and explicit priority passes. Undo rebuilds the previous decision using the original random seed and choices, checks the replay, and restores the corresponding log and private seat views. A failed replay leaves the current match available.
+
+Foundations is the first set for interaction coverage. The installed Forge 2.0.13 integration test constructs a practice deck with all 771 Foundations printings across 517 distinct card names. Separate games exercise Soul-Guide Lantern's two abilities, alternative mana abilities, private scry and surveil ordering, discard choices, and sacrifices. The adapter uses Forge's rules scripts and controller callbacks across cards. Further coverage should exercise player decisions by mechanic, including variable costs and ordering simultaneous triggers. Loading the entire edition verifies its printings and scripts. Gameplay coverage comes from resolving those interactions in actual matches.
 
 **Technology:**
 

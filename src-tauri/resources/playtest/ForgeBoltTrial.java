@@ -12,6 +12,9 @@ import forge.game.GameStage;
 import forge.game.GameType;
 import forge.game.Match;
 import forge.game.card.Card;
+import forge.game.card.CardView;
+import forge.game.event.*;
+import com.google.common.eventbus.Subscribe;
 import forge.game.card.CardFactory;
 import forge.game.card.CardCollection;
 import forge.game.card.CardCollectionView;
@@ -56,6 +59,7 @@ public class ForgeBoltTrial {
     private final Player player;
     private final Player opponent;
     private final PhaseHandler phases;
+    private final PracticeHistory history;
     private SpellAbility spell;
     private String stage = "ready";
 
@@ -122,6 +126,7 @@ public class ForgeBoltTrial {
         game.setStartingPlayer(player);
         game.setAge(GameStage.Play);
         phases = game.getPhaseHandler();
+        history = new PracticeHistory(game);
         phases.setupFirstTurn(player, null);
         for (int step = 0; step < 20 && phases.getPhase() != PhaseType.MAIN1; step++) {
             phases.mainLoopStep();
@@ -173,6 +178,7 @@ public class ForgeBoltTrial {
             case "passPriority" -> {
                 require(stage.equals("opponentPriority") && phases.getPriorityPlayer() == opponent,
                         "The opponent does not have priority.");
+                history.pass(opponent);
                 phases.mainLoopStep();
                 require(game.getStack().isEmpty() && !player.getCardsIn(ZoneType.Graveyard).isEmpty(),
                         "Forge did not finish resolving Lightning Bolt.");
@@ -202,6 +208,7 @@ public class ForgeBoltTrial {
         }
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("stage", stage);
+        state.put("history", history.entries);
         state.put("playerLife", player.getLife());
         state.put("opponentLife", opponent.getLife());
         state.put("hand", names(ZoneType.Hand));
@@ -213,6 +220,7 @@ public class ForgeBoltTrial {
         state.put("mana", player.getManaPool().totalMana());
         state.put("legalTargets", legalTargets);
         state.put("target", target);
+        state.put("replayState", PracticeReplay.fingerprint(player, opponent));
         var json = new StringWriter();
         new JsonObjectWriter(json, 5).value(NoOpLogger.getInstance(), state);
         System.out.println("BOLT_STATE " + json);
@@ -222,6 +230,7 @@ public class ForgeBoltTrial {
     public static void main(String[] args) {
         try {
             loadForge(Path.of(args[0]), Path.of(args[1]), args.length > 2 && args[2].equals("deck"));
+            if (args.length > 3) forge.util.MyRandom.setRandom(new java.util.Random(Long.parseLong(args[3])));
             if (args.length > 2 && !args[2].equals("bolt")) {
                 new ForgePractice(args[2], Path.of(args[1])).run();
                 System.exit(0);

@@ -18,9 +18,15 @@ The development build includes **Playtest** in the sidebar. Choose one saved dec
 
 Select a card to move it, cast it, change its face, mark combat, or add counters and attachments. Open a library to search or look at the top cards. The shared stack holds spells, abilities, copies, and target notes. Each action saves to one local table in the app profile's WebView storage. Choose **Resume** to continue, or **Undo** to take back one of the last 128 actions. Starting a replacement table asks for confirmation.
 
+**Game log** shows public events grouped by turn on both tables. On the manual table, the log survives leaving and resuming. New games keep the whole log, including actions older than the undo limit. Older saves can reconstruct the actions still in their checkpoint.
+
 **Forge practice** runs on the same playtest table. Select Forge Desktop 2.0.13 in Settings and put a JDK 17 `java` on your PATH. In the Tauri development app, open **Playtest** and choose a starting position.
 
-- **Saved deck practice** lets you control both seats. Select two saved decks or use two independently shuffled copies of the same deck. Each main deck needs at least seven cards. Use **Switch to Player** when the other seat has a decision. Each player sees their own hand. Solo practice with a passing opponent is also available.
+- **Saved deck practice** lets you control both seats. Select two saved decks or use two independently shuffled copies of the same deck. Each main deck needs at least seven cards. Solo practice with a passing opponent is also available.
+- At a two-player table, use **Switch to Player** at any time to view the other seat and its hand. Switching views leaves the pending decision in place. Only the player Forge is waiting for can act, even when responding during the other player's turn. The table hides private cards during a handoff.
+- **Undo** takes back the last submitted Forge decision, even from the result screen. Forge replays the original decks, shuffle seed and prior choices, then verifies the restored decision before replacing the live game. The log rewinds with it. Switching seats and opening a card's ability picker are view actions and leave undo history alone.
+- Select a permanent with multiple available activations to see each cost and effect. Choosing an ability submits it to Forge. Cancel returns to the same decision. On Foundations cards this includes Soul-Guide Lantern's graveyard exile and draw abilities. Scry and surveil let the deciding player place cards and order the ones they keep. Spells such as Duress show the chooser the revealed hand and identify the legal discards.
+- Open your graveyard to use abilities and spells that Forge allows there, such as Reassembling Skeleton's return ability and Think Twice's flashback. Secluded Courtyard lets you choose its creature type as it enters and the color when you use its restricted mana ability.
 - Forge follows the turn's phases and steps. It passes priority automatically when a seat has no play to make, including while spells and abilities are on the stack. If a spell or activated ability is available, **Pass priority** lets you save it for later. Forge pays mana and handles some secondary card choices.
 - **Giant Growth in combat** lets you attack, block from the other seat, then decide whether to cast Giant Growth during the declare blockers step.
 - **Library search and activated abilities** includes Bushwhack's land and fight modes, Evolving Wilds, Cultivate and Mild-Mannered Librarian. The search dialog shows eligible cards and lets you finish early when the effect permits it.
@@ -28,7 +34,7 @@ Select a card to move it, cast it, change its face, mark combat, or add counters
 - **Creature combat** starts with Grizzly Bears facing Runeclaw Bear. Declare attackers and blockers, then let Forge apply damage. Both creatures die if they fight. An unblocked attack deals two damage to the opponent.
 - **Lightning Bolt** replays the original two-card payment and targeting example.
 
-Open a graveyard or exile to inspect it in a dialog. Hover over a visible card or focus it with the keyboard to read its enlarged artwork and rules text. Use **Inspect** to keep the details open. Forge practice runs in memory. Leaving it returns you to your saved decks and manual game.
+Open a graveyard or exile to inspect it in a dialog. Hover over a visible card or focus it with the keyboard to read its enlarged artwork and rules text. Forge practice and its game log run in memory. Leaving the match ends that session.
 
 Use Windows with Node.js 20.19+ (or a supported newer LTS), Rust 1.90+, the MSVC C++ build tools and Windows SDK, and WebView2. See the [official Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 

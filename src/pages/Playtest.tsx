@@ -14,6 +14,7 @@ import {
 import { loadSession, saveSession } from "@/playtest/storage";
 import Table from "@/playtest/Table";
 import ForgePractice from "@/playtest/ForgePractice";
+import { GameHistory } from "@/playtest/GameHistory";
 import type { Seat } from "@/playtest/types";
 import "@/styles/playtest.css";
 
@@ -164,6 +165,7 @@ export default function Playtest({
               </h2>
             </div>
             <div>
+              <GameHistory entries={session.history} />
               <Button
                 variant="outline"
                 disabled={working || !session.saved.actions.length}

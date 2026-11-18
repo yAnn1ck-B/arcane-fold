@@ -1,23 +1,26 @@
 import { ArrowLeftRight, Heart, Layers } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import "./table.css";
 import "./controls.css";
 
 export function SwitchPlayer({
   player,
   onSwitch,
-  autoFocus,
+  disabled,
+  focusRef,
 }: {
   player: number;
   onSwitch: () => void;
-  autoFocus?: boolean;
+  disabled?: boolean;
+  focusRef?: Ref<HTMLButtonElement>;
 }) {
   return (
     <button
       type="button"
       className="pt-seat-switch"
       onClick={onSwitch}
-      autoFocus={autoFocus}
+      disabled={disabled}
+      ref={focusRef}
     >
       <ArrowLeftRight size={16} /> Switch to Player {player}
     </button>

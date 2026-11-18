@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, LoaderCircle } from "lucide-react";
+import { ArrowRight, LoaderCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { appLifecycle } from "@/lib/app-lifecycle";
 import type { DeckSummary } from "@/lib/types";
 import ForgeBoard from "./ForgeBoard";
+import { GameHistory } from "./GameHistory";
 import {
   chooseForge,
   startForge,
   stopForge,
+  undoForge,
+  viewForgeSeat,
   type ForgeMatch,
   type ForgeSeat,
   type Scenario,
@@ -45,6 +48,12 @@ const positions: Record<Scenario, { label: string; description: string }> = {
   },
 };
 
+function needsHandoff(match: ForgeMatch, viewer: ForgeSeat) {
+  return (
+    match.sharedSeats && match.stage === "decision" && match.actor !== viewer
+  );
+}
+
 export default function ForgePractice({
   open,
   onOpenChange,
@@ -69,8 +78,10 @@ export default function ForgePractice({
   const [opponentSelection, setOpponentSelection] = useState("same");
   const [viewer, setViewer] = useState<ForgeSeat>("player");
   const [state, setState] = useState<ForgeMatch | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [handHidden, setHandHidden] = useState(false);
+  const [busy, setBusy] = useState<"play" | "switch" | "undo" | null>(null);
+  const [rewinds, setRewinds] = useState(0);
+  const [error, setError] = useState<{ message: string; restart: boolean }>();
   const session = useRef<string | null>(null);
   const pending = useRef(false);
   const launcher = useRef<HTMLButtonElement>(null);
@@ -86,17 +97,6 @@ export default function ForgePractice({
       ? selectedDeck
       : decks.find((deck) => deck.id === opponentSelection);
   const twoDecks = isDeck && opponentSelection !== "solo";
-  const switchSeats =
-    twoDecks ||
-    scenario === "growth" ||
-    scenario === "response" ||
-    scenario === "combat" ||
-    scenario === "library";
-  const needsSwitch =
-    !!state &&
-    switchSeats &&
-    state.stage === "decision" &&
-    viewer !== state.actor;
   const shortDeck =
     isDeck &&
     ((selectedDeck?.mainCount ?? 7) < 7 ||
@@ -111,7 +111,7 @@ export default function ForgePractice({
       restoreFocus.current = false;
       launcher.current?.focus();
     }
-    if (open && error) retry.current?.focus();
+    if (open && error?.restart) retry.current?.focus();
   }, [open, error]);
 
   useEffect(
@@ -130,10 +130,11 @@ export default function ForgePractice({
     const id = crypto.randomUUID();
     session.current = id;
     pending.current = true;
-    setBusy(true);
-    setError("");
+    setBusy("play");
+    setError(undefined);
     setState(null);
     setViewer("player");
+    setHandHidden(false);
     onOpenChange(true);
     try {
       if (previous) await stopForge(previous);
@@ -144,40 +145,79 @@ export default function ForgePractice({
         isDeck ? selectedDeck?.id : undefined,
         twoDecks ? opponentDeck?.id : undefined,
       );
-      if (session.current === id) setState(result);
-      else await stopForge(id);
+      if (session.current === id) {
+        setState(result);
+        setHandHidden(needsHandoff(result, "player"));
+      } else await stopForge(id);
     } catch (cause) {
-      if (session.current === id) setError(String(cause));
+      if (session.current === id)
+        setError({ message: String(cause), restart: true });
     } finally {
       if (session.current === id) {
         pending.current = false;
-        setBusy(false);
+        setBusy(null);
       }
     }
   }
 
-  async function choose(action: string) {
+  async function updateTable(
+    request: { action: string } | { switchTo: ForgeSeat } | "undo",
+  ) {
     const id = session.current;
     if (
       !id ||
-      needsSwitch ||
+      !state ||
       pending.current ||
-      error ||
+      error?.restart ||
       !canPlay() ||
       appLifecycle.isLocked()
     )
       return;
+    const undo = request === "undo";
+    const switching = !undo && "switchTo" in request;
+    const nextViewer = switching ? request.switchTo : viewer;
+    if (switching && !state.sharedSeats) return;
+    if (undo && !state.canUndo) return;
+    if (
+      !switching &&
+      !undo &&
+      (handHidden || state.stage !== "decision" || needsHandoff(state, viewer))
+    )
+      return;
     pending.current = true;
-    setBusy(true);
+    setBusy(switching ? "switch" : undo ? "undo" : "play");
+    setError(undefined);
+    // Conceal the outgoing hand and close private dialogs as soon as the device changes hands.
+    if (switching) setHandHidden(true);
     try {
-      const result = await chooseForge(id, scenario, action);
-      if (session.current === id) setState(result);
+      const result = switching
+        ? await viewForgeSeat(id, nextViewer)
+        : undo
+          ? await undoForge(id, scenario, viewer, state.revision)
+          : await chooseForge(
+              id,
+              scenario,
+              request.action,
+              viewer,
+              state.revision,
+            );
+      if (session.current !== id) return;
+      setState(result);
+      setViewer(nextViewer);
+      setHandHidden(!switching && needsHandoff(result, nextViewer));
+      if (undo) setRewinds((n) => n + 1);
     } catch (cause) {
-      if (session.current === id) setError(String(cause));
+      if (session.current === id)
+        setError({
+          message: switching
+            ? `Couldn’t switch seats. Use the switch to retry. ${String(cause)}`
+            : String(cause),
+          restart: !switching && !undo,
+        });
     } finally {
       if (session.current === id) {
         pending.current = false;
-        setBusy(false);
+        setBusy(null);
       }
     }
   }
@@ -189,8 +229,8 @@ export default function ForgePractice({
     restoreFocus.current = true;
     if (previous) void stopForge(previous).catch(() => {});
     setState(null);
-    setBusy(false);
-    setError("");
+    setBusy(null);
+    setError(undefined);
     onOpenChange(false);
   }
 
@@ -288,21 +328,43 @@ export default function ForgePractice({
           <small>Forge practice</small>
           <h2>{title}</h2>
         </div>
-        <Button variant="outline" onClick={leave}>
-          {isDeck ? "Leave practice" : "Leave trial"}
-        </Button>
+        <div>
+          {state && (
+            <>
+              <GameHistory entries={state.history} />
+              <Button
+                variant="outline"
+                disabled={!!busy || !!error?.restart || !state.canUndo}
+                onClick={() => void updateTable("undo")}
+                aria-busy={busy === "undo"}
+              >
+                {busy === "undo" ? (
+                  <LoaderCircle size={16} />
+                ) : (
+                  <RotateCcw size={16} />
+                )}
+                {busy === "undo" ? "Undoing…" : "Undo"}
+              </Button>
+            </>
+          )}
+          <Button variant="outline" onClick={leave}>
+            {isDeck ? "Leave practice" : "Leave trial"}
+          </Button>
+        </div>
       </div>
       {error && (
         <div className="notice notice-error" role="alert">
-          <span>{error}</span>
-          <Button
-            ref={retry}
-            variant="outline"
-            disabled={busy}
-            onClick={() => void start()}
-          >
-            {isDeck ? "Restart practice" : "Restart trial"}
-          </Button>
+          <span>{error.message}</span>
+          {error.restart && (
+            <Button
+              ref={retry}
+              variant="outline"
+              disabled={!!busy}
+              onClick={() => void start()}
+            >
+              {isDeck ? "Restart practice" : "Restart trial"}
+            </Button>
+          )}
         </div>
       )}
       {!state && !error && (
@@ -313,12 +375,17 @@ export default function ForgePractice({
       )}
       {state && (
         <ForgeBoard
-          key={viewer + (needsSwitch ? "-handoff" : "")}
+          key={viewer + rewinds + (handHidden ? "-handoff" : "")}
           state={
-            needsSwitch
+            handHidden
               ? {
                   ...state,
-                  prompt: `Player ${state.actor === "player" ? 1 : 2} has a decision.`,
+                  prompt:
+                    busy === "switch"
+                      ? "Switching seats…"
+                      : state.stage === "finished"
+                        ? state.prompt
+                        : `Player ${state.actor === "player" ? 1 : 2} has a decision.`,
                   choices: [],
                   librarySearch: undefined,
                   revealedToYou: undefined,
@@ -330,11 +397,18 @@ export default function ForgePractice({
               : state
           }
           viewer={viewer}
-          sharedSeats={switchSeats}
-          onSwitch={needsSwitch ? () => setViewer(state.actor) : undefined}
+          handHidden={handHidden}
+          onSwitch={
+            state.sharedSeats
+              ? () =>
+                  void updateTable({
+                    switchTo: viewer === "player" ? "opponent" : "player",
+                  })
+              : undefined
+          }
           scenario={scenario}
-          locked={busy || !!error}
-          onChoose={(action) => void choose(action)}
+          locked={!!busy || !!error?.restart}
+          onChoose={(action) => void updateTable({ action })}
           replay={() => void start()}
           imageCacheDir={imageCacheDir}
         />

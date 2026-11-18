@@ -6,6 +6,7 @@ export function TableDialog({
   title,
   label = title,
   subtitle,
+  headerAction,
   closeLabel = "Close",
   onClose,
   className = "",
@@ -14,6 +15,7 @@ export function TableDialog({
   title: string;
   label?: string;
   subtitle?: string;
+  headerAction?: ReactNode;
   closeLabel?: string;
   onClose: () => void;
   className?: string;
@@ -59,6 +61,7 @@ export function TableDialog({
           {subtitle && <small>{subtitle}</small>}
           <h2 id={titleId}>{title}</h2>
         </div>
+        {headerAction}
         <button
           type="button"
           className="pt-btn"

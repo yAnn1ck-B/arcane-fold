@@ -25,6 +25,7 @@ tokio = { version = "1", features = ["sync"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "gzip", "rustls-tls"] }
 flate2 = "1"
 rand = "0.8"
+sha2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }

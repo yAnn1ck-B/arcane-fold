@@ -221,7 +221,7 @@ function piece(state: Match, id: string) {
   );
   return state.pieces[id];
 }
-function locate(
+export function locate(
   state: Match,
   id: string,
 ): { seat: Seat; zone: Zone; pile: string[] } | null {
@@ -292,7 +292,7 @@ function nextTurn(state: Match) {
   state.active = otherSeat(state.active);
   for (const card of Object.values(state.pieces)) card.combat = null;
 }
-function cleanName(card: Piece, state: Match) {
+export function cleanName(card: Piece, state: Match) {
   const name = card.tokenName ?? state.catalog[card.printing!].name;
   return name.split(" // ")[card.back ? 1 : 0] ?? name;
 }

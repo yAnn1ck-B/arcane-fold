@@ -1,6 +1,10 @@
 import type { CatalogCard } from "../lib/types";
 
 export type Seat = 0 | 1;
+export interface HistoryEntry {
+  turn: number;
+  text: string;
+}
 export const seats = [0, 1] as const;
 export const manaTypes = ["W", "U", "B", "R", "G", "C"] as const;
 export type Mana = (typeof manaTypes)[number];

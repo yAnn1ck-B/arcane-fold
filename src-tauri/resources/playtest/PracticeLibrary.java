@@ -4,6 +4,7 @@ final class PracticeLibrary {
     private final Map<Player, List<String>> revealed = new java.util.IdentityHashMap<>();
     private SpellAbility declined;
     private List<Card> candidates;
+    private String operation = "Library search";
 
     PracticeLibrary(ForgePractice practice) {
         this.practice = practice;
@@ -23,6 +24,54 @@ final class PracticeLibrary {
 
     List<Card> candidates() {
         return candidates;
+    }
+
+    String operation() {
+        return operation;
+    }
+
+    // Forge consumes (top in next-draw order, cards moved away in selection order).
+    org.apache.commons.lang3.tuple.ImmutablePair<CardCollection, CardCollection> arrange(
+            Player actor, CardCollection cards, boolean surveil) {
+        var remaining = new CardCollection(cards);
+        var top = new CardCollection();
+        var away = new CardCollection();
+        operation = surveil ? "Surveil" : "Scry";
+        try {
+            String destination = surveil ? "into your graveyard" : "on the bottom";
+            while (!remaining.isEmpty()) {
+                Card moved = pickFromTop(actor, remaining, "Put ", " " + destination,
+                        "Keep remaining on top", "Choose cards to put " + destination + ".");
+                if (moved == null) break;
+                remaining.remove(moved);
+                away.add(moved);
+            }
+            while (remaining.size() > 1) {
+                Card next = pickFromTop(actor, remaining, "Draw ", " next",
+                        "Keep this order", "Choose the next card in top-to-bottom order.");
+                if (next == null) break;
+                remaining.remove(next);
+                top.add(next);
+            }
+            top.addAll(remaining);
+            return org.apache.commons.lang3.tuple.ImmutablePair.of(top, away);
+        } finally {
+            candidates = null;
+            operation = "Library search";
+        }
+    }
+
+    private Card pickFromTop(Player actor, CardCollection remaining, String prefix, String suffix,
+            String doneLabel, String prompt) {
+        candidates = List.copyOf(remaining);
+        var choices = new ArrayList<ForgePractice.Choice>();
+        for (Card card : candidates) {
+            choices.add(practice.choice(prefix + card.getName() + suffix, "card", card, null, null));
+        }
+        var done = practice.choice(doneLabel, "option", null, null, null);
+        choices.add(done);
+        var selected = practice.ask(actor, operation + " — " + prompt, choices);
+        return selected == done ? null : candidates.get(choices.indexOf(selected));
     }
 
     void revealTo(Player recipient, CardCollectionView cards) {

@@ -7,8 +7,6 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { ScanEye } from "lucide-react";
-import { TableDialog } from "./TableDialog";
 
 // Pointer hover and keyboard focus can land on different cards at the same time.
 let dismissOpenPreview: (() => void) | undefined;
@@ -56,21 +54,18 @@ export function CardReading({
 }
 
 export function PreviewAnchor({
-  name,
   reading,
   className = "",
   children,
 }: {
-  name: string;
   reading: ReactNode;
   className?: string;
-  children: (inspect: () => void) => ReactNode;
+  children: ReactNode;
 }) {
   const anchor = useRef<HTMLDivElement>(null);
   const bubble = useRef<HTMLDivElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [shown, setShown] = useState(false);
-  const [pinned, setPinned] = useState(false);
   const tooltipId = useId();
   function schedule(show: boolean, delay: number) {
     clearTimeout(timer.current);
@@ -79,10 +74,6 @@ export function PreviewAnchor({
   function hide() {
     clearTimeout(timer.current);
     setShown(false);
-  }
-  function inspect() {
-    hide();
-    setPinned(true);
   }
   useEffect(() => () => clearTimeout(timer.current), []);
   useLayoutEffect(() => {
@@ -140,14 +131,13 @@ export function PreviewAnchor({
         ref={anchor}
         aria-describedby={shown ? tooltipId : undefined}
         onPointerEnter={(e) => {
-          if (e.pointerType !== "touch" && !pinned) schedule(true, 310);
+          if (e.pointerType !== "touch") schedule(true, 310);
         }}
         onPointerLeave={(e) => {
           if (e.pointerType !== "touch") schedule(false, 160);
         }}
         onFocus={(e) => {
           if (
-            !pinned &&
             !e.target.hasAttribute("data-auto-focus") &&
             e.target.matches(":focus-visible")
           )
@@ -156,13 +146,10 @@ export function PreviewAnchor({
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) hide();
         }}
-        onPointerDown={hide}
-        onClickCapture={hide}
       >
-        {children(inspect)}
+        {children}
       </div>
       {shown &&
-        !pinned &&
         createPortal(
           <div
             ref={bubble}
@@ -176,62 +163,20 @@ export function PreviewAnchor({
           </div>,
           anchor.current?.closest("dialog") ?? document.body,
         )}
-      {pinned && (
-        <TableDialog
-          title={name}
-          label={`Card details for ${name}`}
-          closeLabel="Close card details"
-          className="pt-reading-dialog"
-          onClose={() => setPinned(false)}
-        >
-          {reading}
-        </TableDialog>
-      )}
     </>
   );
 }
 
-export function InspectButton({
-  name,
-  onClick,
-}: {
-  name: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="pt-inspect-button"
-      aria-label={`Inspect ${name}`}
-      onClick={onClick}
-    >
-      <ScanEye size={15} aria-hidden />
-    </button>
-  );
-}
-
 export function StackCardName({
-  name,
   label,
   reading,
 }: {
-  name: string;
   label: string;
   reading: ReactNode;
 }) {
   return (
-    <PreviewAnchor name={name} reading={reading} className="pt-stack-card-name">
-      {(inspect) => (
-        <strong>
-          <button
-            type="button"
-            aria-label={`Inspect ${name}`}
-            onClick={inspect}
-          >
-            {label}
-          </button>
-        </strong>
-      )}
+    <PreviewAnchor reading={reading} className="pt-stack-card-name">
+      <strong tabIndex={0}>{label}</strong>
     </PreviewAnchor>
   );
 }

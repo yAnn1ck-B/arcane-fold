@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useId, useRef, useState, type Ref } from "react";
 import {
   Droplet,
   ImageOff,
@@ -39,6 +39,59 @@ type Artwork = {
 type ArtCache = Map<string, Promise<Artwork | undefined>>;
 const pileNames = { graveyard: "Graveyard", exile: "Exile" } as const;
 type Pile = { seat: ForgeSeat; zone: keyof typeof pileNames };
+
+function AbilityLabel({ label }: { label: string }) {
+  const separator = label.indexOf(":");
+  if (separator < 1) return <span>{label}</span>;
+  return (
+    <>
+      <strong>{label.slice(0, separator)}</strong>
+      <span>{label.slice(separator + 1).trim()}</span>
+    </>
+  );
+}
+
+function TypeChoice({
+  choices,
+  locked,
+  choose,
+}: {
+  choices: ForgeChoice[];
+  locked: boolean;
+  choose: (choice: ForgeChoice) => void;
+}) {
+  const list = useId();
+  const [value, setValue] = useState("");
+  const query = value.trim().toLowerCase();
+  const selected = choices.find((choice) => choice.label.toLowerCase() === query);
+  return (
+    <form
+      className="pt-forge-options"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (selected && !locked) choose(selected);
+      }}
+    >
+      <input
+        list={list}
+        aria-label="Find a type"
+        placeholder="Find a type"
+        autoComplete="off"
+        disabled={locked}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      <datalist id={list}>
+        {choices.map((choice) => (
+          <option key={choice.id} value={choice.label} />
+        ))}
+      </datalist>
+      <Button type="submit" disabled={locked || !selected}>
+        Choose type
+      </Button>
+    </form>
+  );
+}
 
 function pileLabel(seat: ForgeSeat, viewer: ForgeSeat, zone: Pile["zone"]) {
   return `${seat === viewer ? "Your" : "Opponent's"} ${zone}`;
@@ -134,7 +187,7 @@ export default function ForgeBoard({
   replay,
   imageCacheDir,
   viewer,
-  sharedSeats,
+  handHidden,
   onSwitch,
 }: {
   state: ForgeMatch;
@@ -144,7 +197,7 @@ export default function ForgeBoard({
   replay: () => void;
   imageCacheDir: string;
   viewer: ForgeSeat;
-  sharedSeats: boolean;
+  handHidden: boolean;
   onSwitch?: () => void;
 }) {
   const [pile, setPile] = useState<Pile | null>(null);
@@ -153,8 +206,9 @@ export default function ForgeBoard({
   const [cardFilter, setCardFilter] = useState("");
   const firstButton = useRef<HTMLButtonElement>(null);
   const cache = useRef<ArtCache>(new Map());
-  const { actor, players, stack, choices, librarySearch } = state;
+  const { actor, players, stack, choices, librarySearch, sharedSeats } = state;
   const searchId = librarySearch ? choices[0]?.id : undefined;
+  const libraryOperation = librarySearch?.operation ?? "Library search";
   const showSearch = !!librarySearch && deferredSearch !== searchId;
   const filter = cardFilter.trim().toLowerCase();
   const searchCards =
@@ -181,19 +235,33 @@ export default function ForgeBoard({
   );
   const isLifeTarget = (choice: ForgeChoice) =>
     choice.kind === "target" && !!choice.seat && !choice.cardId;
+  const typeChoices = choices.filter((choice) => choice.kind === "type");
   const toolbar = librarySearch
     ? []
     : choices.filter(
         (choice) =>
+          choice.kind !== "type" &&
           !isLifeTarget(choice) &&
           (!choice.cardId || !visibleCards.has(choice.cardId)),
       );
   const menuChoices = menuCard
     ? choices.filter((choice) => choice.cardId === menuCard.id)
     : [];
+  const choosingAbility = menuChoices.some(
+    (choice) => choice.kind === "ability",
+  );
   const initialChoice = choices[0]?.id;
   const focusFor = (choice?: ForgeChoice) =>
     choice && choice.id === initialChoice ? firstButton : undefined;
+  const switchButton = (focusRef?: Ref<HTMLButtonElement>) =>
+    onSwitch && (
+      <SwitchPlayer
+        player={viewer === "player" ? 2 : 1}
+        onSwitch={onSwitch}
+        disabled={locked}
+        focusRef={focusRef}
+      />
+    );
 
   useEffect(() => {
     const button = firstButton.current;
@@ -233,6 +301,9 @@ export default function ForgeBoard({
     const name = card.faceDown ? "Face-down card" : card.name;
     const actions = choices.filter((choice) => choice.cardId === card.id);
     const move = actions[0];
+    const abilityCount = actions.filter(
+      (choice) => choice.kind === "ability",
+    ).length;
     const stats =
       card.power != null && card.toughness != null
         ? `${card.power}/${card.toughness}`
@@ -249,7 +320,7 @@ export default function ForgeBoard({
       .join(", ");
     const label =
       actions.length > 1
-        ? `Choose action for ${name}`
+        ? `Choose ${abilityCount === actions.length ? "an ability" : "action"} for ${name}`
         : (move?.label ?? description);
     return (
       <TableCard
@@ -257,6 +328,7 @@ export default function ForgeBoard({
         name={name}
         label={label}
         tapped={card.tapped}
+        opensDialog={actions.length > 1}
         reading={
           <ForgeArt
             card={card}
@@ -269,6 +341,8 @@ export default function ForgeBoard({
           <>
             {combat && <span>{combat}</span>}
             {stats && <span>{stats}</span>}
+            {card.chosenType && <span>Chosen type · {card.chosenType}</span>}
+            {abilityCount > 1 && <span>{abilityCount} abilities</span>}
           </>
         }
         disabled={locked}
@@ -391,37 +465,45 @@ export default function ForgeBoard({
             </span>
           </div>
           <div className="pt-forge-prompt">
-            {!onSwitch && (
-              <strong>
-                {sharedSeats
-                  ? `Player ${actor === "player" ? 1 : 2}`
-                  : actor === "opponent"
-                    ? "Opponent"
-                    : "You"}
-              </strong>
-            )}
+            {state.stage === "decision" &&
+              !handHidden &&
+              (!sharedSeats || viewer === actor) && (
+                <strong>
+                  {sharedSeats
+                    ? `Player ${actor === "player" ? 1 : 2} to act`
+                    : actor === "opponent"
+                      ? "Opponent"
+                      : "You"}
+                </strong>
+              )}
             <span role="status">{state.prompt}</span>
             {!!state.revealedToYou?.length && (
               <small>Revealed to you: {state.revealedToYou.join(", ")}</small>
             )}
           </div>
           <div className="pt-forge-options">
-            {onSwitch && (
-              <SwitchPlayer
-                autoFocus
-                player={actor === "player" ? 1 : 2}
-                onSwitch={onSwitch}
-              />
+            {switchButton(
+              !choices.length && state.stage === "decision"
+                ? firstButton
+                : undefined,
             )}
             {librarySearch && !showSearch && (
               <Button
                 variant="outline"
                 onClick={() => setDeferredSearch(undefined)}
               >
-                View library search
+                View {libraryOperation.toLowerCase()}
               </Button>
             )}
             {toolbar.map((choice) => option(choice, focusFor(choice)))}
+            {typeChoices.length > 0 && (
+              <TypeChoice
+                key={typeChoices[0].id}
+                choices={typeChoices}
+                locked={locked}
+                choose={choose}
+              />
+            )}
             {state.stage === "finished" && (
               <Button
                 ref={firstButton}
@@ -440,7 +522,7 @@ export default function ForgeBoard({
       handLabel={handLabel}
       handCount={players[handSeat].handCount}
       hand={
-        onSwitch
+        handHidden
           ? [
               <span key="hidden" className="pt-empty">
                 Hand hidden during seat change
@@ -464,7 +546,6 @@ export default function ForgeBoard({
                       </div>
                     )}
                     <StackCardName
-                      name={card.name}
                       label={card.name}
                       reading={
                         <ForgeArt
@@ -488,17 +569,38 @@ export default function ForgeBoard({
     >
       {menuCard && menuChoices.length > 0 && (
         <TableDialog
-          title={`Actions for ${menuCard.name}`}
+          title={choosingAbility ? "Choose an ability" : `Actions for ${menuCard.name}`}
+          subtitle={choosingAbility ? menuCard.name : undefined}
+          closeLabel={choosingAbility ? "Cancel ability selection" : "Close"}
+          headerAction={switchButton()}
           onClose={() => setMenuCard(null)}
         >
-          <div className="pt-forge-options">
-            {menuChoices.map((choice) => option(choice))}
-          </div>
+          {choosingAbility ? (
+            <div className="pt-ability-options">
+              {menuChoices.map((choice) => (
+                <button
+                  type="button"
+                  key={choice.id}
+                  disabled={locked}
+                  className="pt-ability-option"
+                  aria-label={choice.label}
+                  onClick={() => choose(choice)}
+                >
+                  <AbilityLabel label={choice.label} />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="pt-forge-options">
+              {menuChoices.map((choice) => option(choice))}
+            </div>
+          )}
         </TableDialog>
       )}
       {pile && (
         <TableDialog
           title={pileNames[pile.zone]}
+          headerAction={switchButton()}
           label={pileLabel(pile.seat, viewer, pile.zone)}
           subtitle={`${pile.seat === "player" ? "Player 1" : "Player 2"} · ${pileCards.length} ${pileCards.length === 1 ? "card" : "cards"}`}
           closeLabel="Close zone"
@@ -514,14 +616,15 @@ export default function ForgeBoard({
       {librarySearch && showSearch && (
         <TableDialog
           title={librarySearch.title}
-          label="Library search"
-          closeLabel="Close library search"
+          headerAction={switchButton()}
+          label={libraryOperation}
+          closeLabel={`Close ${libraryOperation.toLowerCase()}`}
           onClose={() => setDeferredSearch(searchId)}
         >
           {state.prompt !== librarySearch.title && (
             <p className="pt-search-prompt">{state.prompt}</p>
           )}
-          {librarySearch.cards.length > 0 && (
+          {libraryOperation === "Library search" && librarySearch.cards.length > 0 && (
             <label className="pt-query">
               <Search size={16} />
               <input

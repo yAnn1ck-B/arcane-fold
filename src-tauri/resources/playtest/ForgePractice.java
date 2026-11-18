@@ -5,19 +5,22 @@ final class ForgePractice {
     final Player opponent;
     private final Game game;
     private final PhaseHandler phases;
+    private final PracticeHistory history;
     private final Path scratch;
     private final BufferedReader input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
     private final PracticeLibrary library = new PracticeLibrary(this);
+    private CardCollectionView revealedHand;
     private int decision;
     private final boolean secondDeck;
+    private final boolean sharedSeats;
 
     ForgePractice(String mode, Path scratch) {
         this.mode = mode;
         this.scratch = scratch;
         secondDeck = mode.equals("deck") && Files.isRegularFile(scratch.resolve("opponent.dck"));
-        boolean hotseat = secondDeck || mode.equals("growth");
+        sharedSeats = secondDeck || !mode.equals("deck");
         game = new Match(new GameRules(GameType.Constructed),
-                List.of(seat(hotseat ? "Player 1" : "Player"), seat(hotseat ? "Player 2" : "Opponent")),
+                List.of(seat(sharedSeats ? "Player 1" : "Player"), seat(sharedSeats ? "Player 2" : "Opponent")),
                 "Forge practice").createGame();
         player = game.getPlayers().get(0);
         opponent = game.getPlayers().get(1);
@@ -29,6 +32,7 @@ final class ForgePractice {
             p.setMaxHandSize(7);
             p.setStartingHandSize(7);
         }
+        history = new PracticeHistory(game);
     }
 
     private RegisteredPlayer seat(String name) {
@@ -51,8 +55,7 @@ final class ForgePractice {
     }
 
     boolean human(Player p) {
-        return p == player || secondDeck || mode.equals("combat") || mode.equals("growth")
-                || mode.equals("response") || mode.equals("library");
+        return p == player || sharedSeats;
     }
 
     private void loadLibrary(Player owner, Path file) throws IOException {
@@ -162,7 +165,11 @@ final class ForgePractice {
             String selected = input.readLine();
             if (selected == null) throw new EndInput();
             for (int i = 0; i < choices.size(); i++) {
-                if (choiceId(i).equals(selected)) return choices.get(i);
+                if (choiceId(i).equals(selected)) {
+                    Choice choice = choices.get(i);
+                    if (choice.kind().equals("pass")) history.pass(actor);
+                    return choice;
+                }
             }
             throw new IllegalArgumentException("This choice is no longer available.");
         } catch (IOException ex) {
@@ -216,6 +223,7 @@ final class ForgePractice {
         } else {
             out.put("oracleText", card.getOracleText().replace("\\n", "\n"));
             out.put("typeLine", card.getType().toString());
+            if (card.isInZone(ZoneType.Battlefield) && card.hasChosenType()) out.put("chosenType", card.getChosenType());
             if (!card.getManaCost().isNoCost()) out.put("manaCost", card.getManaCost().toString());
             out.put("setCode", card.getSetCode());
             if (card.getPaperCard() != null) out.put("collectorNumber", card.getPaperCard().getCollectorNumber());
@@ -287,13 +295,22 @@ final class ForgePractice {
         Map<String, Object> state = new LinkedHashMap<>(Map.of("stage", finished ? "finished" : "decision", "prompt", prompt,
                 "actor", seatId(actor), "active", seatId(phases.getPlayerTurn()), "turn", phases.getTurn(),
                 "phase", phaseName(phases.getPhase()), "step", stepName(phases.getPhase()),
-                "players", Map.of("player", board(player, actor == player), "opponent", board(opponent, actor == opponent)),
+                "players", Map.of("player", board(player, true), "opponent", board(opponent, sharedSeats)),
                 "stack", stack, "choices", options));
+        // Rust retains this snapshot and projects only the selected seat into the WebView.
+        state.put("sharedSeats", sharedSeats);
+        if (finished) history.add(prompt);
+        state.put("history", history.entries);
         if (library.candidates() != null) {
-            state.put("librarySearch", Map.of("title", prompt, "cards", library.candidates().stream().map(this::cardState).toList()));
+            state.put("librarySearch", Map.of("title", prompt, "operation", library.operation(),
+                    "cards", library.candidates().stream().map(this::cardState).toList()));
+        } else if (revealedHand != null) {
+            state.put("librarySearch", Map.of("title", prompt, "operation", "Revealed hand",
+                    "cards", revealedHand.stream().map(this::cardState).toList()));
         }
         List<String> revealed = library.takeReveal(actor);
         if (revealed != null) state.put("revealedToYou", revealed);
+        state.put("replayState", PracticeReplay.fingerprint(player, opponent));
         var json = new StringWriter();
         new JsonObjectWriter(json, 12).value(NoOpLogger.getInstance(), state);
         System.out.println("BOLT_STATE " + json);
@@ -364,6 +381,7 @@ final class ForgePractice {
     private final class Controller extends PlayerControllerAi {
         private final Player seat;
         private Boolean keepAfterRedraw;
+        private SpellAbility manualMana;
 
         Controller(Game match, Player seat, LobbyPlayerAi lobby) {
             super(match, seat, lobby);
@@ -382,7 +400,9 @@ final class ForgePractice {
             if (bottom >= seat.getMaxHandSize()) return true;
             var redraw = choice("Mulligan", "option", null, null, null);
             String prompt = bottom == 0 ? "Keep your opening hand?" : "Keep this hand and put " + bottom + " on the bottom?";
-            return ask(seat, prompt, List.of(keep, redraw)) == keep;
+            boolean kept = ask(seat, prompt, List.of(keep, redraw)) == keep;
+            if (kept) history.add(seat.getName() + " kept their hand.");
+            return kept;
         }
 
         @Override
@@ -408,14 +428,47 @@ final class ForgePractice {
             return pickCards(seat.getCardsIn(ZoneType.Hand), count, "Discard", "Discard to your maximum hand size");
         }
 
-        private CardCollectionView pickCards(CardCollectionView available, int count, String verb, String prompt) {
+        @Override
+        public CardCollection chooseCardsToDiscardFrom(Player owner, SpellAbility effect, CardCollection eligible,
+                int min, int max, CardCollectionView shown) {
+            if (!human(seat)) return super.chooseCardsToDiscardFrom(owner, effect, eligible, min, max, shown);
+            if (seat == owner && min >= eligible.size()) return new CardCollection(eligible);
+            // Forge supplies the cards this chooser may see separately from those they may select.
+            revealedHand = seat == owner ? null : shown;
+            try {
+                return pickCards(eligible, min, max, "Discard", effect.getHostCard().getName()
+                        + " — Choose from " + owner.getName() + "'s hand");
+            } finally {
+                revealedHand = null;
+            }
+        }
+
+        @Override
+        public CardCollectionView choosePermanentsToSacrifice(SpellAbility effect, int min, int max,
+                CardCollectionView eligible, String type) {
+            if (!human(seat)) return super.choosePermanentsToSacrifice(effect, min, max, eligible, type);
+            if (min >= eligible.size()) return new CardCollection(eligible);
+            return pickCards(eligible, min, max, "Sacrifice",
+                    effect.getHostCard().getName() + " — Choose permanents to sacrifice");
+        }
+
+        private CardCollection pickCards(CardCollectionView available, int count, String verb, String prompt) {
+            return pickCards(available, count, count, verb, prompt);
+        }
+
+        private CardCollection pickCards(CardCollectionView available, int min, int max, String verb, String prompt) {
             var picked = new CardCollection();
-            while (picked.size() < count) {
+            int limit = Math.min(max, available.size());
+            while (picked.size() < limit) {
                 List<Choice> choices = new ArrayList<>();
                 for (Card c : available) {
-                    if (!picked.contains(c)) choices.add(choice(verb + " " + c.getName(), "card", c, null, () -> picked.add(c)));
+                    if (!picked.contains(c)) choices.add(choice(verb + " " + publicName(c), "card", c, null, () -> picked.add(c)));
                 }
-                ask(seat, prompt + " (" + (picked.size() + 1) + " of " + count + ")", choices).run();
+                var done = choice("Finish selection", "option", null, null, null);
+                if (picked.size() >= min) choices.add(done);
+                var selected = ask(seat, prompt + " (" + (picked.size() + 1) + " of " + limit + ")", choices);
+                if (selected == done) break;
+                selected.run();
             }
             return picked;
         }
@@ -453,15 +506,34 @@ final class ForgePractice {
             if (!responseExercise) {
                 for (Card card : seat.getCardsIn(ZoneType.Battlefield)) {
                     for (SpellAbility ability : card.getNonManaAbilities()) {
-                        if (ability.isActivatedAbility()) {
-                            String label = ability.getDescription().replace("CARDNAME", card.getName());
-                            // Forge tracks activation limits against this printed ability.
-                            addPlay(card, ability, label, choices, plays);
+                        if (ability.isActivatedAbility()) addActivation(card, ability, choices, plays);
+                    }
+                }
+                for (Card card : seat.getCardsIn(ZoneType.Graveyard)) {
+                    // Forge enumerates alternative costs and checks permission to play from this zone.
+                    for (SpellAbility ability : card.getAllPossibleAbilities(seat, true)) {
+                        if (ability.isSpell()) {
+                            String label = (ability.isFlashback() ? "Flashback " : "Cast ") + publicName(card)
+                                    + " from graveyard (" + ability.getPayCosts().toSimpleString() + ")";
+                            addPlay(card, ability.copy(), label, choices, plays);
+                        } else if (ability.isActivatedAbility() && !ability.isManaAbility() && !ability.isLandAbility()) {
+                            addActivation(card, ability, choices, plays);
                         }
                     }
                 }
             }
             if (choices.isEmpty()) return null;
+            if (!responseExercise) {
+                // Multi-ability sources can float mana in an existing decision window.
+                // Untapped mana sources alone never make Forge stop at each priority.
+                for (Card card : seat.getCardsIn(ZoneType.Battlefield)) {
+                    var mana = card.getManaAbilities();
+                    if (mana.isEmpty()) continue;
+                    if (mana.size() > 1 || card.getNonManaAbilities().stream().anyMatch(SpellAbility::isActivatedAbility)) {
+                        for (SpellAbility ability : mana) addActivation(card, ability, choices, plays);
+                    }
+                }
+            }
             if (!responseExercise || pending) choices.add(choice("Pass priority", "pass", null, null, null));
             Choice selected = ask(seat, "Choose a play", choices);
             return plays.containsKey(selected) ? List.of(plays.get(selected)) : null;
@@ -470,9 +542,14 @@ final class ForgePractice {
         private void addPlay(Card card, SpellAbility sa, String label, List<Choice> choices, Map<Choice, SpellAbility> plays) {
             sa.setActivatingPlayer(seat);
             if (!sa.canPlay() || !sa.isLandAbility() && (!ComputerUtilCost.canPayCost(sa, seat, false) || !hasTargets(sa, seat))) return;
-            Choice c = choice(label, "card", card, null, null);
+            Choice c = choice(label, sa.isActivatedAbility() && !sa.isLandAbility() ? "ability" : "card", card, null, null);
             choices.add(c);
             plays.put(c, sa);
+        }
+
+        private void addActivation(Card card, SpellAbility ability, List<Choice> choices, Map<Choice, SpellAbility> plays) {
+            // Activation limits and paid costs belong to this Forge ability instance.
+            addPlay(card, ability, ability.getDescription().replace("CARDNAME", publicName(card)), choices, plays);
         }
 
         @Override
@@ -489,10 +566,44 @@ final class ForgePractice {
                 }
             }
             final var play = withCosts;
-            if (!ComputerUtil.handlePlayingSpellAbility(seat, play, () -> selectTargets(play, seat))) {
-                throw new IllegalStateException("Forge could not complete the cost or choices for " + play.getHostCard().getName() + ".");
+            if (play.isManaAbility()) {
+                manualMana = play;
+                play.getManaPart().clearExpressChoice();
+            }
+            try {
+                if (!ComputerUtil.handlePlayingSpellAbility(seat, play, () -> selectTargets(play, seat))) {
+                    throw new IllegalStateException("Forge could not complete the cost or choices for " + play.getHostCard().getName() + ".");
+                }
+            } finally {
+                manualMana = null;
             }
             return true;
+        }
+
+        @Override
+        public byte chooseColor(String prompt, SpellAbility ability, forge.card.ColorSet colors) {
+            if (manualMana == null || ability != manualMana || colors.countColors() <= 1) {
+                return super.chooseColor(prompt, ability, colors);
+            }
+            List<Choice> options = new ArrayList<>();
+            List<Byte> masks = new ArrayList<>();
+            for (var color : colors) {
+                options.add(choice(color.getName(), "option", null, null, null));
+                masks.add(color.getColorMask());
+            }
+            return masks.get(options.indexOf(ask(seat, prompt, options)));
+        }
+
+        @Override
+        public String chooseSomeType(String type, SpellAbility ability, java.util.Collection<String> valid, boolean optional) {
+            if (!human(seat) || valid.isEmpty()) return super.chooseSomeType(type, ability, valid, optional);
+            List<Choice> options = new ArrayList<>();
+            valid.stream().sorted().forEach(name -> options.add(choice(name, "type", null, null, null)));
+            Choice skip = choice("Skip", "option", null, null, null);
+            if (optional) options.add(skip);
+            String prompt = "Choose a " + type.toLowerCase(java.util.Locale.ROOT) + " type";
+            Choice selected = ask(seat, ability == null ? prompt : prompt + " for " + publicName(ability.getHostCard()), options);
+            return selected == skip ? null : selected.label();
         }
 
         @Override
@@ -502,6 +613,7 @@ final class ForgePractice {
                 return super.chooseSingleCardForZoneChange(destination, origins, effect, options, delayedReveal, title, optional, decider);
             }
             if (delayedReveal != null) reveal(delayedReveal);
+            history.add(seat.getName() + " searched a library.");
             return library.choose(seat, effect, options, title, optional);
         }
 
@@ -512,6 +624,7 @@ final class ForgePractice {
                 return super.chooseCardsForZoneChange(destination, origins, effect, options, min, max, delayedReveal, title, decider);
             }
             if (delayedReveal != null) reveal(delayedReveal);
+            history.add(seat.getName() + " searched a library.");
             return library.chooseMany(seat, effect, options, min, max, title);
         }
 
@@ -526,6 +639,16 @@ final class ForgePractice {
             super.reveal(cards, zone, owner, message, revealDialog);
             // Forge calls this on the actual recipients. Its private search preview uses DelayedReveal instead.
             if (owner != seat) library.revealTo(seat, cards);
+        }
+
+        @Override
+        public org.apache.commons.lang3.tuple.ImmutablePair<CardCollection, CardCollection> arrangeForScry(CardCollection cards) {
+            return human(seat) ? library.arrange(seat, cards, false) : super.arrangeForScry(cards);
+        }
+
+        @Override
+        public org.apache.commons.lang3.tuple.ImmutablePair<CardCollection, CardCollection> arrangeForSurveil(CardCollection cards) {
+            return human(seat) ? library.arrange(seat, cards, true) : super.arrangeForSurveil(cards);
         }
 
         @Override
