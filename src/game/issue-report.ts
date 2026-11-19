@@ -26,6 +26,7 @@ export interface GameIssueReport extends IssuePosition {
   engineVersion: string;
   expectedBehavior: string;
   visibleControls: IssueAction[];
+  visibleControlsTruncated?: boolean;
   visibleDialog?: string;
 }
 

@@ -24,7 +24,9 @@ async fn store(pool: &SqlitePool, report: &Value) -> Result<(), String> {
         || !matches!(text("viewer")?, "player" | "opponent")
         || !report["history"].is_array()
         || !report["actions"].is_array()
-        || !report["expectedBehavior"].as_str().is_some_and(|s| s.chars().count() <= 1000)
+        || !report["expectedBehavior"]
+            .as_str()
+            .is_some_and(|s| s.chars().count() <= 1000)
     {
         return Err("The game issue report could not be read.".into());
     }
@@ -57,7 +59,9 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
             sqlx::raw_sql(include_str!("../migrations/009_game_issue_reports.sql"))
-                .execute(&pool).await.unwrap();
+                .execute(&pool)
+                .await
+                .unwrap();
             let mut report = json!({
                 "id":"report", "matchId":"match", "capturedAt":"2026-11-19T00:00:00Z",
                 "schemaVersion":1, "mode":"forge", "viewer":"opponent", "revision":8,
@@ -69,8 +73,11 @@ mod tests {
             let original = report.clone();
             report["history"] = json!([]);
             assert!(store(&pool, &report).await.is_err());
-            let rows: Vec<String> = sqlx::query_scalar("SELECT report_json FROM game_issue_reports")
-                .fetch_all(&pool).await.unwrap();
+            let rows: Vec<String> =
+                sqlx::query_scalar("SELECT report_json FROM game_issue_reports")
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
             assert_eq!(rows, vec![original.to_string()]);
         });
     }

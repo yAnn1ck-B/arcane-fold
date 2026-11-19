@@ -15,15 +15,20 @@ async function saveDesktopReport(report: GameIssueReport) {
   await invoke("save_game_issue", { report });
 }
 
-function visibleControls(container: Element | null): IssueAction[] {
-  if (!container) return [];
-  const controls = container.querySelectorAll<HTMLElement>("button, [role=button], input, select, summary");
-  return Array.from(controls).flatMap((control) => {
-    if (!control.getClientRects().length) return [];
+function visibleControls(container: Element | null) {
+  const items: IssueAction[] = [];
+  let truncated = false;
+  const controls = container?.querySelectorAll<HTMLElement>("button, [role=button], input, select, summary") ?? [];
+  for (const control of controls) {
+    if (!control.getClientRects().length) continue;
     const label = control.getAttribute("aria-label") ?? control.getAttribute("data-hint")
       ?? control.innerText.trim();
-    return label && label !== "Report game issue" ? [{ label, disabled: control.matches(":disabled, [aria-disabled=true]") }] : [];
-  });
+    if (!label || label === "Report game issue") continue;
+    if (items.length === 256) { truncated = true; break; }
+    truncated ||= label.length > 512;
+    items.push({label: label.slice(0,512), disabled: control.matches(":disabled, [aria-disabled=true]")});
+  }
+  return { items, truncated };
 }
 
 export function GameIssueReporting({ capture, submit = saveDesktopReport, children }: ReportingProps & { children: ReactNode }) {
@@ -32,13 +37,18 @@ export function GameIssueReporting({ capture, submit = saveDesktopReport, childr
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
   const [saved, setSaved] = useState(false);
+  const submission = useRef<GameIssueReport | null>(null);
   const pending = useRef(false);
 
   function open(button: HTMLButtonElement) {
     const dialog = button.closest("dialog");
     const container = dialog ?? button.closest(".pt-table, .game-page") ?? button.parentElement;
     const label = dialog?.getAttribute("aria-label") ?? dialog?.querySelector("h2")?.textContent ?? undefined;
-    setDraft(freezeGameIssue(capture(), version, visibleControls(container), label));
+    const controls = visibleControls(container);
+    const report = freezeGameIssue(capture(), version, controls.items, label);
+    report.visibleControlsTruncated = controls.truncated;
+    setDraft(report);
+    submission.current = null;
     setNote("");
     setError("");
     setSaved(false);
@@ -50,7 +60,8 @@ export function GameIssueReporting({ capture, submit = saveDesktopReport, childr
     setWorking(true);
     setError("");
     try {
-      await submit({ ...draft, expectedBehavior: note.trim() });
+      submission.current ??= { ...draft, expectedBehavior: note.trim() };
+      await submit(submission.current);
       setSaved(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -71,10 +82,10 @@ export function GameIssueReporting({ capture, submit = saveDesktopReport, childr
         </> : <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <p>Your current view, available actions and public game history will be included.</p>
           <label className="pt-issue-note">What did you expect to happen? (optional)
-            <textarea rows={3} maxLength={1000} value={note} disabled={working} onChange={(event) => setNote(event.target.value)} />
+            <textarea rows={3} maxLength={1000} value={note} disabled={working || submission.current !== null} onChange={(event) => setNote(event.target.value)} />
           </label>
           {error && <p role="alert" className="notice notice-error">{error}</p>}
-          <div className="pt-launch"><button type="submit" className="pt-btn pt-primary" disabled={working}>{working ? "Saving…" : "Save report"}</button></div>
+          <div className="pt-launch"><button type="submit" className="pt-btn pt-primary" disabled={working}>{working ? "Saving…" : error ? "Retry save" : "Save report"}</button></div>
         </form>}
       </TableDialog>, document.body)}
   </IssueCaptureContext.Provider>;
