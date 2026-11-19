@@ -29,7 +29,7 @@ import "./controls.css";
 
 export interface MatchTools {
   history: HistoryEntry[];
-  onUndo: () => void;
+  onUndo?: () => void;
   undoDisabled: boolean;
   onLeave: () => void;
   leaveLabel: string;
@@ -229,16 +229,18 @@ export function TableBoard({
           >
             <ScrollText size={16} aria-hidden />
           </button>
-          <button
-            type="button"
-            className="pt-tool"
-            aria-label="Undo"
-            data-hint="Undo"
-            disabled={matchTools.undoDisabled}
-            onClick={matchTools.onUndo}
-          >
-            <Undo2 size={16} aria-hidden />
-          </button>
+          {matchTools.onUndo && (
+            <button
+              type="button"
+              className="pt-tool"
+              aria-label="Undo"
+              data-hint="Undo"
+              disabled={matchTools.undoDisabled}
+              onClick={matchTools.onUndo}
+            >
+              <Undo2 size={16} aria-hidden />
+            </button>
+          )}
           {switchPlayer}
           {matchTools.manualSwitch}
           <GameIssueButton />

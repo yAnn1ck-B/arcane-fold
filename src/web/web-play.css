@@ -1,0 +1,66 @@
+.web-play {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  min-width: 0;
+}
+.web-setup, .web-rooms {
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+  max-width: 54rem;
+}
+.web-setup {
+  display: grid;
+  justify-items: start;
+  gap: 1.1rem;
+}
+.web-setup h2, .web-rooms h2, .web-back {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+}
+.web-setup h2, .web-rooms h2 {
+  font-family: Georgia, serif;
+  font-size: clamp(1.25rem, 2vw, 1.6rem);
+}
+.web-setup p, .web-rooms li span, .web-invite span {
+  color: var(--muted);
+}
+.web-field {
+  display: grid;
+  gap: .35rem;
+  font-size: .9rem;
+  font-weight: 600;
+  max-width: 100%;
+}
+.web-field input, .web-field select {
+  font: inherit;
+  font-weight: 400;
+  border: 1px solid var(--border);
+  border-radius: .4rem;
+  background: var(--background);
+  color: var(--foreground);
+  padding: .5rem .7rem;
+  min-height: 2.5rem;
+  width: min(100%, 24rem);
+}
+.web-ways, .web-join, .web-invite {
+  display: flex;
+  gap: .75rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.web-ways { gap: 1.5rem; }
+.web-join { border-inline-start: 1px solid var(--border); padding-inline-start: 1.5rem; }
+.web-join input { width: 12rem; }
+.web-invite { align-items: center; gap: 1.25rem; }
+.web-invite span, .web-invite code, .web-rooms li span { display: block; }
+.web-invite code { font-size: 1.5rem; letter-spacing: .08em; overflow-wrap: anywhere; }
+.web-rooms ul { padding: 0; margin: 1rem 0 0; list-style: none; }
+.web-rooms li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .8rem 0; }
+.web-rooms li + li { border-top: 1px solid var(--border); }
+.web-back { justify-self: start; color: var(--tone-secondary); }
+@media (max-width: 650px) {
+  .web-ways { align-items: flex-start; flex-direction: column; }
+  .web-join { padding-inline-start: 0; border: 0; }
+  .web-rooms li { flex-wrap: wrap; }
+}

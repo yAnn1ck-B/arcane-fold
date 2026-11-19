@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { listDecks } from "@/services/decks";
+import { syncsToForge } from "@/services/league-transport";
 import CardImage from "@/components/CardImage";
 import { getBannerMoxes, listSets, resolveCardImage } from "@/services/cards";
 import "@/styles/dashboard-art.css";
@@ -142,7 +143,7 @@ export default function Dashboard({
           </h2>
           <p>
             {catalogCount
-              ? "Find your cards, shape your deck, and take it to Forge."
+              ? (syncsToForge ? "Find your cards, shape your deck, and take it to Forge." : "Open packs, build a deck, and play with a friend.")
               : "Your card catalog is being prepared automatically."}
           </p>
           <div className="hero-actions">

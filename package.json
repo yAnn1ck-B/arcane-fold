@@ -4,6 +4,12 @@
   "version": "0.4.0",
   "type": "module",
   "scripts": {
+    "start": "npm run web:start",
+    "web:build": "tsc -b && vite build --config vite.web.config.ts",
+    "web:start": "node --env-file-if-exists=.env.web web/server.mjs",
+    "web:db": "node --env-file-if-exists=.env.web web/setup-db.mjs",
+    "web:catalog": "node --env-file-if-exists=.env.web web/catalog.mjs",
+    "web:test": "node --env-file-if-exists=.env.web --test web",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
@@ -32,6 +38,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
+    "pg": "^8.23.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwind-merge": "^3.3.1"

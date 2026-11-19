@@ -1,5 +1,45 @@
 # Eternal League
 
+## Browser edition
+
+The `experiment/web-multiplayer` branch runs the league in a browser. A Node.js server owns the matches and runs Forge Desktop 2.0.13 with JDK 17. PostgreSQL holds each browser profile’s collection, deck lists, rewards, rooms, game history and issue reports.
+
+**Play locally.** Open [Eternal League](http://127.0.0.1:4317/?page=play), choose a saved deck or one of the two Foundations practice decks, then select **Create table**. Open the invitation in another browser profile or private window and select **Join table**. Each player sees their own hand and makes their own decisions. Each browser can reload the table or return to it from **Your tables**. Keep the session cookie to retain access to that player’s league. Closing a private window may discard its identity.
+
+**Report a play.** Use **Report game issue** on the table or in a decision dialog. The report captures the position you were looking at when you clicked. You may add one sentence about the expected play. PostgreSQL retains the reporting seat’s view, legal choices, controls, public history, match ID and revision. For investigation, join `web_reports` to `web_rooms` by room ID for the saved decks, seed and verified action history. These records are available to the database operator.
+
+To investigate recent reports, run this query in the web database. The replay cursor identifies the move and priority settings in the saved match journal.
+
+```sql
+SELECT r.id, r.created_at, r.details, r.room_id, r.revision, r.seat,
+       r.snapshot, p.replay_cursor
+FROM web_reports AS r
+JOIN web_positions AS p USING (room_id, revision)
+ORDER BY r.created_at DESC
+LIMIT 20;
+```
+
+### Run the web server
+
+Install Node.js 20.19+, PostgreSQL, Forge Desktop 2.0.13 and JDK 17, and put `java` on PATH. In PowerShell, from the repository root:
+
+```powershell
+npm ci
+$env:FORGE_INSTALL = 'C:\path\to\Forge 2.0.13'
+npm run web:db -- --local
+npm run web:catalog
+npm run web:build
+npm start
+```
+
+The local setup uses the PostgreSQL 18 tools under Program Files on Windows or PostgreSQL tools on PATH on Linux. Set `PG_BINDIR` for another installation. It creates a dedicated password-protected cluster on loopback port 55432 and database `eternal_league_web`. Run the same database command after restarting the computer. Keep `.web-data` and the ignored `.env.web` with your database backups. To use an existing PostgreSQL database instead, configure `DATABASE_URL` in `.env.web` and run `npm run web:db`. With a PostgreSQL administrator login configured through the PG environment variables, the same command can create the named database first.
+
+The web server binds to `127.0.0.1:4317` by default. Two browser profiles on this computer can play together. An operator serving other devices can configure `WEB_HOST`, `WEB_PORT` and the exact `WEB_ORIGIN` and put the service behind HTTPS. Forge and the database stay on the host. Web profiles begin with the standard shared-calendar entitlements.
+
+`web:catalog` loads Scryfall metadata for the installed Forge editions. For an offline setup, pass `--jsonl <scryfall-records.jsonl>` or `--sqlite <desktop-catalog-snapshot.db>` after `npm run web:catalog --`. The SQLite reader imports only public card metadata. Set `WEB_CARD_IMAGE_CACHE` to a desktop `card-images` directory to reuse its artwork read-only.
+
+## Desktop edition
+
 A desktop companion to MTG Forge. Eternal League manages your permanent collection, decks, booster packs, and wildcards. Forge provides rules-enforced games and computer opponents. Progress stays on your device.
 
 Download [Eternal League 0.4.0](https://github.com/yAnn1ck-B/eternal-league/releases/tag/v0.4.0) for Windows or Linux. Published on 18 November 2026, it adds Discovery wildcards for first copies, restricts ordinary wildcards to owned-card copies, alternates mythic and Discovery rewards, and matches crafting controls to wildcard colors. Existing earned/spent progress is preserved, with missing Discovery entitlements credited once. Both signed installers and the public update endpoint passed cryptographic verification. See [release evidence](docs/phase-5-release.md#current-release-040).

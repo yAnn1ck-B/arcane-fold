@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useRef, useState, type Ref } from "react";
+import { createContext, Fragment, useContext, useEffect, useId, useRef, useState, type Ref } from "react";
 import {
   CircleHelp,
   ImageOff,
@@ -42,6 +42,8 @@ type Artwork = {
   oracleText: string;
   imageUri: string | null;
 };
+export const ForgeImageSource = createContext<((card: ForgeCard) => string) | undefined>(undefined);
+
 type ArtCache = Map<string, Promise<Artwork | undefined>>;
 const pileNames = { graveyard: "Graveyard", exile: "Exile", library: "Top of library" } as const;
 type Pile = { seat: ForgeSeat; zone: keyof typeof pileNames };
@@ -157,8 +159,10 @@ function ForgeArt({
 }) {
   const { name, setCode = "", collectorNumber = "" } = card;
   const [art, setArt] = useState<Artwork>();
+  const imageSource = useContext(ForgeImageSource);
+  const [failedImage, setFailedImage] = useState<string>();
   useEffect(() => {
-    if (card.faceDown) return;
+    if (card.faceDown || imageSource) return;
     const key = JSON.stringify([name, setCode, collectorNumber]);
     let request = cache.get(key);
     if (!request) {
@@ -187,7 +191,7 @@ function ForgeArt({
     return () => {
       active = false;
     };
-  }, [cache, name, setCode, collectorNumber, card.faceDown]);
+  }, [cache, name, setCode, collectorNumber, card.faceDown, imageSource]);
   if (card.faceDown) {
     const back = (
       <div className="pt-card-back">
@@ -196,7 +200,12 @@ function ForgeArt({
     );
     return inspect ? <CardReading name="Face-down card" art={back} /> : back;
   }
-  const image = art?.imageUri ? (
+  const url = imageSource?.(card);
+  const image = url && url !== failedImage ? (
+    <div className="card-image">
+      <img src={url} alt={name} loading="lazy" onError={() => setFailedImage(url)} />
+    </div>
+  ) : art?.imageUri ? (
     <CardImage card={art} imageCacheDir={imageCacheDir} />
   ) : (
     <div className="card-image">
@@ -631,9 +640,7 @@ export default function ForgeBoard({
                 <small>
                   {sharedSeats
                     ? `Player ${state.active === "player" ? 1 : 2}'s turn`
-                    : state.active === "opponent"
-                      ? "Opponent's turn"
-                      : "Your turn"}
+                    : state.active === viewer ? "Your turn" : "Opponent's turn"}
                 </small>
               )}
             </span>
@@ -646,9 +653,7 @@ export default function ForgeBoard({
                   <strong>
                     {sharedSeats
                       ? `Player ${actor === "player" ? 1 : 2} to act`
-                      : actor === "opponent"
-                        ? "Opponent"
-                        : "You"}
+                      : actor === viewer ? "You" : "Opponent"}
                   </strong>
                 )}
               <span role="status">{state.prompt}</span>

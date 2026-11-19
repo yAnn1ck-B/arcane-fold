@@ -4,6 +4,8 @@ This plan reflects the current product direction. The canonical shared rules are
 
 ## 1. Overview
 
+On `experiment/web-multiplayer`, the browser edition keeps the same league rules with PostgreSQL persistence. Two independent browser profiles can join a table by invitation and play from private seats. A host-side Forge process enforces the rules. The desktop edition and its played profiles remain separate. [Web setup and issue reports](README.md#browser-edition)
+
 Build a Windows desktop application that works alongside **MTG Forge**.
 
 The application manages a permanent Magic: The Gathering card collection. Users open booster packs, collect cards, earn wildcards, craft specific cards, and build decks that can be played in Forge.

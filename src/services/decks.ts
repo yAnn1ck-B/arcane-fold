@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, syncsToForge } from "@/services/league-transport";
 import type {
   DeckDetail,
   DeckDraft,
@@ -21,6 +21,11 @@ export function saveDeckToForge(deck: DeckDraft, createRequestId?: string) {
     "save_deck_to_forge",
     { deck, createRequestId },
   );
+}
+
+export async function persistDeck(deck: DeckDraft, createRequestId?: string): Promise<DeckDetail> {
+  if (syncsToForge) return (await saveDeckToForge(deck, createRequestId)).deck;
+  return invoke("save_deck", { deck, createRequestId });
 }
 export function duplicateDeck(id: string) {
   return invoke<DeckDetail>("duplicate_deck", { id });

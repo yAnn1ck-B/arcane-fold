@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add a browser edition with PostgreSQL-backed leagues, private two-player Forge tables, resumable games and reports linked to the exact server-side position.
+
 - Report an issue from a Forge or manual game with the current seat’s position, choices, public history and an optional note about the expected play.
 
 - Arrange creatures, lands and support cards on a shared tabletop. Show game-log entries newest first and allow confirmed removal of a saved manual game.

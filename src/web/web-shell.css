@@ -1,0 +1,28 @@
+body:has(.web-shell) { min-width: 0; }
+.web-shell [hidden] { display: none; }
+.web-shell .main-content, .web-shell .page-content { min-width: 0; }
+.web-shell .page-content { max-width: 100%; }
+@media (max-width: 800px) {
+  .web-shell { display: block; }
+  .web-shell .sidebar {
+    position: static;
+    width: auto;
+    height: auto;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    padding: .75rem .75rem .4rem;
+    gap: .5rem;
+  }
+  .web-shell .brand { padding: 0; gap: .5rem; }
+  .web-shell .brand img { width: 1.8rem; height: 1.8rem; }
+  .web-shell .brand > div { display: flex; align-items: baseline; gap: .45rem; }
+  .web-shell .brand strong, .web-shell .brand span { letter-spacing: .1em; }
+  .web-shell .sidebar-divider { display: none; }
+  .web-shell .main-nav { display: flex; flex-direction: row; gap: .25rem; overflow: auto; padding-bottom: .3rem; }
+  .web-shell .nav-item { flex: none; width: auto; gap: .35rem; padding: .45rem .55rem; }
+  .web-shell .main-content { width: 100%; margin-left: 0; padding: .75rem; }
+  .web-shell .page-content { padding: 0; }
+  .web-shell .page-heading { margin: .7rem 0; }
+  .web-shell .hero { grid-template-columns: minmax(0, 1fr); }
+  .web-shell .deck-workspace { overflow-x: auto; }
+}

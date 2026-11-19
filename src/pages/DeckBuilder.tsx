@@ -52,9 +52,10 @@ import {
   deleteDeck,
   listDecks,
   loadDeck,
-  saveDeckToForge,
+  persistDeck,
   validateDeck,
 } from "@/services/decks";
+import { syncsToForge } from "@/services/league-transport";
 import type {
   AppSettings,
   CatalogCard,
@@ -361,8 +362,7 @@ export default function DeckBuilder({
   const [autosave] = useState(
     () =>
       new DeckAutosave(
-        async (snapshot, requestId) =>
-          (await saveDeckToForge(snapshot, requestId)).deck,
+        persistDeck,
         setSaveState,
         (ack) => saveEvents.current(ack),
       ),
@@ -418,6 +418,12 @@ export default function DeckBuilder({
     [id, name, entries],
   );
   const dirty = saveState.pending;
+  useEffect(() => {
+    if (syncsToForge || (!dirty && !taskBusy)) return;
+    const protectPendingSave = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", protectPendingSave);
+    return () => window.removeEventListener("beforeunload", protectPendingSave);
+  }, [dirty, taskBusy]);
   saveEvents.current = ({ deck }) => {
     if (
       taskFailure.current &&
@@ -993,18 +999,18 @@ export default function DeckBuilder({
             prompt.mode === "copy" && prompt.sourceId
               ? (await loadDeck(prompt.sourceId)).cards
               : [];
-          const result = await saveDeckToForge(
+          const saved = await persistDeck(
             draftFrom(null, nextName, cards),
             prompt.requestId,
           );
-          installDeck(result.deck);
+          installDeck(saved);
           onChange();
         }
         setNewDeckPrompt(null);
         toast(
           prompt.mode === "copy"
-            ? "Deck copied and saved to Forge."
-            : "Deck created and saved to Forge.",
+            ? (syncsToForge ? "Deck copied and saved to Forge." : "Deck copied.")
+            : (syncsToForge ? "Deck created and saved to Forge." : "Deck created."),
         );
       } catch (error) {
         const message = rememberTaskError(error);
@@ -1096,7 +1102,7 @@ export default function DeckBuilder({
         await autosave.flush();
         setRenameValue(null);
         setRenameError(null);
-        toast("Deck renamed and saved to Forge.");
+        toast(syncsToForge ? "Deck renamed and saved to Forge." : "Deck renamed.");
       } catch (error) {
         setRenameError(rememberTaskError(error));
       }
@@ -1114,7 +1120,7 @@ export default function DeckBuilder({
         deckListRequest.current++;
         setDecks((current) => current.filter((deck) => deck.id !== target.id));
         onChange();
-        toast(`Deleted "${target.name}" and its Forge file.`);
+        toast(syncsToForge ? `Deleted "${target.name}" and its Forge file.` : `Deleted "${target.name}".`);
       } catch (error) {
         autosave.resume();
         setDeleteError(rememberTaskError(error));
@@ -1210,11 +1216,11 @@ export default function DeckBuilder({
             flow.quantity,
           ),
         );
-        const result = await saveDeckToForge(
+        const saved = await persistDeck(
           next,
           next.id ? undefined : flow.request.requestId,
         );
-        if (isCurrent) installDeck(result.deck, false);
+        if (isCurrent) installDeck(saved, false);
         collectionBases.clear();
         setAddFlow(null);
         onAddRequestHandled?.(flow.request.requestId);
@@ -1224,7 +1230,7 @@ export default function DeckBuilder({
         } catch (error) {
           setNotice({
             kind: "info",
-            message: `The cards were added and saved to Forge. The deck list could not refresh: ${errorMessage(error)}`,
+            message: `The cards were added. The deck list could not refresh: ${errorMessage(error)}`,
           });
         }
       } catch (error) {
@@ -1675,7 +1681,7 @@ export default function DeckBuilder({
               </>
             ) : validation ? (
               <p className="deck-validation-ok">
-                <CheckCircle2 size={15} /> Ready for Forge.
+                <CheckCircle2 size={15} /> {syncsToForge ? "Ready for Forge." : "Ready to play."}
               </p>
             ) : (
               <p className="field-hint">
@@ -1855,8 +1861,7 @@ export default function DeckBuilder({
           onClose={closeDelete}
         >
           <p className="deck-dialog-copy">
-            Delete <strong>{deleteTarget.name}</strong>? The saved deck and its
-            managed Forge file will be removed.
+            Delete <strong>{deleteTarget.name}</strong>? {syncsToForge ? "The saved deck and its managed Forge file will be removed." : "The saved deck will be removed."}
           </p>
           {deleteError && (
             <div className="notice notice-error" role="alert">

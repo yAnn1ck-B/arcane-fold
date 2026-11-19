@@ -30,13 +30,14 @@ import type {
 
 interface SettingsProps {
   settings: AppSettings;
-  onSave: (settings: AppSettings) => Promise<void>;
+  onSave?: (settings: AppSettings) => Promise<void>;
   report: IntegrationReport | null;
   catalogCount?: number;
   leagueStatus?: LeagueStatus;
   forgeSetupRequest?: number;
   catalogSetupNeeded?: boolean;
   repairOnly?: boolean;
+  rulesOnly?: boolean;
 }
 
 type SettingsTab = "forge" | "league" | "calendar";
@@ -81,14 +82,15 @@ export default function Settings({
   forgeSetupRequest = 0,
   catalogSetupNeeded = false,
   repairOnly = false,
+  rulesOnly = false,
 }: SettingsProps) {
   const toast = useToast();
-  const [tab, setTab] = useState<SettingsTab>("forge");
+  const [tab, setTab] = useState<SettingsTab>(rulesOnly ? "league" : "forge");
+  const tabs = repairOnly ? settingsTabs.slice(0, 1) : rulesOnly ? settingsTabs.slice(1) : settingsTabs;
   function navigateTabs(
     event: KeyboardEvent<HTMLButtonElement>,
     current: SettingsTab,
   ) {
-    const tabs = repairOnly ? settingsTabs.slice(0, 1) : settingsTabs;
     const index = tabs.findIndex(({ id }) => id === current);
     const nextIndex =
       event.key === "ArrowRight"
@@ -198,7 +200,7 @@ export default function Settings({
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving) return;
+    if (saving || !onSave) return;
     setSaving(true);
     setNotice(null);
     try {
@@ -256,7 +258,7 @@ export default function Settings({
         role="tablist"
         aria-label="Settings sections"
       >
-        {(repairOnly ? settingsTabs.slice(0, 1) : settingsTabs).map(
+        {tabs.map(
           ({ id, label, Icon }) => (
             <button
               key={id}
@@ -281,7 +283,7 @@ export default function Settings({
           <span>{notice}</span>
         </div>
       )}
-      <form
+      {!rulesOnly && <form
         id="settings-panel-forge"
         role="tabpanel"
         aria-labelledby="settings-tab-forge"
@@ -348,7 +350,7 @@ export default function Settings({
             </Button>
           </div>
         </section>
-      </form>
+      </form>}
       <section
         id="settings-panel-league"
         role="tabpanel"

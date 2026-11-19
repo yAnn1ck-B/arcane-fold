@@ -33,7 +33,7 @@ interface CollectionProps {
   onChange: () => void;
   league: LeagueStatus;
   catalogCount: number;
-  onSettings: () => void;
+  onSettings?: () => void;
   onAddToDeck?: (card: CatalogCard) => void;
 }
 
@@ -231,12 +231,14 @@ export default function Collection({
           </h2>
           <p>
             {!catalogCount
-              ? "Your card catalog is being prepared automatically. Check the Forge folders in Settings if setup cannot finish."
+              ? (onSettings
+                  ? "Your card catalog is being prepared automatically. Check the Forge folders in Settings if setup cannot finish."
+                  : "The server card catalog is being prepared.")
               : query.ownedOnly && !hasActiveFilters
                 ? "Open booster packs or craft cards with wildcards to grow your collection."
                 : "Try another name or ability, color, expansion, or mana value."}
           </p>
-          {!catalogCount && (
+          {!catalogCount && onSettings && (
             <Button variant="outline" onClick={onSettings}>
               Open Settings
             </Button>
