@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState, type Ref } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type Ref } from "react";
 import {
-  Droplet,
+  CircleHelp,
   ImageOff,
   Layers,
   RotateCcw,
@@ -23,6 +23,9 @@ import { ForgeOpeningHand } from "./OpeningHandDialog";
 import { TableCard } from "./TableCards";
 import { CardReading, StackCardName } from "./CardPreview";
 import { TableDialog } from "./TableDialog";
+import { ManaPip, ManaPool, manaNames } from "./ManaPool";
+import { manaTypes } from "./types";
+import { battlefieldGroup } from "./battlefield";
 import { prioritySteps, type PriorityStop } from "./forge-match";
 import type {
   ForgeCard,
@@ -42,6 +45,15 @@ type Artwork = {
 type ArtCache = Map<string, Promise<Artwork | undefined>>;
 const pileNames = { graveyard: "Graveyard", exile: "Exile", library: "Top of library" } as const;
 type Pile = { seat: ForgeSeat; zone: keyof typeof pileNames };
+
+function priorityExplanation(stop: PriorityStop) {
+  switch (stop) {
+    case "auto": return "Forge pauses when you have a play or response, including tapping a mana source in your main phase.";
+    case "next": return "Pause once at your next opportunity on either turn. Choose a particular step to wait until that point instead. After the stop, Automatic resumes.";
+    case "full": return "Forge pauses every time you get priority, even if you can only pass, until you change this setting.";
+    default: return `Forge adds one pause at “${prioritySteps[stop]}” the next time you get priority at that step, then returns to Automatic.`;
+  }
+}
 
 function AbilityLabel({ label }: { label: string }) {
   const separator = label.indexOf(":");
@@ -240,6 +252,9 @@ export default function ForgeBoard({
   onSwitch?: () => void;
   matchTools: MatchTools;
 }) {
+  const [showPriorityHelp, setShowPriorityHelp] = useState(false);
+  const priorityId = useId();
+  const priorityHelpId = useId();
   const [pile, setPile] = useState<Pile | null>(null);
   const [menuCard, setMenuCard] = useState<ForgeCard | null>(null);
   const [deferredSearch, setDeferredSearch] = useState<string>();
@@ -292,12 +307,13 @@ export default function ForgeBoard({
   const isLifeTarget = (choice: ForgeChoice) =>
     choice.kind === "target" && !!choice.seat && !choice.cardId;
   const typeChoices = choices.filter((choice) => choice.kind === "type");
+  const manaColors = choices.filter((choice) => choice.kind === "manaColor");
   const nameChoice = choices.find((choice) => choice.kind === "name");
   const toolbar = librarySearch
     ? []
     : choices.filter(
         (choice) =>
-          choice.kind !== "type" && choice.kind !== "name" &&
+          choice.kind !== "type" && choice.kind !== "name" && choice.kind !== "manaColor" &&
           !isLifeTarget(choice) &&
           (!choice.cardId || !visibleCards.has(choice.cardId)),
       );
@@ -348,12 +364,35 @@ export default function ForgeBoard({
   }
 
   function option(choice: ForgeChoice, focusRef?: Ref<HTMLButtonElement>) {
+    if (choice.kind === "pass") {
+      const ending = state.phase === "Ending phase";
+      const endTurn = (state.priorityStop === "auto" || ending) && choice.endTurnId;
+      const lastAdvance = !!endTurn && (ending || state.phase === "Postcombat main phase");
+      const label = stack.length ? "Resolve" : state.active === viewer ? "Next" : "Pass";
+      return (
+        <Fragment key={choice.id}>
+          <Button
+            ref={focusRef}
+            className="pt-advance"
+            variant="outline"
+            disabled={locked}
+            onClick={() => onChoose(lastAdvance ? endTurn : choice.id)}
+          >
+            {lastAdvance ? "End Turn" : label}
+          </Button>
+          {endTurn && !lastAdvance && (
+            <Button variant="outline" disabled={locked} onClick={() => onChoose(endTurn)}>
+              End Turn
+            </Button>
+          )}
+        </Fragment>
+      );
+    }
     return (
       <Button
         key={choice.id}
         ref={focusRef}
         disabled={locked}
-        variant={choice.kind === "pass" ? "outline" : "default"}
         onClick={() => choose(choice)}
       >
         {choice.label}
@@ -424,6 +463,7 @@ export default function ForgeBoard({
             {stats && <span>{stats}</span>}
             {card.chosenType && <span>Chosen type · {card.chosenType}</span>}
             {abilityCount > 1 && <span>{abilityCount} abilities</span>}
+            {actions.length === 1 && move.manaAbility && <span>Add mana</span>}
           </>
         }
         disabled={locked}
@@ -511,46 +551,70 @@ export default function ForgeBoard({
               ) : (
                 <div className="ptc-life">{life}</div>
               )}
-              <span
-                className="pt-zone-chip"
-                role="img"
-                tabIndex={0}
-                aria-label={`Mana pool, ${data.mana}`}
-                data-hint={`Mana pool, ${data.mana}`}
-              >
-                <Droplet size={14} aria-hidden /> <b>{data.mana}</b>
-              </span>
+              <ManaPool player={seat === "player" ? 1 : 2} amounts={data.manaByColor} total={data.mana} />
             </div>
           </div>
         }
-        cards={data.battlefield.map(tile)}
+        cards={data.battlefield.map((card) => ({
+          group: battlefieldGroup(card),
+          tile: tile(card),
+        }))}
       />
     );
   }
 
+  const stop = state.priorityStop ?? "auto";
+  const oneTimeStop = stop !== "auto" && stop !== "full";
   const priorityControl = state.stage === "decision" && (
-    <label className="ptc pt-priority-control">
-      Your priority
+    <div className="ptc pt-priority-control">
+      <div className="pt-priority-heading">
+        <label htmlFor={priorityId}>Stops</label>
+        <button
+          type="button"
+          aria-label="Explain stops"
+          title="Explain stops"
+          aria-expanded={showPriorityHelp}
+          aria-controls={priorityHelpId}
+          onClick={() => setShowPriorityHelp((open) => !open)}
+        >
+          <CircleHelp size={15} aria-hidden />
+        </button>
+      </div>
       <select
-        value={state.priorityStop}
+        id={priorityId}
+        aria-describedby={showPriorityHelp ? priorityHelpId : undefined}
+        value={oneTimeStop ? "next" : stop}
         disabled={locked}
         onChange={(event) => onPriorityStop(event.currentTarget.value as PriorityStop)}
       >
         <option value="auto">Automatic</option>
-        <option value="next">Stop at next priority</option>
-        <option value="full">Full control</option>
-        <optgroup label="Stop once at the next matching step">
+        <option value="next">Set a stop</option>
+        <option value="full">Full Control</option>
+      </select>
+      {oneTimeStop && (
+        <select
+          aria-label="When to stop"
+          value={stop}
+          disabled={locked}
+          onChange={(event) => onPriorityStop(event.currentTarget.value as PriorityStop)}
+        >
+          <option value="next">Next opportunity</option>
           {Object.entries(prioritySteps).map(([value, label]) => (
             <option key={value} value={value}>{label}</option>
           ))}
-        </optgroup>
-      </select>
-    </label>
+        </select>
+      )}
+      <p id={priorityHelpId} hidden={!showPriorityHelp}>
+        Priority is your chance to cast a spell or activate an ability on either player’s turn.{" "}
+        {priorityExplanation(stop)}
+      </p>
+    </div>
   );
 
   return (
     <TableBoard
       label="Forge game"
+      switchPlayer={switchButton(!choices.length && state.stage === "decision" ? firstButton : undefined)}
       matchTools={matchTools}
       stackCount={stack.length}
       toolbar={
@@ -594,11 +658,6 @@ export default function ForgeBoard({
             </div>
           )}
           <div className="pt-forge-options">
-            {switchButton(
-              !choices.length && state.stage === "decision"
-                ? firstButton
-                : undefined,
-            )}
             {librarySearch && !showSearch && (
               <Button
                 variant="outline"
@@ -616,21 +675,6 @@ export default function ForgeBoard({
                 onChoose={choose}
                 locked={locked}
                 error={matchTools.openingRecovery}
-                priorityControl={priorityControl}
-                switchSeat={
-                  <>
-                    {switchButton()}
-                    {matchTools.manualSwitch}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={matchTools.leaveDisabled}
-                      onClick={matchTools.onLeave}
-                    >
-                      {matchTools.leaveLabel}
-                    </Button>
-                  </>
-                }
               />
             ) : (
               toolbar.map((choice) => option(choice, focusFor(choice)))
@@ -706,6 +750,21 @@ export default function ForgeBoard({
         </StackPanel>
       }
     >
+      {manaColors.length > 0 && (
+        <TableDialog title={state.prompt} subtitle={`Player ${viewer === "player" ? 1 : 2}`} className="pt-mana-dialog">
+          {matchTools.openingRecovery}
+          <div className="pt-mana-colors">
+            {manaColors.map((choice) => {
+              const color = manaTypes.find((type) => manaNames[type].toLowerCase() === choice.label.toLowerCase());
+              return (
+                <button type="button" className="pt-btn" key={choice.id} disabled={locked} onClick={() => choose(choice)}>
+                  {color && <ManaPip color={color} />} {color ? manaNames[color] : choice.label}
+                </button>
+              );
+            })}
+          </div>
+        </TableDialog>
+      )}
       {menuCard && menuChoices.length > 0 && (
         <TableDialog
           title={
@@ -715,7 +774,6 @@ export default function ForgeBoard({
           }
           subtitle={choosingAbility ? menuCard.name : undefined}
           closeLabel={choosingAbility ? "Cancel ability selection" : "Close"}
-          headerAction={switchButton()}
           onClose={() => setMenuCard(null)}
         >
           {choosingAbility ? (
@@ -743,7 +801,6 @@ export default function ForgeBoard({
       {pile && (
         <TableDialog
           title={pileNames[pile.zone]}
-          headerAction={switchButton()}
           label={pileLabel(pile.seat, viewer, pile.zone)}
           subtitle={`${pile.seat === "player" ? "Player 1" : "Player 2"} · ${pileCards.length} ${pileCards.length === 1 ? "card" : "cards"}`}
           closeLabel="Close zone"
@@ -759,7 +816,6 @@ export default function ForgeBoard({
       {librarySearch && showSearch && (
         <TableDialog
           title={librarySearch.title}
-          headerAction={switchButton()}
           label={libraryOperation}
           closeLabel={`Close ${libraryOperation.toLowerCase()}`}
           onClose={() => setDeferredSearch(searchId)}

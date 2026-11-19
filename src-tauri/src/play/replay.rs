@@ -339,6 +339,81 @@ mod tests {
 
     #[test]
     #[ignore = "requires Forge Desktop 2.0.13 and JDK 17"]
+    fn real_forge_end_turn_preserves_combat_responses_stops_and_undo() {
+        let cancel = AtomicBool::new(false);
+        let start = |scenario| {
+            let setup = GameSetup::new(forge_install(), Scenario::Position(scenario), None, None);
+            LiveGame::start(setup, &cancel).unwrap()
+        };
+        let end_id = |game: &LiveGame| {
+            raw(game)["choices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find_map(|c| c["endTurnId"].as_str().map(str::to_owned))
+        };
+        let mut game = start("priority-counter");
+        let end = end_id(&game).unwrap();
+        let before = raw(&game);
+        let next = game.act(Seat::Player, &end, Some(0), &cancel).unwrap();
+        assert_eq!(next["turn"], 2);
+        assert_eq!(next["active"], "opponent");
+        let after_end = raw(&game);
+        play(&mut game, Seat::Opponent, "Play Island");
+        game.undo(Seat::Opponent, game.revision, &cancel).unwrap();
+        assert_eq!(after_end, raw(&game));
+        game.undo(Seat::Player, game.revision, &cancel).unwrap();
+        assert_eq!(before, raw(&game));
+
+        game.set_priority_stop(Seat::Player, game.revision, "beginCombat".into())
+            .unwrap();
+        assert!(game
+            .act(Seat::Player, &end, Some(game.revision), &cancel)
+            .is_err());
+        play(&mut game, Seat::Player, "Pass priority");
+        assert_eq!(raw(&game)["step"], "Beginning of combat step");
+        assert!(
+            end_id(&game).is_none(),
+            "consumed one-shot stop is still explicit"
+        );
+        game.set_priority_stop(Seat::Player, game.revision, "full".into())
+            .unwrap();
+        while raw(&game)["phase"] != "Ending phase" {
+            assert_eq!(raw(&game)["turn"], 1);
+            assert!(end_id(&game).is_none());
+            play(&mut game, Seat::Player, "Pass priority");
+        }
+        let end = end_id(&game).unwrap();
+        game.act(Seat::Player, &end, Some(game.revision), &cancel)
+            .unwrap();
+        assert_eq!(raw(&game)["turn"], 2);
+
+        let mut combat = start("board-damage");
+        let end = end_id(&combat).unwrap();
+        combat.act(Seat::Player, &end, Some(0), &cancel).unwrap();
+        assert_eq!(raw(&combat)["prompt"], "Declare attackers");
+        assert!(end_id(&combat).is_none());
+
+        let mut response = start("priority-yield");
+        while raw(&response)["phase"] != "Precombat main phase" {
+            play(&mut response, Seat::Opponent, "Pass priority");
+        }
+        let end = end_id(&response).unwrap();
+        response
+            .act(Seat::Player, &end, Some(response.revision), &cancel)
+            .unwrap();
+        assert_eq!(raw(&response)["actor"], "opponent");
+        assert!(end_id(&response).is_none());
+        play(&mut response, Seat::Opponent, "Cast Opt");
+        assert_eq!(raw(&response)["actor"], "player");
+        assert_eq!(raw(&response)["stack"][0]["name"], "Opt");
+        assert!(end_id(&response).is_none());
+        play(&mut response, Seat::Player, "Cast Negate");
+        play(&mut response, Seat::Player, "Target Opt");
+    }
+
+    #[test]
+    #[ignore = "requires Forge Desktop 2.0.13 and JDK 17"]
     fn real_forge_priority_stops_are_private_apply_to_either_seat_and_replay() {
         let cancel = AtomicBool::new(false);
         let deck = "[Main]\n20 Island\n".to_string();
@@ -382,10 +457,13 @@ mod tests {
             .set_priority_stop(Seat::Opponent, 0, "full".into())
             .is_err());
         play(&mut game, Seat::Opponent, "Pass priority");
-        let combat = play(&mut game, Seat::Player, "Play Island");
+        let main = play(&mut game, Seat::Player, "Play Island");
+        assert_eq!(main["priorityStop"], "beginCombat");
+        assert!(main["choices"].as_array().unwrap().iter().any(|choice| choice["manaAbility"] == true));
+        let combat = play(&mut game, Seat::Player, "Pass priority");
         assert_eq!(combat["step"], "Beginning of combat step");
         assert_eq!(combat["priorityStop"], "auto");
-        assert!(combat["prompt"].as_str().unwrap().contains("priority stop"));
+        assert_eq!(combat["prompt"], "At your stop — choose a play or continue");
         let mana = combat["choices"]
             .as_array()
             .unwrap()

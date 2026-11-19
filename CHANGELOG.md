@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Arrange creatures, lands and support cards on a shared tabletop. Show game-log entries newest first and allow confirmed removal of a saved manual game.
+- Switch directly to the next decision maker and keep opening hands focused on mulligans. Add colored mana-pool details, manual mana activation, three stop settings and contextual Next, Pass, Resolve and End Turn actions.
 - Add a local Playtest table for saved decks, with manual zones, a shared stack, mana pools and resumable matches.
 - Add Forge-backed saved-deck practice and replayable Lightning Bolt, Counterspell response and creature combat exercises on the shared Playtest table. Forge 2.0.13 handles legality, payment, priority, damage and zone changes.
 - Support two locally controlled decks, private seat changes, phase and step timing, and automatic passes. Add Giant Growth, library search and activated ability exercises, centered zone dialogs and enlarged card previews.

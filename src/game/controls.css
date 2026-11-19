@@ -33,6 +33,25 @@
 .pt-priority-control select {
   font-weight: normal;
 }
+.pt-priority-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ptc .pt-priority-heading button {
+  min-height: 22px;
+  min-width: 22px;
+  padding: 2px;
+  color: var(--tone-secondary);
+  background: transparent;
+  border: 0;
+}
+.pt-priority-control p {
+  max-width: 30ch;
+  font-weight: normal;
+  line-height: 1.45;
+  margin-top: 3px;
+}
 .ptc button,
 .ptc summary {
   display: inline-flex;
@@ -126,8 +145,7 @@
   flex-wrap: wrap;
   gap: 4px 8px;
 }
-.ptc-life,
-.ptc-mana-type {
+.ptc-life {
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--ptc-edge);
@@ -145,38 +163,30 @@
 .ptc-life strong svg {
   color: #a14c46;
 }
-.ptc-life button,
-.ptc-mana-type button {
+.ptc-life button {
   padding: 2px;
   min-height: 26px;
   width: 24px;
   border: 0;
 }
-.ptc-mana > summary {
-  gap: 5px;
+.pt-card-dialog.pt-mana-dialog { width: min(24rem, calc(100% - 2rem)); }
+.pt-mana-balances { list-style: none; margin: 0; padding: 0; }
+.pt-mana-balances li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--tone-border);
 }
-.ptc-mana > summary b {
-  display: inline-grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 4px;
-  border-radius: 5px;
-  background: var(--tone-bg2, #e8eee7);
-  font-size: 0.91em;
-  font-weight: 650;
-}
-.ptc-mana[open] {
-  margin-bottom: 3px;
-}
-.ptc-mana-type {
-  gap: 3px;
-  padding: 0 3px;
-}
-.ptc-mana-type b {
-  min-width: 1ch;
-}
+.pt-mana-balances li:last-child { border: 0; }
+.pt-mana-balances li b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.pt-mana-balances li button { width: 29px; padding: 2px; }
+.pt-mana-colors { display: flex; flex-wrap: wrap; gap: 6px; }
+.pt-mana-amount { display: flex; align-items: center; gap: 8px; }
+.pt-mana-amount input { width: 5em; }
 .ptc-pip {
+  display: inline-block;
+  flex: none;
   font:
     700 10px/16px Georgia,
     serif;

@@ -29,6 +29,7 @@ const schemas: Record<Action["type"], Record<string, Field>> = {
   keep: { seat, bottom: ids },
   move: { id, zone, position: maybe(oneOf(["top", "bottom"])) },
   tap: { id },
+  tapMana: { id, mana: oneOf(manaTypes), count: integer },
   flip: { id },
   faceDown: { id },
   reveal: { id },

@@ -21,6 +21,7 @@ import {
   type Ref,
 } from "react";
 import { GameHistory } from "./GameHistory";
+import type { BattlefieldGroup } from "./battlefield";
 import type { HistoryEntry } from "./types";
 import "./table.css";
 import "./controls.css";
@@ -104,14 +105,14 @@ export function SwitchPlayer({
   return (
     <button
       type="button"
-      className="pt-seat-switch"
+      className="pt-tool"
       onClick={onSwitch}
       disabled={disabled}
       ref={focusRef}
       aria-label={`Switch to Player ${player}`}
       data-hint={`Switch to Player ${player}`}
     >
-      <ArrowLeftRight size={15} aria-hidden /> P{player}
+      <ArrowLeftRight size={16} aria-hidden />
     </button>
   );
 }
@@ -119,6 +120,7 @@ export function SwitchPlayer({
 export function TableBoard({
   label,
   toolbar,
+  switchPlayer,
   seats,
   handCount,
   handLabel = "Your hand",
@@ -130,6 +132,7 @@ export function TableBoard({
 }: {
   label: string;
   toolbar: ReactNode;
+  switchPlayer?: ReactNode;
   seats: ReactNode;
   handCount: number;
   handLabel?: string;
@@ -200,7 +203,6 @@ export function TableBoard({
         )}
         {toolbar}
         <div className="pt-table-tools" role="group" aria-label="Table tools">
-          {matchTools.manualSwitch}
           <button
             type="button"
             className="pt-tool"
@@ -236,6 +238,8 @@ export function TableBoard({
           >
             <Undo2 size={16} aria-hidden />
           </button>
+          {switchPlayer}
+          {matchTools.manualSwitch}
           <button
             type="button"
             className="pt-tool"
@@ -323,13 +327,24 @@ export function TableSeat({
   resources: ReactNode;
   battlefieldAction?: ReactNode;
   battlefieldForm?: ReactNode;
-  cards?: ReactNode[];
+  cards: { group: BattlefieldGroup; tile: ReactNode }[];
 }) {
-  return (
-    <section
-      className={`pt-seat ${own ? "pt-own" : "pt-opponent"}`}
-      aria-label={`Player ${player} battlefield`}
-    >
+  const rows: Record<BattlefieldGroup, ReactNode[]> = {
+    Creatures: [],
+    Lands: [],
+    "Other permanents": [],
+  };
+  for (const { group, tile } of cards) rows[group].push(tile);
+  const frontToBack: BattlefieldGroup[] = own ? ["Creatures", "Lands"] : ["Lands", "Creatures"];
+  function row(group: BattlefieldGroup) {
+    return rows[group].length > 0 && (
+      <div key={group} className="pt-permanent-row" data-type={group} role="group" aria-label={group}>
+        {rows[group]}
+      </div>
+    );
+  }
+  const seatTools = (
+    <>
       <header className="pt-seat-heading">
         <h2 className="pt-seat-title">
           <b>P{player}</b> {own ? "You" : "Opponent"}
@@ -347,15 +362,23 @@ export function TableSeat({
         {battlefieldAction}
       </header>
       {battlefieldForm}
-      <div className="pt-field">
-        {cards?.length ? (
-          cards
-        ) : (
-          <span className="pt-empty">
-            {cards ? "Empty battlefield" : "Battlefield unavailable"}
-          </span>
-        )}
-      </div>
+    </>
+  );
+  return (
+    <section
+      className={`pt-seat ${own ? "pt-own" : "pt-opponent"}`}
+      aria-label={`Player ${player} battlefield`}
+    >
+      {!own && seatTools}
+      {cards.length ? (
+        <div className="pt-battlefield">
+          <div className="pt-main-permanents">{frontToBack.map(row)}</div>
+          {row("Other permanents")}
+        </div>
+      ) : (
+        <div className="pt-field"><span className="pt-empty">Empty battlefield</span></div>
+      )}
+      {own && seatTools}
     </section>
   );
 }

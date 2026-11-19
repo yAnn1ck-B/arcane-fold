@@ -10,11 +10,11 @@ The application manages a permanent Magic: The Gathering card collection. Users 
 
 ### Play (unreleased)
 
-**Play** starts a local rules-enforced game from one or two saved main decks. Forge handles phases, priority, legal actions and player decisions. Both players can use the same device with separate private views. The opening-hand dialog handles keeping, mulligans and bottoming cards. The shared board puts the two battlefields and the current hand beside an optional right panel for the stack and public game log.
+**Play** starts a local rules-enforced game from one or two saved main decks. Forge handles phases, priority, legal actions and player decisions. When one person tests both seats, the board opens the deciding seat’s view automatically. The opening-hand dialog handles keeping, mulligans and bottoming cards. The shared board puts the two battlefields and the current hand beside an optional right panel for the stack and public game log.
 
 An active game can switch permanently to manual play after confirmation. The native bridge exports the suspended position at its current revision. The app checks card conservation and writes a manual checkpoint before closing Forge. Replacing a saved manual game requires consent for that save revision. Manual Undo begins at the handoff. Both engines retain the public log; only the current seat's private cards are shown at the table.
 
-The manual table supports zone moves, life, mana, counters, tokens, attachments, combat markers, stack entries and turn changes. Each move updates a local checkpoint in the existing profile store. Saved manual tables from earlier builds remain resumable. Fixed scenarios are automated integration fixtures.
+The manual table supports zone moves, life, mana, counters, tokens, attachments, combat markers, stack entries and turn changes. Each move updates a local checkpoint in the existing profile store. Players can resume or remove a saved manual table, including one from an earlier build. Removal requires confirmation for the displayed revision. Both game modes place creatures toward the middle, lands behind them and support permanents to the right. They show the newest public actions first and let players inspect each seat’s mana pool by color. Fixed scenarios are automated integration fixtures.
 
 Foundations is the first set for interaction coverage. The installed Forge 2.0.13 regression suite loads all 771 printings across 517 distinct names. A separate sweep plays every distinct card through the controller. Fixed positions and seeded decks exercise both sides of player decisions and check the resulting hands, stack, battlefield and life totals. [Foundations gameplay verification](docs/foundations-play-audit.md)
 

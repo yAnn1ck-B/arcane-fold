@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { appLifecycle } from "@/lib/app-lifecycle";
 import type { AppSettings, DeckSummary } from "@/lib/types";
 import { listDecks } from "@/services/decks";
 import { playAction, undoAction, type Session } from "@/game/session";
-import { loadSession, saveSession } from "@/game/storage";
+import { loadSession, removeSession, saveSession } from "@/game/storage";
+import { TableDialog } from "@/game/TableDialog";
 import Table from "@/game/Table";
 import Game from "@/game/Game";
 import type { Seat } from "@/game/types";
@@ -27,8 +28,8 @@ export default function PlayPage({
   const [reload, setReload] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [entrySeat, setEntrySeat] = useState<Seat>();
-  const [concealOnEntry, setConcealOnEntry] = useState(false);
   const [gameOpen, setGameOpen] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const busy = useRef(false);
@@ -66,18 +67,19 @@ export default function PlayPage({
     };
   }, [reload]);
 
-  async function commit(next: () => Session | Promise<Session>) {
-    if (busy.current || !loaded || !canPlay() || appLifecycle.isLocked())
+  async function commit(change: (() => Session) | "remove") {
+    if (busy.current || !session || !loaded || !canPlay() || appLifecycle.isLocked())
       return;
     busy.current = true;
     setWorking(true);
     setError("");
     try {
-      const result = await next();
-      if (!mounted.current || !canPlay() || appLifecycle.isLocked()) return;
-      await saveSession(result.saved, session?.saved.revision);
+      const result = change === "remove" ? null : change();
+      if (result) await saveSession(result.saved, session.saved.revision);
+      else await removeSession(session.saved.revision);
       if (mounted.current) {
         setSession(result);
+        setConfirmRemove(false);
       }
     } catch (reason) {
       if (mounted.current)
@@ -104,7 +106,6 @@ export default function PlayPage({
             setSession(manual);
             setLoaded(true);
             setEntrySeat(viewer);
-            setConcealOnEntry(true);
             setError("");
             setGameOpen(false);
             setPlaying(true);
@@ -116,7 +117,7 @@ export default function PlayPage({
           }
         />
       )}
-      {error && !gameOpen && (
+      {error && !gameOpen && !confirmRemove && (
         <div className="notice notice-error" role="alert">
           {error}
           {(!loaded || !deckListReady) && (
@@ -138,11 +139,20 @@ export default function PlayPage({
               leaveLabel: "Leave manual game",
               onLeave: () => setPlaying(false),
               leaveDisabled: working,
+              openingRecovery: error && (
+                <div className="notice notice-error" role="alert">
+                  {error}
+                  <Button variant="outline" onClick={() => {
+                    setPlaying(false);
+                    setReload((count) => count + 1);
+                  }}>
+                    Return to Play
+                  </Button>
+                </div>
+              ),
             }}
             requiredOpening={session.saved.requiredOpening === true}
-            openingError={error}
             initialViewer={entrySeat}
-            initialHandoff={concealOnEntry}
             settings={settings}
             dispatch={(action) =>
               void commit(() => playAction(session, action))
@@ -150,29 +160,69 @@ export default function PlayPage({
           />
         </fieldset>
       ) : (
-        <>
-          {loaded && session && (
-            <div className="pt-resume panel">
-              <div>
-                <small>Saved game · Turn {session.match.turn}</small>
-                <h2>
-                  {session.match.players[0].deckName} <span>vs.</span>{" "}
-                  {session.match.players[1].deckName}
-                </h2>
-              </div>
+        loaded && session && (
+          <section className="pt-resume panel" aria-label="Saved game">
+            <div>
+              <small>Saved game · Turn {session.match.turn}</small>
+              <h2>
+                {session.match.players[0].deckName} <span>vs.</span>{" "}
+                {session.match.players[1].deckName}
+              </h2>
+            </div>
+            <div className="pt-launch">
+              <Button
+                variant="outline"
+                disabled={working}
+                onClick={() => {
+                  setError("");
+                  setConfirmRemove(true);
+                }}
+              >
+                <Trash2 size={15} /> Remove
+              </Button>
               <Button
                 disabled={working}
                 onClick={() => {
                   setEntrySeat(session.match.active);
-                  setConcealOnEntry(true);
                   setPlaying(true);
                 }}
               >
                 Resume <ArrowRight size={16} />
               </Button>
             </div>
-          )}
-        </>
+            {confirmRemove && (
+              <TableDialog
+                title="Remove this saved game?"
+                onClose={() => {
+                  if (!busy.current) setConfirmRemove(false);
+                }}
+              >
+                <p>
+                  Remove {session.match.players[0].deckName} vs.{" "}
+                  {session.match.players[1].deckName} (turn {session.match.turn})
+                  and its undo history?
+                </p>
+                {error && <p className="notice notice-error" role="alert">{error}</p>}
+                <div className="pt-launch">
+                  <Button
+                    variant="outline"
+                    disabled={working}
+                    onClick={() => setConfirmRemove(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={working}
+                    onClick={() => void commit("remove")}
+                  >
+                    Remove saved game
+                  </Button>
+                </div>
+              </TableDialog>
+            )}
+          </section>
+        )
       )}
     </section>
   );

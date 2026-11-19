@@ -3,6 +3,7 @@ final class PriorityPosition {
         Player player = table.player, opponent = table.opponent;
         table.put("Forest", player, ZoneType.Hand);
         switch (mode) {
+            case "priority-dual-land" -> table.put("Blossoming Sands", player, ZoneType.Battlefield);
             case "priority-loyalty", "priority-loyalty-short" -> {
                 var chandra = table.put("Chandra, Flameshaper", player, ZoneType.Battlefield);
                 chandra.setCounters(forge.game.card.CounterEnumType.LOYALTY, mode.endsWith("short") ? 3 : 4);
@@ -25,6 +26,13 @@ final class PriorityPosition {
                 table.put("Savannah Lions", player, ZoneType.Hand);
                 table.put("Essence Scatter", opponent, ZoneType.Hand);
                 table.put("Island", opponent, ZoneType.Battlefield);
+                table.put("Island", opponent, ZoneType.Battlefield);
+            }
+            case "priority-yield" -> {
+                table.put("Negate", player, ZoneType.Hand);
+                table.put("Island", player, ZoneType.Battlefield);
+                table.put("Island", player, ZoneType.Battlefield);
+                table.put("Opt", opponent, ZoneType.Hand);
                 table.put("Island", opponent, ZoneType.Battlefield);
             }
             case "priority-wrath", "priority-wrath-tapped" -> {

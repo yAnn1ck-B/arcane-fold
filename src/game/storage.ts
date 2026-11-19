@@ -30,7 +30,7 @@ export async function loadSession() {
   }
 }
 
-async function writeTable(saved: SavedTable, previous: string | undefined) {
+async function writeTable(saved: SavedTable | null, previous: string | undefined) {
   const db = await openTables();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -44,14 +44,15 @@ async function writeTable(saved: SavedTable, previous: string | undefined) {
           tx.abort();
           return;
         }
-        tables.put(saved, slot);
+        if (saved) tables.put(saved, slot);
+        else tables.delete(slot);
       };
       tx.oncomplete = () => resolve();
       tx.onabort = () =>
         reject(
           conflict
             ? new Error(
-                "Another window has saved this table. Reopen Play to load its latest move.",
+                "This saved game has changed. Reopen Play to load the current save.",
               )
             : tx.error ?? new Error("The game save was interrupted."),
         );
@@ -61,15 +62,19 @@ async function writeTable(saved: SavedTable, previous: string | undefined) {
   }
 }
 
-export async function saveSession(
-  saved: SavedTable,
-  previous: string | undefined,
-) {
-  const pending = writeTable(saved, previous);
+async function finishWrite(pending: Promise<void>) {
   const unregister = appLifecycle.register(() => pending);
   try {
     await pending;
   } finally {
     unregister();
   }
+}
+
+export function saveSession(saved: SavedTable, previous: string | undefined) {
+  return finishWrite(writeTable(saved, previous));
+}
+
+export function removeSession(revision: string) {
+  return finishWrite(writeTable(null, revision));
 }

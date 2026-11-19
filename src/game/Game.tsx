@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, LoaderCircle } from "lucide-react";
+import { ArrowRight, Hand, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { appLifecycle } from "@/lib/app-lifecycle";
 import type { DeckSummary } from "@/lib/types";
@@ -21,7 +21,7 @@ import {
   type PriorityStop,
 } from "./forge-match";
 
-function needsHandoff(match: ForgeMatch, viewer: ForgeSeat) {
+function otherSeatIsActing(match: ForgeMatch, viewer: ForgeSeat) {
   return (
     match.sharedSeats && match.stage === "decision" && match.actor !== viewer
   );
@@ -54,7 +54,6 @@ export default function Game({
   const [opponentSelection, setOpponentSelection] = useState("same");
   const [viewer, setViewer] = useState<ForgeSeat>("player");
   const [state, setState] = useState<ForgeMatch | null>(null);
-  const [recipient, setRecipient] = useState<ForgeSeat | null>(null);
   const [confirmManual, setConfirmManual] = useState(false);
   const [busy, setBusy] = useState<
     "play" | "switch" | "undo" | "handoff" | null
@@ -98,6 +97,25 @@ export default function Game({
     [],
   );
 
+  async function showPosition(id: string, position: ForgeMatch, seat: ForgeSeat, followActor: boolean) {
+    if (session.current !== id) return;
+    if (followActor && otherSeatIsActing(position, seat)) {
+      try {
+        const nextSeat = position.actor;
+        position = await viewForgeSeat(id, nextSeat);
+        seat = nextSeat;
+      } catch (cause) {
+        // The move already succeeded. Keep its revision so switching seats can retry safely.
+        if (session.current === id)
+          setError({ message: `Couldn’t open the next player's view. Use Switch player to retry. ${String(cause)}`, restart: false });
+      }
+    }
+    if (session.current === id) {
+      setViewer(seat);
+      setState(position);
+    }
+  }
+
   async function start() {
     if (!canStart || pending.current || !canPlay() || appLifecycle.isLocked())
       return;
@@ -109,7 +127,6 @@ export default function Game({
     setError(undefined);
     setState(null);
     setViewer("player");
-    setRecipient(null);
     onOpenChange(true);
     try {
       if (previous) await stopForge(previous);
@@ -120,8 +137,7 @@ export default function Game({
         twoDecks ? opponentDeck?.id : undefined,
       );
       if (session.current === id) {
-        setState(result);
-        setRecipient(needsHandoff(result, "player") ? result.actor : null);
+        await showPosition(id, result, "player", true);
       } else await stopForge(id);
     } catch (cause) {
       if (session.current === id)
@@ -156,7 +172,7 @@ export default function Game({
     if (
       !switching &&
       !undo &&
-      (recipient || state.stage !== "decision" || (!settingStop && needsHandoff(state, viewer)))
+      (state.stage !== "decision" || (!settingStop && otherSeatIsActing(state, viewer)))
     )
       return;
     pending.current = true;
@@ -169,11 +185,7 @@ export default function Game({
       else if (undo) result = await undoForge(id, viewer, state.revision);
       else result = await chooseForge(id, request.action, viewer, state.revision);
       if (session.current !== id) return;
-      setState(result);
-      setViewer(nextViewer);
-      setRecipient(
-        !switching && !settingStop && needsHandoff(result, nextViewer) ? result.actor : null,
-      );
+      await showPosition(id, result, nextViewer, !switching && !settingStop);
       if (undo) setRewinds((n) => n + 1);
     } catch (cause) {
       if (session.current === id)
@@ -212,7 +224,7 @@ export default function Game({
         throw new Error("The game changed before it could be saved.");
       await saveSession(manual.saved, previous);
       if (session.current === id)
-        onManualSaved(manual, (recipient ?? viewer) === "player" ? 0 : 1);
+        onManualSaved(manual, viewer === "player" ? 0 : 1);
       // Leaving this component stops the Forge session after IndexedDB commits.
     } finally {
       if (session.current === id) {
@@ -301,13 +313,16 @@ export default function Game({
   }
 
   const manualSwitch = state?.stage === "decision" && (
-    <Button
-      variant="outline"
+    <button
+      type="button"
+      className="pt-tool"
+      aria-label="Switch to manual play"
+      data-hint="Switch to manual play"
       disabled={!!busy || !!error?.restart}
       onClick={() => setConfirmManual(true)}
     >
-      Switch to manual play
-    </Button>
+      <Hand size={16} aria-hidden />
+    </button>
   );
 
   return (
@@ -337,27 +352,7 @@ export default function Game({
           <LoaderCircle size={17} aria-hidden /> Starting game…
         </div>
       )}
-      {state && recipient && (
-        <section className="pt-handoff" aria-label="Seat change">
-          <h2>Pass to Player {recipient === "player" ? 1 : 2}</h2>
-          <Button
-            autoFocus
-            disabled={!!busy}
-            onClick={() => void updateTable({ switchTo: recipient })}
-          >
-            {busy === "switch" ? "Switching seats…" : "Reveal hand"}
-          </Button>
-          {manualSwitch}
-          <Button
-            variant="outline"
-            onClick={leave}
-            disabled={busy === "handoff"}
-          >
-            Leave game
-          </Button>
-        </section>
-      )}
-      {state && !recipient && (
+      {state && (
         <ForgeBoard
           matchTools={{
             history: state.history,
@@ -381,7 +376,7 @@ export default function Game({
           viewer={viewer}
           onSwitch={
             state.sharedSeats
-              ? () => setRecipient(viewer === "player" ? "opponent" : "player")
+              ? () => void updateTable({ switchTo: viewer === "player" ? "opponent" : "player" })
               : undefined
           }
           locked={!!busy || !!error?.restart}

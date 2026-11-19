@@ -10,8 +10,9 @@ class ForgeMatch {
     private final ForgeLibrary library = new ForgeLibrary(this);
     private CardCollectionView revealedHand;
     private int decision;
+    private int yieldTurn = -1;
     private final String[] priorityStops = {"auto", "auto"};
-    private static final String PRIORITY_STOP_PROMPT = "Your priority stop — choose a play or pass";
+    private static final String PRIORITY_STOP_PROMPT = "At your stop — choose a play or continue";
     private final boolean sharedSeats;
     private final String[] deckNames = {"Player 1", "Player 2"};
     private final boolean[] keptHands = {false, false};
@@ -142,7 +143,10 @@ class ForgeMatch {
 
     static final class EndInput extends RuntimeException {}
 
-    record Choice(String label, String kind, String cardId, Player seat, Runnable action) {
+    record Choice(String label, String kind, String cardId, Player seat, Runnable action, boolean manaAbility) {
+        Choice(String label, String kind, String cardId, Player seat, Runnable action) {
+            this(label, kind, cardId, seat, action, false);
+        }
         void run() {
             if (action != null) action.run();
         }
@@ -150,6 +154,12 @@ class ForgeMatch {
 
     Choice choice(String label, String kind, Card card, Player seat, Runnable action) {
         return new Choice(label, kind, card == null ? null : cardId(card), seat, action);
+    }
+
+    private boolean offersEndTurn(Player actor, String prompt, Choice choice) {
+        return choice.kind().equals("pass") && phases.isPlayerTurn(actor) && game.getStack().isEmpty()
+                && (!prompt.equals(PRIORITY_STOP_PROMPT) || phases.getPhase() == PhaseType.END_OF_TURN
+                        || phases.getPhase() == PhaseType.CLEANUP);
     }
 
     Choice ask(Player actor, String prompt, List<Choice> choices) {
@@ -184,12 +194,19 @@ class ForgeMatch {
                 selected = parts[3];
             }
             for (int i = 0; i < choices.size(); i++) {
+                Choice choice = choices.get(i);
+                if (selected.equals(choiceId(i) + "_end") && offersEndTurn(actor, prompt, choice)) {
+                    yieldTurn = priorityStops[seatIndex(actor)].equals("auto") ? phases.getTurn() : -1;
+                    history.add(actor.getName() + " chose to end the turn.");
+                    return choice;
+                }
                 if (choices.get(i).kind().equals("name") && selected.startsWith(choiceId(i) + "|")) {
+                    yieldTurn = -1;
                     return new Choice(selected.substring(choiceId(i).length() + 1).strip(), "name", null, null, null);
                 }
                 if (choiceId(i).equals(selected)) {
-                    Choice choice = choices.get(i);
                     if (choice.kind().equals("pass")) history.pass(actor);
+                    else yieldTurn = -1;
                     return choice;
                 }
             }
@@ -279,10 +296,20 @@ class ForgeMatch {
         return out;
     }
 
+    static Map<String, Integer> manaByColor(Player player) {
+        var amounts = new LinkedHashMap<String, Integer>();
+        // ManaPool uses ManaAtom.COLORLESS (32), while colorless card identity uses 0.
+        for (byte color : forge.card.mana.ManaAtom.MANATYPES) {
+            String symbol = color == forge.card.mana.ManaAtom.COLORLESS ? "C" : forge.card.MagicColor.toShortString(color);
+            amounts.put(symbol, player.getManaPool().getAmountOfColor(color));
+        }
+        return amounts;
+    }
+
     private Map<String, Object> board(Player p, boolean revealHand) {
         var hand = p.getCardsIn(ZoneType.Hand);
         Map<String, Object> board = new LinkedHashMap<>(Map.of("life", p.getLife(), "mana", p.getManaPool().totalMana(),
-                "libraryCount", p.getCardsIn(ZoneType.Library).size(), "handCount", hand.size(),
+                "manaByColor", manaByColor(p), "libraryCount", p.getCardsIn(ZoneType.Library).size(), "handCount", hand.size(),
                 "hand", revealHand ? hand.stream().map(this::cardState).toList() : List.of(),
                 "battlefield", p.getCardsIn(ZoneType.Battlefield).stream().map(this::cardState).toList(),
                 "exile", p.getCardsIn(ZoneType.Exile).stream().map(this::cardState).toList(),
@@ -338,9 +365,12 @@ class ForgeMatch {
         var options = new ArrayList<Map<String, Object>>();
         for (Choice c : choices) {
             Map<String, Object> out = new LinkedHashMap<>();
-            out.put("id", choiceId(options.size()));
+            String id = choiceId(options.size());
+            out.put("id", id);
+            if (offersEndTurn(actor, prompt, c)) out.put("endTurnId", id + "_end");
             out.put("label", c.label());
             out.put("kind", c.kind());
+            if (c.manaAbility()) out.put("manaAbility", true);
             if (c.cardId() != null) out.put("cardId", c.cardId());
             if (c.seat() != null) out.put("seat", seatId(c.seat()));
             options.add(out);
@@ -504,7 +534,7 @@ class ForgeMatch {
             var keep = choice("Keep hand", "option", null, null, null);
             if (bottom >= seat.getMaxHandSize()) return true;
             var redraw = choice("Mulligan", "option", null, null, null);
-            String prompt = bottom == 0 ? "Keep your opening hand?" : "Keep this hand and put " + bottom + " on the bottom?";
+            String prompt = bottom == 0 ? "Keep this hand?" : "Keep this hand and put " + bottom + " on the bottom?";
             boolean kept = ask(seat, prompt, List.of(keep, redraw)) == keep;
             if (kept) history.add(seat.getName() + " kept their hand.");
             return kept;
@@ -957,7 +987,14 @@ class ForgeMatch {
 
         @Override
         public List<SpellAbility> chooseSpellAbilityToPlay() {
+            // Yield only this player's optional empty-stack windows. A new object on
+            // the stack, a chosen action or a requested stop reopens normal decisions.
+            if (!game.getStack().isEmpty()) yieldTurn = -1;
             if (!human(seat)) return null;
+            if (yieldTurn == phases.getTurn() && phases.isPlayerTurn(seat)) {
+                if (priorityStops[seatIndex(seat)].equals("auto")) return null;
+                yieldTurn = -1;
+            }
             List<Choice> choices = new ArrayList<>();
             Map<Choice, SpellAbility> plays = new java.util.IdentityHashMap<>();
             for (Card card : seat.getCardsIn(ZoneType.Hand)) {
@@ -989,12 +1026,14 @@ class ForgeMatch {
             continueManaStop = false;
             boolean manaResponse = continueManaResponse || (!stopped && choices.isEmpty() && hasManaResponseToStack());
             continueManaResponse = false;
-            if (choices.isEmpty() && !stopped && !manaResponse) return null;
+            boolean ownMain = seat == phases.getPlayerTurn() && phases.getPhase().isMain() && game.getStack().isEmpty();
+            if (choices.isEmpty() && !stopped && !manaResponse && !ownMain) return null;
             // Once priority opens, players can sequence all of their legal mana abilities.
             for (Card card : seat.getCardsIn(ZoneType.Battlefield)) {
                 for (SpellAbility ability : card.getManaAbilities()) addActivation(card, ability, choices, plays);
             }
-            if (choices.isEmpty() && !stopped) return null;
+            // Keep floated mana visible and spendable until the active player advances.
+            if (choices.isEmpty() && !stopped && !(ownMain && seat.getManaPool().totalMana() > 0)) return null;
             choices.add(choice("Pass priority", "pass", null, null, null));
             Choice selected = ask(seat, stopped ? PRIORITY_STOP_PROMPT : "Choose a play", choices);
             var play = plays.get(selected);
@@ -1121,7 +1160,8 @@ class ForgeMatch {
 
         private void addPlay(Card card, SpellAbility sa, String label, List<Choice> choices, Map<Choice, SpellAbility> plays) {
             if (!canOfferPlay(sa)) return;
-            Choice c = choice(label, sa.isActivatedAbility() && !sa.isLandAbility() ? "ability" : "card", card, null, null);
+            String kind = sa.isActivatedAbility() && !sa.isLandAbility() ? "ability" : "card";
+            Choice c = new Choice(label, kind, cardId(card), null, null, sa.isManaAbility());
             choices.add(c);
             plays.put(c, sa);
         }
@@ -1252,10 +1292,10 @@ class ForgeMatch {
             List<Choice> options = new ArrayList<>();
             List<Byte> masks = new ArrayList<>();
             for (var color : colors) {
-                options.add(choice(color.getName(), "option", null, null, null));
+                options.add(choice(color.getName(), "manaColor", null, null, null));
                 masks.add(color.getColorMask());
             }
-            return masks.get(options.indexOf(ask(seat, prompt, options)));
+            return masks.get(options.indexOf(ask(seat, "Choose mana for " + publicName(ability.getHostCard()), options)));
         }
 
         @Override

@@ -15,7 +15,7 @@ final class ForgeReplay {
                 out.writeInt(seat.getLandsPlayedThisTurn());
                 out.writeInt(seat.getSpellsCastThisTurn());
                 // Colors as well as totals matter for later payments.
-                for (byte color : forge.card.MagicColor.WUBRGC) out.writeInt(seat.getManaPool().getAmountOfColor(color));
+                for (byte color : forge.card.mana.ManaAtom.MANATYPES) out.writeInt(seat.getManaPool().getAmountOfColor(color));
                 for (ZoneType zone : Player.ALL_ZONES) {
                     var playerZone = seat.getZone(zone);
                     if (playerZone == null) {

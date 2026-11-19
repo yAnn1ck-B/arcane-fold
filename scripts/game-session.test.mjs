@@ -13,6 +13,20 @@ const { newSession, restoreSession, playAction, undoAction } = await import(
 const fresh = () => newSession(createMatch([deck("a"), deck("b")]));
 const save = (session) => JSON.parse(JSON.stringify(session.saved));
 
+test("manually tapping for a chosen color saves and undoes the tap and pool together", () => {
+  const game = fresh();
+  const id = game.match.players[0].zones.hand[0];
+  const table = playAction(game, { type: "move", id, zone: "battlefield" });
+  const action = { type: "tapMana", id, mana: "U", count: 2 };
+  const next = restoreSession(save(playAction(table, action)));
+  assert.equal(next.match.pieces[id].tapped, true);
+  assert.equal(next.match.players[0].mana.U, 2);
+  assert.match(next.history.at(-1).text, /tapped .+ for 2 U mana/);
+  assert.throws(() => playAction(next, action), /already tapped/);
+  assert.throws(() => playAction(table, { ...action, count: 0 }), /positive/);
+  assert.deepEqual(undoAction(next).match, table.match);
+});
+
 test("handoff keeps private choices and a public pregame log across save, resume and manual Undo", () => {
   const match = createMatch([deck("a"), deck("b")]);
   const first = match.players[0];

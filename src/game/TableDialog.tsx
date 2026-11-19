@@ -6,7 +6,6 @@ export function TableDialog({
   title,
   label = title,
   subtitle,
-  headerAction,
   closeLabel = "Close",
   onClose,
   className = "",
@@ -15,7 +14,6 @@ export function TableDialog({
   title: string;
   label?: string;
   subtitle?: string;
-  headerAction?: ReactNode;
   closeLabel?: string;
   onClose?: () => void;
   className?: string;
@@ -67,7 +65,6 @@ export function TableDialog({
             {title}
           </h2>
         </div>
-        {headerAction}
         {onClose && (
           <button
             type="button"

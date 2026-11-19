@@ -97,6 +97,8 @@ function actionText(before: Match, action: Action, after: Match): string {
       switch (action.type) {
         case "tap":
           return `${who} ${card.tapped ? "tapped" : "untapped"} ${name}.`;
+        case "tapMana":
+          return `${who} tapped ${name} for ${action.count} ${action.mana} mana.`;
         case "flip":
           return `${who} flipped ${name}.`;
         case "faceDown": {

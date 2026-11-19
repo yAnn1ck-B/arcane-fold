@@ -9,6 +9,25 @@ const {
   validateMatch,
   steps,
 } = await import(moduleUrl("engine", { "./types": moduleUrl("types") }));
+const { battlefieldGroup } = await import(moduleUrl("battlefield"));
+
+test("battlefield areas use public current-face types with one place for each permanent", () => {
+  for (const [card, group] of [
+    [{ typeLine: "Legendary Artifact Creature — Construct" }, "Creatures"],
+    [{ typeLine: "Artifact Land" }, "Lands"],
+    [{ typeLine: "Legendary Enchantment Creature — God" }, "Creatures"],
+    [{ typeLine: "Artifact - Treasure", token: true }, "Other permanents"],
+    [{ typeLine: "Enchantment — Aura" }, "Other permanents"],
+    [{ typeLine: "Legendary Planeswalker — Jace" }, "Other permanents"],
+    [{ typeLine: "Battle — Siege // Creature — Dragon" }, "Other permanents"],
+    [{ typeLine: "Battle — Siege // Creature — Dragon", back: true }, "Creatures"],
+    [{ typeLine: "Basic Land — Island", faceDown: true }, "Other permanents"],
+    [{ typeLine: "Basic Land — Island", faceDown: true, power: 2 }, "Creatures"],
+    [{ token: true, power: 0 }, "Creatures"],
+    [{ token: true }, "Other permanents"],
+    [{}, "Other permanents"],
+  ]) assert.equal(battlefieldGroup(card), group);
+});
 
 function fixture() {
   return createMatch([deck("a"), deck("b")]);

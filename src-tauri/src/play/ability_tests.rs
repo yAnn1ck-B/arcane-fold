@@ -1,4 +1,4 @@
-use super::tests::{choose, practice_engine, zone};
+use super::tests::{choose, play_until, practice_engine, zone};
 use super::{Engine, Scenario};
 use serde_json::Value;
 
@@ -74,13 +74,14 @@ fn real_forge_foundations_mixed_land_can_explicitly_add_mana() {
     );
     choose(&mut game, "Keep hand");
     for turn in [1, 3, 5, 7] {
-        // Mana-only availability must not stop the match before the next land drop.
+        play_until(&mut game, "Play Crawling Barrens", &["Pass priority"]);
         assert_eq!(game.current["turn"], turn);
         choose(&mut game, "Play Crawling Barrens");
     }
     // The autopayer reserves the source of the activation. Offer four other
     // lands so its payment is independent of whether it will tap its source.
     if activations(&game, "Crawling Barrens").len() < 2 {
+        play_until(&mut game, "Play Crawling Barrens", &["Pass priority"]);
         choose(&mut game, "Play Crawling Barrens");
     }
     let turn = game.current["turn"].clone();
@@ -98,6 +99,7 @@ fn real_forge_foundations_mixed_land_can_explicitly_add_mana() {
     choose(&mut game, &action);
     assert_eq!(game.current["turn"], turn);
     assert_eq!(game.current["players"]["player"]["mana"], 1);
+    assert_eq!(game.current["players"]["player"]["manaByColor"]["C"], 1);
     assert!(zone(&game, "player", "battlefield")
         .iter()
         .any(|card| card["id"] == source && card["tapped"] == true));
@@ -136,13 +138,64 @@ fn real_forge_foundations_courtyard_uses_the_chosen_type_and_mana_color() {
     let action = restricted["label"].as_str().unwrap().to_owned();
     choose(&mut game, &action);
     assert_eq!(game.current["choices"].as_array().unwrap().len(), 5);
+    assert!(game.current["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|choice| choice["kind"] == "manaColor"));
     choose(&mut game, "green");
+    assert_eq!(game.current["players"]["player"]["manaByColor"]["G"], 1);
     let options = game.current["choices"].as_array().unwrap();
     assert!(!options
         .iter()
         .any(|choice| choice["label"] == "Cast Soul-Guide Lantern"));
     choose(&mut game, "Cast Llanowar Elves");
+    assert_eq!(game.current["players"]["player"]["manaByColor"]["G"], 0);
     assert!(zone(&game, "player", "battlefield")
         .iter()
         .any(|card| card["name"] == "Llanowar Elves"));
+}
+
+#[test]
+#[ignore = "requires Forge Desktop 2.0.13 and JDK 17"]
+fn real_forge_can_tap_a_basic_when_mana_is_the_only_play_and_inspect_it_before_passing() {
+    let mut game = practice_engine(Scenario::Deck, Some("[Main]\n20 Island\n"));
+    choose(&mut game, "Keep hand");
+    choose(&mut game, "Play Island");
+    assert_eq!(game.current["turn"], 1);
+    let source = activations(&game, "Island")[0];
+    let action = source["label"].as_str().unwrap().to_owned();
+    choose(&mut game, &action);
+    assert_eq!(game.current["phase"], "Precombat main phase");
+    assert_eq!(game.current["turn"], 1);
+    assert_eq!(
+        game.current["players"]["player"]["manaByColor"],
+        serde_json::json!({"W":0,"U":1,"B":0,"R":0,"G":0,"C":0})
+    );
+    assert_eq!(zone(&game, "player", "battlefield")[0]["tapped"], true);
+    assert!(game.current["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["endTurnId"].is_string()));
+    choose(&mut game, "Pass priority");
+    assert_eq!(game.current["players"]["player"]["mana"], 0);
+    assert_eq!(game.current["players"]["player"]["manaByColor"]["U"], 0);
+}
+
+#[test]
+#[ignore = "requires Forge Desktop 2.0.13 and JDK 17"]
+fn real_forge_dual_land_offers_its_two_colors_and_floats_the_selected_one() {
+    let mut game = practice_engine(Scenario::Position("priority-dual-land"), None);
+    let options = activations(&game, "Blossoming Sands");
+    assert_eq!(options.len(), 1);
+    assert_eq!(options[0]["manaAbility"], true);
+    let tap = options[0]["label"].as_str().unwrap().to_owned();
+    choose(&mut game, &tap);
+    let colors = game.current["choices"].as_array().unwrap();
+    assert_eq!(colors.len(), 2);
+    assert!(colors.iter().all(|c| c["kind"] == "manaColor"));
+    choose(&mut game, "white");
+    assert_eq!(game.current["players"]["player"]["manaByColor"]["W"], 1);
+    assert_eq!(game.current["players"]["player"]["manaByColor"]["G"], 0);
 }

@@ -115,6 +115,7 @@ export type Action =
   | { type: "keep"; seat: Seat; bottom: string[] }
   | { type: "move"; id: string; zone: Zone; position?: "top" | "bottom" }
   | { type: "tap" | "flip" | "faceDown" | "reveal" | "control"; id: string }
+  | { type: "tapMana"; id: string; mana: Mana; count: number }
   | { type: "untapAll" | "clearMana"; seat: Seat }
   | { type: "combat"; id: string; mark: Combat }
   | { type: "attach"; id: string; to: string | null }

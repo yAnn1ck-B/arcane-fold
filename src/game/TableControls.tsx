@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { defaultDestination } from "./engine";
 import {
   ArrowDown,
@@ -6,7 +6,6 @@ import {
   ChevronRight,
   ChevronsRight,
   Copy,
-  Droplet,
   Minus,
   Plus,
   Shield,
@@ -18,32 +17,23 @@ import {
   steps,
   turnPhases,
   type Action,
-  type Mana,
   type MatchView,
   type Seat,
   type StackEntry,
   type Zone,
 } from "./types";
-import { LifeValue, StackPanel, SwitchPlayer } from "./TableBoard";
+import { LifeValue, StackPanel } from "./TableBoard";
 import CardImage from "@/components/CardImage";
 import { CardReading, StackCardName } from "./CardPreview";
 import { CardArt, TableCard } from "./TableCards";
 import { OpeningHandDialog } from "./OpeningHandDialog";
+import { ManaPool } from "./ManaPool";
 
 interface ControlProps {
   view: MatchView;
   viewer: Seat;
   dispatch: (action: Action) => void;
 }
-
-const manaNames: Record<Mana, string> = {
-  W: "white",
-  U: "blue",
-  B: "black",
-  R: "red",
-  G: "green",
-  C: "colorless",
-};
 
 function cardName(view: MatchView, id: string) {
   const card = view.pieces[id];
@@ -105,62 +95,27 @@ export function ManualOpeningHand({
   onShuffle,
   imageCacheDir,
   required,
-  onSwitch,
-  onLeave,
   error,
 }: ControlProps & {
   onShuffle: PlayerOptions["onShuffle"];
   imageCacheDir: string;
   required: boolean;
-  onSwitch: () => void;
-  onLeave: () => void;
-  error?: string;
+  error?: ReactNode;
 }) {
   const seat = viewer;
   const player = view.players[seat];
   const [selection, setSelection] = useState<string[]>(
     player.openingBottom ?? [],
   );
-  const other = seat === 0 ? 1 : 0;
   const hand = player.zones.hand;
   const needed = player.mulligans;
   const bottom = selection.filter((id) => hand.includes(id));
-  const leave = (
-    <button type="button" className="pt-btn" onClick={onLeave}>
-      Leave manual game
-    </button>
-  );
-  const notice = error && (
-    <p className="notice notice-error" role="alert">
-      {error}
-    </p>
-  );
-  const switchSeat = <SwitchPlayer player={other + 1} onSwitch={onSwitch} />;
-  if (player.kept || !hand.length) {
-    const next = view.players[other];
-    if (!required || next.kept || !next.counts.hand) return null;
-    return (
-      <OpeningHandDialog
-        player={other + 1}
-        title="Pass the device"
-        prompt={`Player ${other + 1}, switch seats to see your opening hand.`}
-        switchSeat={leave}
-        actions={switchSeat}
-        error={notice}
-      />
-    );
-  }
+  if (player.kept || !hand.length) return null;
   return (
     <OpeningHandDialog
       player={seat + 1}
       required={required}
-      switchSeat={
-        <>
-          {switchSeat}
-          {leave}
-        </>
-      }
-      error={notice}
+      error={error}
       prompt={
         needed > 0
           ? `Choose ${needed} ${needed === 1 ? "card" : "cards"} to put on the bottom, in order (${bottom.length}/${needed}).`
@@ -336,60 +291,13 @@ export function PlayerControls(props: ControlProps & PlayerOptions) {
           </>
         )}
       </div>
-      <details className="ptc-mana">
-        <summary aria-label={`Mana pool: ${totalMana}`} data-hint="Mana pool">
-          <Droplet size={14} aria-hidden /> <b>{totalMana}</b>
-        </summary>
-        <div className="ptc-row">
-          {manaTypes.map((type) => (
-            <div key={type} className="ptc-mana-type">
-              {own && (
-                <button
-                  type="button"
-                  aria-label={`Spend ${manaNames[type]} mana`}
-                  title={`Spend ${manaNames[type]} mana`}
-                  disabled={player.mana[type] === 0}
-                  onClick={() =>
-                    dispatch({ type: "mana", seat, mana: type, delta: -1 })
-                  }
-                >
-                  <Minus size={12} />
-                </button>
-              )}
-              <span
-                className={`ptc-pip ptc-pip-${type}`}
-                title={manaNames[type]}
-              >
-                {type}
-              </span>
-              <b aria-label={`${player.mana[type]} ${manaNames[type]} mana`}>
-                {player.mana[type]}
-              </b>
-              {own && (
-                <button
-                  type="button"
-                  aria-label={`Add ${manaNames[type]} mana`}
-                  title={`Add ${manaNames[type]} mana`}
-                  onClick={() =>
-                    dispatch({ type: "mana", seat, mana: type, delta: 1 })
-                  }
-                >
-                  <Plus size={12} />
-                </button>
-              )}
-            </div>
-          ))}
-          {own && (
-            <button
-              type="button"
-              disabled={!totalMana}
-              onClick={() => dispatch({ type: "clearMana", seat })}
-            >
-              Clear pool
-            </button>
-          )}
-        </div>
-      </details>
+      <ManaPool
+        player={seat + 1}
+        amounts={player.mana}
+        total={totalMana}
+        onChange={own ? (mana, delta) => dispatch({ type: "mana", seat, mana, delta }) : undefined}
+        onClear={own ? () => dispatch({ type: "clearMana", seat }) : undefined}
+      />
     </section>
   );
 }

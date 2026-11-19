@@ -10,9 +10,29 @@ import {
   X,
 } from "lucide-react";
 import CardImage from "@/components/CardImage";
-import type { Action, MatchView, Seat, Zone } from "./types";
-import { seats } from "./types";
+import type { Action, Mana, MatchView, Seat, Zone } from "./types";
+import { manaTypes, seats } from "./types";
 import { CardReading, PreviewAnchor } from "./CardPreview";
+import { TapForMana } from "./ManaPool";
+
+const basicLandMana: Partial<Record<string, Mana>> = {
+  Plains: "W", Island: "U", Swamp: "B", Mountain: "R", Forest: "G", Wastes: "C",
+};
+
+// The manual table can record arbitrary mana effects. For simple printed tap abilities,
+// limit the quick picker to the colors the permanent actually offers.
+function printedManaColors(rules: string) {
+  const outputs = [...rules.matchAll(/\{T\}:\s*Add ([^.\n]+)\./gi)].map(match => match[1]);
+  const available = new Set<Mana>();
+  for (const output of outputs) {
+    if (/^one mana of any color$/i.test(output)) {
+      for (const color of manaTypes) if (color !== "C") available.add(color);
+    } else if (/^\{[WUBRGC]\}(?:(?:,? (?:or )?)\{[WUBRGC]\})*$/.test(output)) {
+      for (const color of manaTypes) if (output.includes(`{${color}}`)) available.add(color);
+    } else return undefined;
+  }
+  return available.size ? manaTypes.filter(color => available.has(color)) : undefined;
+}
 
 export function pieceName(view: MatchView, id: string) {
   const piece = view.pieces[id];
@@ -138,6 +158,10 @@ export function CardTile(
   const name = piece.faceDown ? "Face-down card" : pieceName(view, id);
   const catalog =
     !piece.faceDown && piece.printing ? view.catalog[piece.printing] : null;
+  const faceType = catalog?.typeLine.split("//")[piece.back ? 1 : 0];
+  const basicColor = catalog && /^Basic\b/.test(faceType ?? "") ? basicLandMana[catalog.name.replace(/^Snow-Covered /, "")] : undefined;
+  const hasBasicLandType = /\bLand\b.*\b(Plains|Island|Swamp|Mountain|Forest)\b/.test(faceType ?? "");
+  const manaSource = basicColor || hasBasicLandType || /\{T\}[^:\n]*:\s*Add\b/i.test(catalog?.oracleText ?? "");
   const stateLabels = [
     piece.tapped && "Tapped",
     piece.back && !piece.faceDown && "Back face",
@@ -187,7 +211,10 @@ export function CardTile(
       }
       quickAction={
         piece.controller === view.viewer &&
-        zone === "battlefield" && (
+        zone === "battlefield" && (manaSource && !piece.tapped ? (
+          <TapForMana name={name} basicColor={basicColor} colors={printedManaColors(catalog?.oracleText ?? "")} className="pt-quick"
+            onTap={(mana, count) => dispatch({ type: "tapMana", id, mana, count })} />
+        ) : (
           <button
             type="button"
             className="pt-quick"
@@ -196,7 +223,7 @@ export function CardTile(
           >
             {piece.tapped ? "Untap" : "Tap"}
           </button>
-        )
+        ))
       }
     />
   );
@@ -426,6 +453,10 @@ export function CardInspector({
                   <fieldset>
                     <legend>Permanent</legend>
                     <div className="pt-action-grid">
+                      {!piece.tapped && (
+                        <TapForMana name={pieceName(view, id)} className="pt-btn"
+                          onTap={(mana, count) => dispatch({ type: "tapMana", id, mana, count })} />
+                      )}
                       <button
                         className="pt-btn"
                         onClick={() => dispatch({ type: "tap", id })}

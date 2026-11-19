@@ -457,6 +457,15 @@ export function applyAction(previous: Match, action: Action): Match {
       card.tapped = !card.tapped;
       break;
     }
+    case "tapMana": {
+      const card = battlefieldPiece(state, action.id);
+      requireThat(!card.tapped, "This permanent is already tapped.");
+      requireThat(amount(action.count) > 0, "Choose a positive amount of mana.");
+      const pool = state.players[card.controller].mana;
+      pool[action.mana] = amount(pool[action.mana] + action.count);
+      card.tapped = true;
+      break;
+    }
     case "flip": {
       const card = piece(state, action.id);
       card.back = !card.back;

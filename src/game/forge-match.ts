@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HistoryEntry, Match } from "./types";
+import type { HistoryEntry, Mana, Match } from "./types";
 
 export type ForgeSeat = "player" | "opponent";
 
@@ -46,12 +46,15 @@ export interface ForgeCard {
 
 export interface ForgeChoice {
   id: string;
+  manaAbility?: boolean;
+  endTurnId?: string;
   label: string;
   kind:
     | "card"
     | "ability"
     | "type"
     | "name"
+    | "manaColor"
     | "target"
     | "pass"
     | "option"
@@ -64,6 +67,7 @@ export interface ForgeChoice {
 interface ForgePlayer {
   life: number;
   mana: number;
+  manaByColor?: Record<Mana, number>;
   libraryCount?: number;
   libraryTop?: ForgeCard;
   handCount: number;

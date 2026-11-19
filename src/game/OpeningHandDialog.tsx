@@ -6,20 +6,16 @@ import "./opening-hand.css";
 
 export function OpeningHandDialog({
   player,
-  title = "Opening hand",
   hand,
   prompt,
   actions,
-  switchSeat,
   required = true,
   error,
 }: {
   player: number;
-  title?: string;
   hand?: ReactNode;
   prompt?: string;
   actions: ReactNode;
-  switchSeat?: ReactNode;
   required?: boolean;
   error?: ReactNode;
 }) {
@@ -38,10 +34,9 @@ export function OpeningHandDialog({
   }
   return (
     <TableDialog
-      title={title}
+      title="Opening hand"
       subtitle={`Player ${player}`}
       className="pt-opening-dialog"
-      headerAction={switchSeat}
       closeLabel="View table"
       onClose={required ? undefined : () => setOpen(false)}
     >
@@ -64,8 +59,6 @@ export function ForgeOpeningHand({
   choices,
   onChoose,
   locked,
-  switchSeat,
-  priorityControl,
   error,
 }: {
   seat: ForgeSeat;
@@ -74,8 +67,6 @@ export function ForgeOpeningHand({
   choices: ForgeChoice[];
   onChoose: (choice: ForgeChoice) => void;
   locked: boolean;
-  switchSeat?: ReactNode;
-  priorityControl: ReactNode;
   error?: ReactNode;
 }) {
   return (
@@ -83,11 +74,9 @@ export function ForgeOpeningHand({
       player={seat === "player" ? 1 : 2}
       hand={hand}
       prompt={prompt}
-      switchSeat={switchSeat}
       error={error}
       actions={
         <>
-          {priorityControl}
           {choices.map((choice) => (
             <button
               type="button"

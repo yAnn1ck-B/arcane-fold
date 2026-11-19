@@ -1,19 +1,14 @@
-import { useLayoutEffect, useRef } from "react";
 import type { HistoryEntry } from "./types";
 
 export function GameHistory({ entries }: { entries: HistoryEntry[] }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    if (scroller.current)
-      scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [entries.length]);
+  const newestFirst = entries.slice().reverse();
   return (
-    <div className="pt-panel-body" ref={scroller}>
-      {entries.length ? (
-        <ol className="pt-game-log">
-          {entries.map((entry, index) => (
-            <li key={index}>
-              {entries[index - 1]?.turn !== entry.turn && (
+    <div className="pt-panel-body">
+      {newestFirst.length ? (
+        <ol className="pt-game-log" reversed>
+          {newestFirst.map((entry, index) => (
+            <li key={newestFirst.length - 1 - index}>
+              {newestFirst[index - 1]?.turn !== entry.turn && (
                 <h3>
                   {entry.turn > 0 ? `Turn ${entry.turn}` : "Opening hands"}
                 </h3>

@@ -174,11 +174,7 @@ final class ForgeManual {
                 }
             }
         }
-        var mana = new LinkedHashMap<String, Integer>();
-        for (byte color : forge.card.MagicColor.WUBRGC) {
-            mana.put(forge.card.MagicColor.toShortString(color), p.getManaPool().getAmountOfColor(color));
-        }
-        var out = new LinkedHashMap<String, Object>(Map.of("deckName", deckName, "life", p.getLife(), "zones", piles, "mana", mana,
+        var out = new LinkedHashMap<String, Object>(Map.of("deckName", deckName, "life", p.getLife(), "zones", piles, "mana", ForgeMatch.manaByColor(p),
                 "mulligans", mulligans, "kept", kept, "counters", counters(p)));
         if (bottom != null && !bottom.isEmpty()) out.put("openingBottom", bottom.stream().map(this::id).toList());
         return out;

@@ -430,6 +430,19 @@ fn offered_action(state: &Value, action: &str) -> bool {
     false
 }
 
+fn offers_end_turn(state: &Value, action: &str, pending_stop: Option<&str>) -> bool {
+    let Some(actor) = state["actor"].as_str() else {
+        return false;
+    };
+    let stop = pending_stop.or_else(|| state["priorityStops"][actor].as_str());
+    (stop == Some("auto") || state["phase"] == "Ending phase")
+        && state["choices"].as_array().is_some_and(|choices| {
+            choices.iter().any(|choice| {
+                choice["kind"] == "pass" && choice["endTurnId"].as_str() == Some(action)
+            })
+        })
+}
+
 impl Drop for Engine {
     fn drop(&mut self) {
         // Reap before TempDir removes open files, especially on Windows.
@@ -475,7 +488,10 @@ impl Table {
         } else {
             viewer == Seat::Player
         };
-        if !can_act || !offered_action(snapshot, action) {
+        if !can_act
+            || !(offered_action(snapshot, action)
+                || offers_end_turn(snapshot, action, stops[viewer.index()].as_deref()))
+        {
             return Err("That choice is no longer available to this player.".into());
         }
         match engine.next_state(Some(&replay::action_with_stops(action, stops)), cancelled) {
@@ -1097,8 +1113,8 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|c| c["label"] == label)
-                .unwrap()["id"]
+                .find(|c| c["label"] == label || (label == "End turn" && c["endTurnId"].is_string()))
+                .unwrap()[if label == "End turn" { "endTurnId" } else { "id" }]
                 .as_str()
                 .unwrap();
             table
@@ -1118,11 +1134,16 @@ mod tests {
             play(&mut table, Seat::Player, "Pass priority")["phase"],
             "Postcombat main phase"
         );
-        let next_turn = play(&mut table, Seat::Player, "Play Forest");
+        let landed = play(&mut table, Seat::Player, "Play Forest");
+        assert!(landed["choices"]
+            .as_array().unwrap().iter()
+            .any(|c| c["manaAbility"] == true));
+        let next_turn = play(&mut table, Seat::Player, "End turn");
         assert_eq!(next_turn["turn"], 2);
         assert_eq!(next_turn["actor"], "opponent");
         assert_eq!(next_turn["active"], "opponent");
-        let next_turn = play(&mut table, Seat::Opponent, "Play Mountain");
+        play(&mut table, Seat::Opponent, "Play Mountain");
+        let next_turn = play(&mut table, Seat::Opponent, "End turn");
         assert_eq!(next_turn["turn"], 3);
         assert_eq!(next_turn["actor"], "player");
         assert_eq!(
@@ -1134,7 +1155,8 @@ mod tests {
             "Mountain"
         );
 
-        let end = play(&mut table, Seat::Player, "Play Forest");
+        play(&mut table, Seat::Player, "Play Forest");
+        let end = play(&mut table, Seat::Player, "End turn");
         assert_eq!(end["stage"], "finished");
         assert!(matches!(table, Table::Finished(_)));
         let end_other = table.view(Seat::Opponent).unwrap();

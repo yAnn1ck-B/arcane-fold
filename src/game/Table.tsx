@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eye, EyeOff, Library, Search, SquarePlus } from "lucide-react";
+import { Eye, Library, Search, SquarePlus } from "lucide-react";
 import type { AppSettings } from "@/lib/types";
 import { prepareShuffle, projectMatch } from "./engine";
 import {
@@ -14,7 +14,6 @@ import {
   seats,
   type Action,
   type Match,
-  type MatchView,
   type Seat,
   type Zone,
 } from "./types";
@@ -26,6 +25,7 @@ import {
   type MatchTools,
 } from "./TableBoard";
 import { TableDialog } from "./TableDialog";
+import { battlefieldGroup } from "./battlefield";
 
 type Dispatch = (action: Action) => void;
 const pileZones = ["library", "hand", "graveyard", "exile", "command"] as const;
@@ -45,73 +45,35 @@ export default function Table({
   dispatch,
   matchTools,
   initialViewer,
-  initialHandoff = false,
   requiredOpening,
-  openingError,
 }: {
   match: Match;
   settings: AppSettings;
   dispatch: Dispatch;
   matchTools: MatchTools;
   initialViewer?: Seat;
-  initialHandoff?: boolean;
   requiredOpening: boolean;
-  openingError?: string;
 }) {
-  const [viewer, setViewer] = useState<Seat>(initialViewer ?? match.active);
-  const [handoff, setHandoff] = useState(initialHandoff);
-  const [looked, setLooked] = useState<ReadonlySet<string>>(new Set());
-  const changeSeat = () => {
-    setHandoff(true);
-    setViewer(viewer === 0 ? 1 : 0);
-    setLooked(new Set());
-  };
-  if (handoff) {
-    return (
-      <section className="pt-handoff" aria-labelledby="pt-handoff-title">
-        <EyeOff size={26} aria-hidden />
-        <h2 id="pt-handoff-title">Pass to Player {viewer + 1}</h2>
-        <button
-          type="button"
-          className="pt-btn pt-primary"
-          autoFocus
-          onClick={() => setHandoff(false)}
-        >
-          <Eye size={16} aria-hidden /> Reveal hand
-        </button>
-        <button
-          type="button"
-          className="pt-link"
-          disabled={matchTools.leaveDisabled}
-          onClick={matchTools.onLeave}
-        >
-          {matchTools.leaveLabel}
-        </button>
-      </section>
-    );
-  }
+  const needsHand = (seat: Seat) => !match.players[seat].kept && match.players[seat].zones.hand.length > 0;
+  const opening = requiredOpening && seats.some(needsHand);
+  const [selection, setSelection] = useState({
+    turn: match.turn,
+    seat: opening ? match.active : match.handoffDecision?.seat ?? initialViewer ?? match.active,
+  });
+  const preferred = selection.turn === match.turn ? selection.seat : match.active;
+  const first = initialViewer ?? preferred;
+  const openingSeat = needsHand(first) ? first : first === 0 ? 1 : 0;
+  const viewer = opening ? openingSeat : preferred;
   return (
     <TableView
       key={viewer}
-      view={projectMatch(match, viewer, looked)}
+      match={match}
       matchTools={matchTools}
       requiredOpening={requiredOpening}
-      openingError={openingError}
       viewer={viewer}
       dispatch={dispatch}
       imageCacheDir={settings.forge.imageCacheDir}
-      changeSeat={changeSeat}
-      onLook={(count) =>
-        setLooked(
-          new Set(
-            projectMatch(match, viewer, count).players[viewer].zones.library,
-          ),
-        )
-      }
-      onShuffle={(seat, mulligan) => {
-        setLooked(new Set());
-        dispatch(prepareShuffle(match, seat, mulligan));
-      }}
+      changeSeat={() => setSelection({ turn: match.turn, seat: viewer === 0 ? 1 : 0 })}
     />
   );
 }
@@ -119,28 +81,31 @@ export default function Table({
 interface TableViewProps {
   matchTools: MatchTools;
   requiredOpening: boolean;
-  openingError?: string;
-  view: MatchView;
+  match: Match;
   viewer: Seat;
   dispatch: Dispatch;
   imageCacheDir: string;
   changeSeat: () => void;
-  onLook: (count: number) => void;
-  onShuffle: (seat: Seat, mulligan?: boolean) => void;
 }
 
 function TableView({
   matchTools,
   requiredOpening,
-  openingError,
-  view,
+  match,
   viewer,
   dispatch,
   imageCacheDir,
   changeSeat,
-  onLook,
-  onShuffle,
 }: TableViewProps) {
+  const [looked, setLooked] = useState<ReadonlySet<string>>(new Set());
+  const view = projectMatch(match, viewer, looked);
+  function onLook(count: number) {
+    setLooked(new Set(projectMatch(match, viewer, count).players[viewer].zones.library));
+  }
+  function onShuffle(seat: Seat, mulligan?: boolean) {
+    setLooked(new Set());
+    dispatch(prepareShuffle(match, seat, mulligan));
+  }
   const [selected, select] = useState<string | null>(null);
   const [pile, setPile] = useState<Pile | null>(null);
   const [query, setQuery] = useState("");
@@ -199,12 +164,12 @@ function TableView({
   return (
     <TableBoard
       label="Manual game"
+      switchPlayer={<SwitchPlayer player={other + 1} onSwitch={changeSeat} />}
       matchTools={matchTools}
       stackCount={view.stack.length}
       toolbar={
         <>
           <TurnControls {...common} />
-          <SwitchPlayer player={other + 1} onSwitch={changeSeat} />
           {view.handoffDecision && (
             <details className="pt-pending-decision" open>
               <summary>Pending decision · P{viewer + 1}</summary>
@@ -300,12 +265,22 @@ function TableView({
                 </form>
               )
             }
-            cards={player.zones.battlefield.map((id) =>
-              renderTile(id, "battlefield"),
-            )}
+            cards={player.zones.battlefield.map((id) => {
+              const piece = view.pieces[id];
+              return {
+                group: battlefieldGroup({
+                  typeLine: piece.printing ? view.catalog[piece.printing]?.typeLine : undefined,
+                  back: piece.back,
+                  faceDown: piece.faceDown,
+                  power: piece.power,
+                }),
+                tile: renderTile(id, "battlefield"),
+              };
+            })}
           />
         );
       })}
+      handLabel={`Player ${viewer + 1} hand`}
       handCount={view.players[viewer].counts.hand}
       hand={
         reviewingOpening
@@ -322,10 +297,8 @@ function TableView({
         {...common}
         imageCacheDir={imageCacheDir}
         onShuffle={onShuffle}
-        onSwitch={changeSeat}
         required={requiredOpening}
-        onLeave={matchTools.onLeave}
-        error={openingError}
+        error={matchTools.openingRecovery}
       />
       {pile && (
         <TableDialog
