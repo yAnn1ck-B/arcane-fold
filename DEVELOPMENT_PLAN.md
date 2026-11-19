@@ -20,7 +20,7 @@ Use the built-in rules and permanent start timestamp `1794847589` for every play
 
 ## Play
 
-Players choose a saved deck or a Foundations practice deck from the Play dropdown. Yannick and Jef share one current game from creation through completion. Existing unfinished positions remain available to resume. Forge 2.0.13 runs on the host and handles actions, priority and private decisions. Keep hand visibility, controls and the board scoped to the requesting seat. Players can resume a game after reloading, concede during play and review the final result.
+Players choose a saved deck or a Foundations practice deck from the Play dropdown. Each player can host or play in one current game at a time. The lobby lists open games by host and lets separate pairs play in parallel. Existing unfinished positions remain available to resume. Forge 2.0.13 runs on the host and handles actions, priority and private decisions. Keep hand visibility, controls and the board scoped to the requesting seat. Players can resume a game after reloading, concede during play and review the final result.
 
 A rewind or switch to manual play requires both players’ consent during a running game. Save the new position and its revision together, retaining the public history. Manual play supports zones, life, mana, counters, tokens, attachments, stack entries and turn changes. A game issue report captures the reporting seat’s visible state and the exact server position.
 

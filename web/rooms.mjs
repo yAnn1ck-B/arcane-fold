@@ -14,21 +14,19 @@ const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const engines = new Map();
 const seatFor = (room, player) => room.host === player ? 'player' : 'opponent';
 const seatNames = room => ({player:room.host_name ?? 'Host', opponent:room.guest_name ?? 'Guest'});
-// With exactly one other account, the host can see who can fill the open seat.
-const waitingForName = `CASE WHEN r.status='waiting' AND r.guest IS NULL AND h.email IS NOT NULL
-  THEN (SELECT CASE WHEN count(*)=1 THEN min(name) END FROM web_accounts WHERE email<>h.email)
-  END AS waiting_for_name`;
 function summary(room, player) {
   return { id: room.id, status: room.status, label: room.label, revision: room.revision,
-    seat: seatFor(room, player), seatNames:seatNames(room), waitingForName:room.waiting_for_name ?? null };
+    seat: seatFor(room, player), seatNames:seatNames(room) };
 }
 export async function lobby(player, db = pool) {
   const { rows } = await db.query(`SELECT r.id,r.status,r.label,r.revision,r.host,r.guest,r.updated_at,r.paused_at,
-    c.id IS NOT NULL AS current,h.name AS host_name,g.name AS guest_name,${waitingForName}
+    host_seat.room_id IS NOT NULL AS current,h.name AS host_name,g.name AS guest_name
     FROM web_rooms r LEFT JOIN web_accounts h ON h.player_id=r.host LEFT JOIN web_accounts g ON g.player_id=r.guest
-    LEFT JOIN web_current_game c ON c.id=r.id
+    LEFT JOIN web_live_room_seats host_seat ON host_seat.room_id=r.id AND host_seat.player_id=r.host
+    LEFT JOIN web_live_room_seats viewer_seat ON viewer_seat.player_id=$1
     WHERE r.archived_at IS NULL AND r.superseded_by IS NULL
-      AND ((r.status<>'waiting' AND (r.host=$1 OR r.guest=$1)) OR c.id=r.id)
+      AND (((r.host=$1 OR r.guest=$1) AND (r.status<>'waiting' OR host_seat.room_id IS NOT NULL))
+        OR (r.status='waiting' AND host_seat.room_id IS NOT NULL AND h.player_id IS NOT NULL AND viewer_seat.room_id IS NULL))
     ORDER BY r.updated_at DESC,r.id`, [player]);
   const rooms = [], openRooms = [];
   for (const room of rows) {
@@ -39,19 +37,22 @@ export async function lobby(player, db = pool) {
   }
   return { rooms, openRooms, decks: await playDeckOptions(db, player) };
 }
-async function lockLobby(db) {
-  // Serialize create, join and resume even when the shared lobby is empty.
-  await db.query('SELECT pg_advisory_xact_lock(hashtext(current_schema()), 347120)');
-  const {rows:[current]} = await db.query('SELECT * FROM web_current_game');
+async function lockPlayers(db, players) {
+  // Use the same order in all lobby mutations. Room actions can still update
+  // their own rooms while different players are starting a game.
+  const { rows: keys } = await db.query(`SELECT DISTINCT hashtext(player_id::text) AS key
+    FROM unnest($1::uuid[]) AS members(player_id) ORDER BY key`, [players]);
+  for (const {key} of keys) await db.query('SELECT pg_advisory_xact_lock(hashtext(current_schema()),$1)', [key]);
+}
+async function currentRoom(db, player) {
+  const {rows:[current]} = await db.query('SELECT room_id AS id FROM web_live_room_seats WHERE player_id=$1',[player]);
   return current;
 }
 export function createRoom(player, deckId, database = pool) {
   return transaction(async db => {
-    const current = await lockLobby(db);
-    if (current) {
-      if (current.host === player || current.guest === player) return {id:current.id};
-      reject(409, 'A game is already open. Choose Join game in the lobby.');
-    }
+    await lockPlayers(db, [player]);
+    const current = await currentRoom(db, player);
+    if (current) return current;
     const deck = await getPlayableDeck(db, player, deckId);
     if (!deck) reject(400, 'Choose a playable deck.');
     const id = randomUUID();
@@ -61,16 +62,34 @@ export function createRoom(player, deckId, database = pool) {
     return {id};
   }, database);
 }
+export function cancelRoom(player, id, database = pool) {
+  if (!uuid.test(id)) reject(404,'Game unavailable.');
+  return transaction(async db => {
+    await lockPlayers(db, [player]);
+    const {rows:[room]} = await db.query(`SELECT status,guest,archived_at,superseded_by
+      FROM web_rooms WHERE id=$1 AND host=$2 FOR UPDATE`, [id,player]);
+    if (!room) reject(404,'Game unavailable.');
+    if (room.status !== 'waiting' || room.guest || room.superseded_by) reject(409,'This game is no longer waiting.');
+    if (!room.archived_at) await db.query('UPDATE web_rooms SET archived_at=now() WHERE id=$1',[id]);
+    return {id};
+  }, database);
+}
 export function resumeRoom(player, id, database = pool) {
   if (!uuid.test(id)) reject(404,'Game unavailable.');
   return transaction(async db => {
-    const current = await lockLobby(db);
-    const {rows:[room]} = await db.query(
-      'SELECT status,paused_at FROM web_rooms WHERE id=$1 AND archived_at IS NULL AND (host=$2 OR guest=$2) FOR UPDATE', [id,player]);
+    const select = `SELECT host,guest,status,paused_at FROM web_rooms
+      WHERE id=$1 AND archived_at IS NULL AND superseded_by IS NULL AND (host=$2 OR guest=$2)`;
+    const {rows:[saved]} = await db.query(select, [id,player]);
+    if (!saved) reject(404,'Game unavailable.');
+    if (saved.status !== 'playing' || !saved.guest) reject(409,'This game is no longer in progress.');
+    await lockPlayers(db, [saved.host,saved.guest]);
+    const {rows:[room]} = await db.query(select + ' FOR UPDATE', [id,player]);
     if (!room) reject(404,'Game unavailable.');
     if (room.status !== 'playing') reject(409,'This game is no longer in progress.');
     if (!room.paused_at) return {id};
-    if (current) reject(409,'Finish the current game before resuming an earlier game.');
+    if (await currentRoom(db, player)) reject(409,'Finish your current game before resuming an earlier game.');
+    const opponent = room.host === player ? room.guest : room.host;
+    if (await currentRoom(db, opponent)) reject(409,'Your opponent is already in a current game.');
     await db.query('UPDATE web_rooms SET paused_at=NULL WHERE id=$1',[id]);
     return {id};
   }, database);
@@ -134,25 +153,25 @@ async function mutate(work, database = pool) {
 export async function joinRoom(player, roomId, deckId, database = pool) {
   if (typeof roomId !== 'string' || !uuid.test(roomId)) reject(404, 'Game unavailable.');
   return mutate(async (db, track) => {
-    const current = await lockLobby(db);
-    const { rows: [room] } = await db.query('SELECT * FROM web_rooms WHERE id=$1 AND archived_at IS NULL FOR UPDATE', [roomId]);
+    const {rows:[target]} = await db.query('SELECT host FROM web_rooms WHERE id=$1 AND archived_at IS NULL', [roomId]);
+    if (!target) reject(404, 'Game unavailable.');
+    await lockPlayers(db, [player,target.host]);
+    const {rows:[room]} = await db.query(`SELECT r.*, EXISTS(SELECT 1 FROM web_accounts a WHERE a.player_id=r.host) AS host_registered
+      FROM web_rooms r WHERE r.id=$1 AND r.archived_at IS NULL FOR UPDATE OF r`, [roomId]);
     if (!room) reject(404, 'Game unavailable.');
     if (room.superseded_by) reject(409, 'This game is closed. Return to the lobby to choose an open game.');
     if (room.paused_at) reject(409, 'This earlier game is saved. Resume it from the lobby.');
     if (room.host === player) reject(409, 'You already host this game.');
     if (room.guest === player) return { id: room.id };
     if (room.guest || room.status !== 'waiting') reject(409, 'This game is no longer open.');
-    if (current?.id !== room.id) reject(409, 'Another game is current. Return to the lobby.');
+    if (!room.host_registered || (await currentRoom(db, room.host))?.id !== room.id) reject(404, 'Game unavailable.');
+    if (await currentRoom(db, player)) reject(409, 'You already have a current game.');
     const deck = await getPlayableDeck(db, player, deckId);
     if (!deck) reject(400, 'Choose a playable deck.');
     const engine = await startForgeGame(db, room, player, deck.text);
     track(room, engine);
     await db.query("UPDATE web_rooms SET guest=$2,guest_deck=$3,label=label || ' vs. ' || $4 WHERE id=$1", [room.id, player, deck.text, deck.name]);
     await savePosition(db, room, engine);
-    // A previously anonymous browser can claim its old waiting game after a
-    // migration. Close any such unused reservation as this pair begins play.
-    await db.query(`UPDATE web_rooms SET superseded_by=$1 WHERE id<>$1 AND host IN ($2,$3)
-      AND archived_at IS NULL AND status='waiting' AND guest IS NULL AND superseded_by IS NULL`, [room.id,room.host,player]);
     return { id: room.id };
   }, database);
 }
@@ -186,7 +205,7 @@ export async function readSeatPosition(db, id, player) {
   // rewind can retire the old timeline while a browser is polling.
   const { rows:[room] } = await db.query(`SELECT r.id,r.status,r.label,r.revision,r.host,r.guest,
     r.mode,r.pending_request,r.control_version,r.last_resolution,r.superseded_by,r.paused_at,p.outcome,
-    h.name AS host_name,g.name AS guest_name,${waitingForName},
+    h.name AS host_name,g.name AS guest_name,
     CASE WHEN r.host=$2 THEN p.player ELSE p.opponent END AS state,
     EXISTS(SELECT 1 FROM web_positions prior WHERE prior.room_id=r.id AND prior.mode=r.mode
       AND prior.retired_at IS NULL AND prior.revision<r.revision) AS undoable

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -44,6 +44,17 @@ test('seeded logins survive migrations, retain legacy progress and isolate brows
   assert.ok(seeded.every(row => row.password_hash !== yannick.password && row.password_hash !== jef.password));
   await seedAccounts(db, file);
   assert.deepEqual(await accounts(), seeded);
+
+  const additional = { email: 'mara@arcane-fold.test', password: randomBytes(15).toString('base64url') };
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(additional.password, salt, 32).toString('hex');
+  await db.query('INSERT INTO web_accounts(email,name,password_hash) VALUES($1,$2,$3)',
+    [additional.email, 'Mara', salt + ':' + hash]);
+  await assert.rejects(signIn(db, additional, { local: true }), { status: 401 });
+  await assert.rejects(signIn(db, { ...additional, password: jef.password }), { status: 401 });
+  const added = await signIn(db, additional);
+  assert.deepEqual(added.user, { name: 'Mara', email: additional.email });
+  assert.equal((await activeAccount(db, added.token)).player_id, added.playerId);
 
   const legacyToken = randomBytes(32).toString('hex');
   const legacyPlayer = randomUUID();

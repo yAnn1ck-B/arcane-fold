@@ -40,7 +40,7 @@ function Lobby({ onRoom, leagueRevision }: { onRoom: (id: string) => void; leagu
   const deck = decks.find(item => item.id === selection && !item.unavailableReason) ?? decks.find(item => !item.unavailableReason);
   const saved = decks.filter(item => !item.practice);
   const current = session?.rooms.find(room => room.current);
-  const open = session?.openRooms[0];
+  const openRooms = session?.openRooms ?? [];
   const earlier = session?.rooms.filter(room => !room.current && room.status === "playing") ?? [];
   const finished = session?.rooms.filter(room => room.status === "finished") ?? [];
 
@@ -69,14 +69,14 @@ function Lobby({ onRoom, leagueRevision }: { onRoom: (id: string) => void; leagu
     };
   }, [leagueRevision, refresh]);
 
-  async function enterGame(path: string, body: object) {
+  async function roomAction(path: string, body: object, onSuccess = onRoom) {
     if (submitting.current) return;
     submitting.current = true;
     setBusy(true);
     setError("");
     try {
       const result = await roomRequest<{ id: string }>(path, body);
-      onRoom(result.id);
+      onSuccess(result.id);
     } catch (cause) {
       setError(errorMessage(cause));
       setRefresh(value => value + 1);
@@ -84,6 +84,13 @@ function Lobby({ onRoom, leagueRevision }: { onRoom: (id: string) => void; leagu
       submitting.current = false;
       setBusy(false);
     }
+  }
+
+  function closeOpenGame(id: string) {
+    void roomAction(`${roomPath(id)}/cancel`, {}, (closedId) => {
+      setSession(previous => previous && {...previous, rooms:previous.rooms.filter(room => room.id !== closedId)});
+      setRefresh(value => value + 1);
+    });
   }
 
   return (
@@ -94,13 +101,19 @@ function Lobby({ onRoom, leagueRevision }: { onRoom: (id: string) => void; leagu
       {!session && !loadError && <p role="status">Loading games…</p>}
       {session && <>
         <section className="panel web-setup" aria-labelledby="table-heading">
-          <h2 id="table-heading"><Swords aria-hidden size={21} /> {current ? "Current game" : open ? `${open.hostName}’s open game` : "Play with a friend"}</h2>
+          <h2 id="table-heading"><Swords aria-hidden size={21} /> {current ? "Current game" : "Play with a friend"}</h2>
           {current ? <>
             <div><strong>{current.label}</strong>
-              <p>{current.status === "waiting" ? `Waiting for ${current.waitingForName ?? "opponent"}…`
+              <p>{current.status === "waiting" ? "Waiting for opponent"
                 : `${current.seatNames.player} vs. ${current.seatNames.opponent}`}</p>
             </div>
-            <Button onClick={() => onRoom(current.id)}>{current.status === "waiting" ? "Return to open game" : "Continue game"} <ArrowRight size={16} /></Button>
+            <div className="web-room-actions">
+              <Button disabled={busy} onClick={() => onRoom(current.id)}>
+                {current.status === "waiting" ? "Return to open game" : "Continue game"} <ArrowRight size={16} aria-hidden />
+              </Button>
+              {current.status === "waiting" && <Button variant="outline" disabled={busy}
+                onClick={() => closeOpenGame(current.id)}>Close open game</Button>}
+            </div>
           </> : <div className="web-table-setup">
             <label className="web-field">Choose your deck
               <select value={deck?.id ?? ""} disabled={busy} onChange={event => setSelection(event.target.value)}>
@@ -117,22 +130,41 @@ function Lobby({ onRoom, leagueRevision }: { onRoom: (id: string) => void; leagu
                 </optgroup>
               </select>
             </label>
-            {open ? <Button disabled={busy || !deck} onClick={() => void enterGame("/join",{roomId:open.id,deckId:deck?.id})}>Join game <ArrowRight size={16} /></Button>
-              : <Button disabled={busy || !deck} onClick={() => void enterGame("/rooms",{deckId:deck?.id})}><Plus size={16} /> Create game</Button>}
+            <Button disabled={busy || !deck} onClick={() => void roomAction("/rooms",{deckId:deck?.id})}>
+              <Plus size={16} aria-hidden /> Create game
+            </Button>
           </div>}
         </section>
         {error && <p role="alert" className="notice notice-error">{error}</p>}
+        {!current && openRooms.length > 0 && (
+          <section className="panel web-rooms web-open-rooms" aria-labelledby="open-games-heading">
+            <h2 id="open-games-heading">Open games</h2>
+            <ul>
+              {openRooms.map(room => (
+                <li key={room.id}>
+                  <div><strong>{room.hostName}’s game</strong>
+                    <span>{new Date(room.openedAt).toLocaleString(undefined,{dateStyle:"short",timeStyle:"short"})}</span>
+                  </div>
+                  <Button variant="outline" disabled={busy || !deck} aria-label={`Join game hosted by ${room.hostName}`}
+                    onClick={() => void roomAction("/join",{roomId:room.id,deckId:deck?.id})}>
+                    Join game <ArrowRight size={15} aria-hidden />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {[{title:"Earlier unfinished games", rooms:earlier}, {title:"Finished games", rooms:finished}].map(group =>
           group.rooms.length > 0 && <details key={group.title} className="panel web-rooms">
             <summary>{group.title} ({group.rooms.length})</summary>
-            {group.rooms.some(room => room.paused) && (current || open) &&
-              <p>Finish the current game to resume a saved game.</p>}
+            {group.rooms.some(room => room.paused) && current &&
+              <p>{current.status === "waiting" ? "Close your open game to resume a saved game." : "Finish your current game to resume a saved game."}</p>}
             <ul>{group.rooms.map(room => <li key={room.id}>
               <div><strong>{room.label || "Game"}</strong>
                 <span>{room.seatNames.player} vs. {room.seatNames.opponent} · {new Date(room.updatedAt).toLocaleString(undefined,{dateStyle:"short",timeStyle:"short"})}</span>
               </div>
-              <Button variant="outline" disabled={busy || (room.paused && !!(current || open))}
-                onClick={() => room.paused ? void enterGame(`${roomPath(room.id)}/resume`,{}) : onRoom(room.id)}>
+              <Button variant="outline" disabled={busy || (room.paused && !!current)}
+                onClick={() => room.paused ? void roomAction(`${roomPath(room.id)}/resume`,{}) : onRoom(room.id)}>
                 {room.status === "finished" ? "View result" : "Resume game"} <ArrowRight size={15} />
               </Button>
             </li>)}</ul>

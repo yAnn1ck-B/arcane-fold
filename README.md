@@ -18,7 +18,7 @@ Open **Deck builder** to create or edit a deck. Changes save automatically to yo
 
 Open **Play** and use the deck dropdown to choose one of your saved decks or a Foundations practice deck. Both players can use the read-only green **Elves** and red **Burn** decks. These 30-card practice decks stay out of the deck builder and collection.
 
-Choose **Create game** to host. Your opponent chooses a deck and selects **Join game** in the lobby. The game randomly chooses who plays first. You share one current game, from waiting for an opponent through the final turn. Each player sees their own hand and makes their own decisions. The lobby keeps finished games available for review and preserves earlier unfinished games for later.
+Choose **Create game** to host, or choose a deck and select **Join game** next to a host under **Open games**. Each player can host or play in one current game at a time, and separate pairs can play in parallel. A host can cancel a game while waiting for an opponent. The game randomly chooses who plays first. Each player sees their own hand and makes their own decisions. The lobby keeps finished games available for review and preserves earlier unfinished games for later.
 
 Forge normally asks for decisions when there is a play or response to make. On your opponent’s turn, **Pass Turn** skips routine empty-stack priority prompts for the rest of that turn. Forge still pauses for available stack responses, priority stops and required decisions such as declaring blockers. Open **Priority stops** in the three-dot menu to add manual stops on your turns, your opponent’s turns or both. **Select all** and **Clear all** apply to both columns. Checked stops repeat each turn. Your choices carry over to new games, even if you switch seats.
 

@@ -6,7 +6,6 @@ interface RoomSummary {
   status: "waiting" | "playing" | "finished";
   seat: ForgeSeat;
   seatNames: Record<ForgeSeat, string>;
-  waitingForName: string | null;
   label: string;
 }
 

@@ -84,11 +84,12 @@ export async function signIn(db, body, { local = false, previousToken, legacyTok
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   const { rows: [account] } = await db.query('SELECT * FROM web_accounts WHERE email=$1 FOR UPDATE', [email]);
   let valid = false;
-  if (account && accounts.some(builtIn => builtIn.email === email)) {
-    if (local) valid = true;
+  if (account) {
+    if (local) valid = accounts.some(builtIn => builtIn.email === email);
     else if (typeof body.password === 'string' && body.password.length > 0 && body.password.length <= 256) {
       const [salt, hash] = account.password_hash.split(':');
-      valid = timingSafeEqual(await derive(body.password, salt, 32), Buffer.from(hash, 'hex'));
+      const expected = Buffer.from(hash ?? '', 'hex');
+      valid = !!salt && expected.length === 32 && timingSafeEqual(await derive(body.password, salt, 32), expected);
     }
   }
   if (!valid) throw Object.assign(new Error('Incorrect email or password.'), { status: 401 });

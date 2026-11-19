@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import pg from 'pg';
 import { localTestPlayers } from './fixtures/players.mjs';
-import { applyMove, changeRequest, closeGames, createRoom, joinRoom, lobby, readSeatPosition, recordSeatReport, resumeRoom, roomHistory } from './rooms.mjs';
+import { applyMove, cancelRoom, changeRequest, closeGames, createRoom, joinRoom, lobby, readSeatPosition, recordSeatReport, resumeRoom, roomHistory } from './rooms.mjs';
 
 test('the lobby exposes joinable seats and keeps decks and occupied games private', {
   skip: !process.env.DATABASE_URL && !process.env.PGDATABASE,
@@ -20,11 +20,12 @@ test('the lobby exposes joinable seats and keeps decks and occupied games privat
       await db.query(await readFile(new URL(file, import.meta.url), 'utf8'));
     }
     const { yannick, jef } = await localTestPlayers(db);
-    const legacyPlayer = randomUUID();
-    await db.query('INSERT INTO web_players(id,session_hash) VALUES($1,$2)', [legacyPlayer, randomUUID()]);
+    const legacyPlayer = randomUUID(), otherPlayer = randomUUID();
+    await db.query('INSERT INTO web_players(id,session_hash) VALUES($1,$2),($3,$4)',
+      [legacyPlayer,randomUUID(),otherPlayer,randomUUID()]);
     const waiting = randomUUID(), full = randomUUID(), finished = randomUUID(), own = randomUUID();
     for (const [id, host, guest, status] of [
-      [waiting, yannick, null, 'waiting'], [full, yannick, legacyPlayer, 'playing'],
+      [waiting, yannick, null, 'waiting'], [full, otherPlayer, legacyPlayer, 'playing'],
       [finished, legacyPlayer, yannick, 'finished'], [own, jef, legacyPlayer, 'finished'],
     ]) {
       await db.query(`INSERT INTO web_rooms(id,invite_code,host,guest,host_deck,label,seed,status)
@@ -38,7 +39,9 @@ test('the lobby exposes joinable seats and keeps decks and occupied games privat
     assert.equal(table.hostName, 'Yannick');
     assert.deepEqual(view.rooms.map(room => room.id), [own]);
     assert.equal(view.rooms[0].current,false);
-    assert.equal((await readSeatPosition(db,waiting,yannick)).waitingForName,'Jef');
+    const ownView = await readSeatPosition(db,waiting,yannick);
+    assert.equal(ownView.status,'waiting');
+    assert.equal(Object.hasOwn(ownView,'waitingForName'),false);
     await assert.rejects(readSeatPosition(db, waiting, jef), { status: 404 });
 
     await db.query("UPDATE web_rooms SET guest=$2, status='playing' WHERE id=$1", [waiting, jef]);
@@ -69,7 +72,15 @@ async function lobbyDatabase(t) {
   return {db, schemaSql, ...await localTestPlayers(db)};
 }
 
-test('the pair shares a current game and older waiting games and unfinished boards survive migration', {
+async function registeredPlayer(db, name) {
+  const id = randomUUID();
+  await db.query('INSERT INTO web_players(id,session_hash) VALUES($1,$2)', [id,'account:'+id]);
+  await db.query("INSERT INTO web_accounts(email,name,password_hash,player_id) VALUES($1,$2,'fixture',$3)",
+    [`${id}@arcane-fold.test`,name,id]);
+  return id;
+}
+
+test('migration keeps disjoint invitations and preserves older overlapping boards and invitations', {
   skip: !process.env.DATABASE_URL && !process.env.PGDATABASE,
 }, async t => {
   const {db, schemaSql,yannick,jef} = await lobbyDatabase(t);
@@ -83,13 +94,18 @@ test('the pair shares a current game and older waiting games and unfinished boar
   assert.equal((await lobby(jef,db)).openRooms.length,1);
 
   // Simulate two waiting rows saved by an older version in this isolated schema.
-  await db.query('DROP INDEX web_one_visible_open_game_per_host');
-  const older = randomUUID();
+  await db.query('DROP TRIGGER web_sync_room_seats ON web_rooms');
+  await db.query('CREATE VIEW web_current_game AS SELECT id,host,guest,status FROM web_rooms LIMIT 1');
+  const older = randomUUID(), unrelated = randomUUID();
+  const camille = await registeredPlayer(db,'Camille');
   await db.query(`INSERT INTO web_rooms(id,invite_code,host,label,host_deck,seed,updated_at)
     VALUES ($1,$2,$3,'Old game','Old deck',1,now() - interval '1 day')`,[older,older,yannick]);
+  await db.query(`INSERT INTO web_rooms(id,invite_code,host,label,host_deck,seed)
+    VALUES ($1::uuid,$1::uuid::text,$2,'Independent game','Other deck',1)`,[unrelated,camille]);
   await db.query(schemaSql);
   await db.query(schemaSql);
-  assert.deepEqual((await lobby(jef,db)).openRooms.map(room => room.id),[first.id]);
+  assert.deepEqual(new Set((await lobby(jef,db)).openRooms.map(room => room.id)),new Set([first.id,unrelated]));
+  assert.equal((await db.query('SELECT count(*)::int AS count FROM web_current_game')).rows[0].count,1);
   assert.deepEqual((await lobby(yannick,db)).rooms.map(room => room.id),[first.id]);
   assert.deepEqual((await db.query('SELECT superseded_by,host_deck FROM web_rooms WHERE id=$1',[older])).rows,
     [{superseded_by:first.id,host_deck:'Old deck'}]);
@@ -101,18 +117,22 @@ test('the pair shares a current game and older waiting games and unfinished boar
 
   // The older server allowed reciprocal waiting games and multiple active
   // games for the same pair, including games with the seats reversed.
-  await db.query('DROP INDEX web_one_visible_playing_game_per_pair');
-  const reciprocal = randomUUID(), saved = randomUUID(), checkpoint = { privateHistory:'preserved' };
+  await db.query('DROP TRIGGER web_sync_room_seats ON web_rooms');
+  const reciprocal = randomUUID(), saved = randomUUID(), crossover = randomUUID(), checkpoint = { privateHistory:'preserved' };
   await db.query(`INSERT INTO web_rooms(id,invite_code,host,label,host_deck,seed)
     VALUES($1,$2,$3,'Reciprocal waiting','Untouched deck',3)`, [reciprocal,reciprocal,jef]);
   await db.query(`INSERT INTO web_rooms(id,invite_code,host,guest,label,host_deck,guest_deck,seed,status,revision,checkpoint,updated_at)
     VALUES($1,$2,$3,$4,'Other game','Guest deck','Host deck',2,'playing',9,$5,now()-interval '1 day')`,
     [saved,saved,jef,yannick,checkpoint]);
+  await db.query(`INSERT INTO web_rooms(id,invite_code,host,guest,label,host_deck,guest_deck,seed,status,revision,checkpoint,updated_at)
+    VALUES($1,$2,$3,$4,'Crossed game','Other deck','Guest deck',2,'playing',9,$5,now()-interval '2 days')`,
+    [crossover,crossover,camille,jef,checkpoint]);
   await db.query(schemaSql);
   const after = await lobby(jef,db);
   assert.deepEqual(after.openRooms,[]);
   assert.deepEqual(after.rooms.filter(room => room.current).map(room => room.id),[first.id]);
-  assert.deepEqual(after.rooms.filter(room => room.paused).map(room => room.id),[saved]);
+  assert.deepEqual(new Set(after.rooms.filter(room => room.paused).map(room => room.id)),new Set([saved,crossover]));
+  assert.equal((await lobby(camille,db)).rooms.find(room => room.current).id,unrelated);
   await assert.rejects(readSeatPosition(db,saved,yannick),{status:409});
   await assert.rejects(applyMove(db,saved,jef,{revision:9,concede:true}),{status:409});
   await assert.rejects(joinRoom(yannick,reciprocal,'practice-fire',db),{status:409});
@@ -122,7 +142,7 @@ test('the pair shares a current game and older waiting games and unfinished boar
   assert.equal((await lobby(jef,db)).rooms.find(room => room.id===saved).paused,true);
   const next = await createRoom(yannick,'practice-elves',db);
   assert.notEqual(next.id,first.id);
-  assert.deepEqual((await lobby(jef,db)).openRooms.map(room => room.id),[next.id]);
+  assert.deepEqual(new Set((await lobby(jef,db)).openRooms.map(room => room.id)),new Set([next.id,unrelated]));
   await assert.rejects(resumeRoom(jef,saved,db),{status:409});
   await db.query("UPDATE web_rooms SET guest=$2,status='finished' WHERE id=$1",[next.id,jef]);
   await assert.rejects(resumeRoom(randomUUID(),saved,db),{status:404});
@@ -141,8 +161,9 @@ test('archived games retain their records, reject stale requests and free both s
     [waiting,null,'waiting',false], [playing,jef,'playing',false],
     [earlier,jef,'playing',true], [finished,jef,'finished',false],
   ]) {
-    await db.query(`INSERT INTO web_rooms(id,invite_code,host,guest,host_deck,label,seed,status,paused_at)
-      VALUES ($1,$2,$3,$4,'Original deck','Original game',1,$5,CASE WHEN $6 THEN now() END)`,
+    await db.query(`INSERT INTO web_rooms(id,invite_code,host,guest,host_deck,label,seed,status,paused_at,archived_at)
+      VALUES ($1,$2,$3,$4,'Original deck','Original game',1,$5,CASE WHEN $6 THEN now() END,
+        CASE WHEN $5='waiting' THEN now() END)`,
       [id,id,yannick,guest,status,paused]);
   }
   await db.query(`INSERT INTO web_positions(room_id,revision,player,opponent)
@@ -187,34 +208,60 @@ test('archived games retain their records, reject stale requests and free both s
   assert.deepEqual((await db.query('SELECT details FROM web_reports WHERE id=$1',[reportId])).rows,[{details:'Original report'}]);
 });
 
-test('simultaneous reciprocal creates, joins and create retries converge on the same game', {
+test('lobby exposes different open hosts and only the host can cancel an unused invitation', {
   skip: !process.env.DATABASE_URL && !process.env.PGDATABASE,
 }, async t => {
   const {db,yannick,jef} = await lobbyDatabase(t);
-  const attempts = await Promise.allSettled([
+  const spectator = await registeredPlayer(db, 'Camille');
+  const [left,right] = await Promise.all([
     createRoom(yannick,'practice-elves',db),createRoom(jef,'practice-fire',db),
   ]);
-  const success = attempts.find(item => item.status === 'fulfilled');
-  assert.equal(attempts.filter(item => item.status === 'fulfilled').length,1);
-  assert.equal(attempts.find(item => item.status === 'rejected').reason.status,409);
-  const host = attempts[0].status==='fulfilled' ? yannick : jef;
-  const guest = host===yannick ? jef : yannick;
-  assert.deepEqual((await lobby(guest,db)).openRooms.map(room => room.id),[success.value.id]);
-  if (process.env.FORGE_INSTALL) {
-    t.after(closeGames);
-    const results = await Promise.allSettled([
-      joinRoom(guest,success.value.id,'practice-elves',db),joinRoom(guest,success.value.id,'practice-fire',db),
-      createRoom(guest,'practice-fire',db),
-    ]);
-    assert.deepEqual(results.slice(0,2),[0,1].map(() => ({status:'fulfilled',value:success.value})));
-    if (results[2].status==='fulfilled') assert.deepEqual(results[2].value,success.value);
-    else assert.equal(results[2].reason.status,409);
-    assert.equal((await db.query('SELECT count(*)::int AS games FROM web_rooms')).rows[0].games,1);
-    for (const player of [host,guest]) {
-      assert.deepEqual(await createRoom(player,'practice-fire',db),success.value);
-      const session = await lobby(player,db);
-      assert.equal(session.openRooms.length,0);
-      assert.deepEqual(session.rooms.filter(room => room.current).map(room => room.id),[success.value.id]);
-    }
-  }
+  assert.notEqual(left.id,right.id);
+  assert.deepEqual(new Map((await lobby(spectator,db)).openRooms.map(room => [room.id,room.hostName])),
+    new Map([[left.id,'Yannick'],[right.id,'Jef']]));
+  assert.deepEqual((await lobby(jef,db)).openRooms,[]);
+  assert.deepEqual(await createRoom(yannick,'practice-fire',db),left);
+  await assert.rejects(joinRoom(yannick,right.id,'practice-fire',db),{status:409});
+  await assert.rejects(cancelRoom(spectator,left.id,db),{status:404});
+  assert.deepEqual(await cancelRoom(yannick,left.id,db),left);
+  assert.deepEqual(await cancelRoom(yannick,left.id,db),left);
+  await assert.rejects(joinRoom(spectator,left.id,'practice-fire',db),{status:404});
+  assert.deepEqual((await lobby(yannick,db)).openRooms.map(room => room.id),[right.id]);
+  assert.equal((await db.query('SELECT archived_at IS NOT NULL AS archived FROM web_rooms WHERE id=$1',[left.id])).rows[0].archived,true);
+});
+
+test('simultaneous joins reserve one room per player while disjoint pairs play in parallel', {
+  skip: !process.env.FORGE_INSTALL || (!process.env.DATABASE_URL && !process.env.PGDATABASE), timeout: 180_000,
+}, async t => {
+  const {db,yannick,jef} = await lobbyDatabase(t);
+  t.after(closeGames);
+  const camille = await registeredPlayer(db, 'Camille');
+  const ren = await registeredPlayer(db, 'Ren');
+  const [left,right] = await Promise.all([
+    createRoom(yannick,'practice-elves',db),createRoom(jef,'practice-fire',db),
+  ]);
+  const attempts = await Promise.allSettled([
+    joinRoom(camille,left.id,'practice-fire',db),joinRoom(camille,right.id,'practice-elves',db),
+  ]);
+  assert.equal(attempts.filter(result => result.status === 'fulfilled').length,1);
+  assert.equal(attempts.find(result => result.status === 'rejected').reason.status,409);
+  const joined = attempts.find(result => result.status === 'fulfilled').value;
+  const waiting = joined.id === left.id ? right : left;
+  assert.deepEqual((await lobby(ren,db)).openRooms.map(room => room.id),[waiting.id]);
+  assert.deepEqual(await joinRoom(ren,waiting.id,'practice-fire',db),waiting);
+  assert.deepEqual(await joinRoom(camille,joined.id,'practice-fire',db),joined);
+  assert.deepEqual(await createRoom(ren,'practice-elves',db),waiting);
+  const conflicting = randomUUID();
+  await assert.rejects(db.query(`INSERT INTO web_rooms(id,invite_code,host,label,host_deck,seed)
+    VALUES($1,$2,$3,'Conflict','Other deck',1)`,[conflicting,conflicting,camille]),{code:'23505'});
+  const firstView = await readSeatPosition(db,joined.id,camille);
+  const secondView = await readSeatPosition(db,waiting.id,ren);
+  assert.equal(firstView.status,'playing');
+  assert.equal(secondView.status,'playing');
+  assert.deepEqual((await lobby(camille,db)).rooms.map(room => room.id),[joined.id]);
+  assert.deepEqual((await lobby(ren,db)).rooms.map(room => room.id),[waiting.id]);
+  await assert.rejects(readSeatPosition(db,waiting.id,camille),{status:404});
+  await assert.rejects(readSeatPosition(db,joined.id,ren),{status:404});
+  const {rows} = await db.query('SELECT room_id,count(*)::int AS seats FROM web_live_room_seats GROUP BY room_id');
+  assert.deepEqual(new Map(rows.map(({room_id,seats}) => [room_id,seats])),new Map([[left.id,2],[right.id,2]]));
 });

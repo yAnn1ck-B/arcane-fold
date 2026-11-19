@@ -37,44 +37,78 @@ CREATE TABLE IF NOT EXISTS web_rooms (
 CREATE INDEX IF NOT EXISTS web_rooms_host ON web_rooms(host);
 CREATE INDEX IF NOT EXISTS web_rooms_guest ON web_rooms(guest);
 ALTER TABLE web_rooms ADD COLUMN IF NOT EXISTS archived_at timestamptz;
--- Keep older, unused lobbies as records while keeping the newest one open.
 ALTER TABLE web_rooms ADD COLUMN IF NOT EXISTS superseded_by uuid REFERENCES web_rooms(id);
-WITH waiting AS (
-  SELECT id, first_value(id) OVER (PARTITION BY host ORDER BY updated_at DESC, id) AS newest
-  FROM web_rooms WHERE archived_at IS NULL AND status='waiting' AND guest IS NULL AND superseded_by IS NULL
-)
-UPDATE web_rooms r SET superseded_by=w.newest FROM waiting w
-WHERE r.id=w.id AND w.id<>w.newest;
-CREATE UNIQUE INDEX IF NOT EXISTS web_one_visible_open_game_per_host ON web_rooms(host)
-  WHERE archived_at IS NULL AND status='waiting' AND guest IS NULL AND superseded_by IS NULL;
-DROP INDEX IF EXISTS web_one_open_game_per_host;
--- Keep earlier unfinished games intact. Either seat can explicitly resume one
--- after the current game ends. A restart must never promote a saved game.
 ALTER TABLE web_rooms ADD COLUMN IF NOT EXISTS paused_at timestamptz;
-WITH ranked AS (
-  SELECT id, row_number() OVER (
-    PARTITION BY least(host,guest),greatest(host,guest) ORDER BY updated_at DESC,id
-  ) AS place
-  FROM web_rooms WHERE archived_at IS NULL AND status='playing' AND guest IS NOT NULL AND paused_at IS NULL
-)
-UPDATE web_rooms r SET paused_at=now() FROM ranked
-WHERE r.id=ranked.id AND ranked.place>1;
-CREATE UNIQUE INDEX IF NOT EXISTS web_one_visible_playing_game_per_pair
-  ON web_rooms (least(host,guest),greatest(host,guest))
-  WHERE archived_at IS NULL AND status='playing' AND guest IS NOT NULL AND paused_at IS NULL;
+DROP INDEX IF EXISTS web_one_open_game_per_host;
 DROP INDEX IF EXISTS web_one_playing_game_per_pair;
--- The two registered accounts share one lobby. Older anonymous games keep
--- their seats and checkpoints without occupying the registered pair's lobby.
-CREATE OR REPLACE VIEW web_current_game AS
-SELECT r.id,r.host,r.guest,r.status
-FROM web_rooms r JOIN web_accounts h ON h.player_id=r.host
-LEFT JOIN web_accounts g ON g.player_id=r.guest
-WHERE r.archived_at IS NULL AND r.superseded_by IS NULL AND r.paused_at IS NULL
-  AND ((r.status='waiting' AND r.guest IS NULL) OR (r.status='playing' AND g.player_id IS NOT NULL))
-ORDER BY (r.status='playing') DESC,r.updated_at DESC,r.id LIMIT 1;
-UPDATE web_rooms r SET superseded_by=c.id FROM web_current_game c
-WHERE r.archived_at IS NULL AND r.status='waiting' AND r.guest IS NULL AND r.superseded_by IS NULL AND r.id<>c.id
-  AND EXISTS (SELECT 1 FROM web_accounts a WHERE a.player_id=r.host);
+
+-- One primary key covers both seats, so a player cannot occupy different live
+-- rooms as host and guest. The room remains the source of truth for history.
+CREATE TABLE IF NOT EXISTS web_live_room_seats (
+  player_id uuid PRIMARY KEY REFERENCES web_players,
+  room_id uuid NOT NULL REFERENCES web_rooms ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS web_live_room_seats_room ON web_live_room_seats(room_id);
+
+DO $$
+DECLARE
+  game record;
+  occupied_room uuid;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='web_rooms'::regclass AND tgname='web_sync_room_seats') THEN
+    LOCK TABLE web_rooms IN SHARE ROW EXCLUSIVE MODE;
+    DELETE FROM web_live_room_seats;
+    -- Preserve the visible game before considering older overlapping rooms.
+    -- Paused boards and closed invitations remain saved and are never promoted.
+    FOR game IN
+      SELECT r.id,r.host,r.guest,r.status FROM web_rooms r
+      LEFT JOIN web_accounts h ON h.player_id=r.host
+      LEFT JOIN web_accounts g ON g.player_id=r.guest
+      WHERE r.archived_at IS NULL AND r.superseded_by IS NULL AND r.paused_at IS NULL
+        AND ((r.status='waiting' AND r.guest IS NULL) OR (r.status='playing' AND r.guest IS NOT NULL))
+      ORDER BY CASE
+        WHEN h.player_id IS NOT NULL AND g.player_id IS NOT NULL THEN 0
+        WHEN r.status='waiting' AND h.player_id IS NOT NULL THEN 1
+        WHEN r.status='playing' THEN 2 ELSE 3 END,r.updated_at DESC,r.id
+    LOOP
+      SELECT room_id INTO occupied_room FROM web_live_room_seats
+        WHERE player_id IN (game.host,game.guest) ORDER BY room_id LIMIT 1;
+      IF occupied_room IS NULL THEN
+        INSERT INTO web_live_room_seats(player_id,room_id)
+          SELECT player_id,game.id FROM unnest(ARRAY[game.host,game.guest]) AS members(player_id)
+          WHERE player_id IS NOT NULL;
+      ELSIF game.status='playing' THEN
+        UPDATE web_rooms SET paused_at=now() WHERE id=game.id;
+      ELSE
+        UPDATE web_rooms SET superseded_by=occupied_room WHERE id=game.id;
+      END IF;
+    END LOOP;
+  END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION web_sync_room_seats() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP='UPDATE' THEN
+    IF ROW(NEW.host,NEW.guest,NEW.status,NEW.archived_at,NEW.superseded_by,NEW.paused_at) IS NOT DISTINCT FROM
+        ROW(OLD.host,OLD.guest,OLD.status,OLD.archived_at,OLD.superseded_by,OLD.paused_at) THEN
+      RETURN NEW;
+    END IF;
+    DELETE FROM web_live_room_seats WHERE room_id=NEW.id;
+  END IF;
+  IF NEW.archived_at IS NULL AND NEW.superseded_by IS NULL AND NEW.paused_at IS NULL
+      AND ((NEW.status='waiting' AND NEW.guest IS NULL) OR (NEW.status='playing' AND NEW.guest IS NOT NULL)) THEN
+    INSERT INTO web_live_room_seats(player_id,room_id)
+      SELECT player_id,NEW.id FROM unnest(ARRAY[NEW.host,NEW.guest]) AS members(player_id)
+      WHERE player_id IS NOT NULL ORDER BY player_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE OR REPLACE TRIGGER web_sync_room_seats
+  AFTER INSERT OR UPDATE OF host,guest,status,archived_at,superseded_by,paused_at ON web_rooms
+  FOR EACH ROW EXECUTE FUNCTION web_sync_room_seats();
+
 CREATE TABLE IF NOT EXISTS web_positions (
   room_id uuid NOT NULL REFERENCES web_rooms,
   revision integer NOT NULL,

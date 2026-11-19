@@ -99,16 +99,16 @@ export default function WebRoom({ id, onLobby }: {
     };
   }, [path, refresh, acceptView]);
 
-  async function post(endpoint: string, body: object) {
+  async function roomAction<T>(endpoint: string, body: object, onSuccess: (next: T) => void) {
     if (!room || pending.current || connectionError) return false;
     pending.current = true;
     setSending(true);
     setActionError("");
     try {
-      const next = await roomRequest<RoomView>(`${path}/${endpoint}`, {
+      const next = await roomRequest<T>(`${path}/${endpoint}`, {
         revision: room.revision, controlVersion: room.controlVersion, ...body,
       });
-      acceptView(next);
+      onSuccess(next);
       return true;
     } catch (cause) {
       setActionError(errorMessage(cause));
@@ -118,6 +118,10 @@ export default function WebRoom({ id, onLobby }: {
       pending.current = false;
       setSending(false);
     }
+  }
+
+  function post(endpoint: string, body: object) {
+    return roomAction<RoomView>(endpoint, body, acceptView);
   }
 
   function act(move: Move) {
@@ -153,8 +157,11 @@ export default function WebRoom({ id, onLobby }: {
       <button className="web-back" onClick={onLobby}><ArrowLeft size={16} /> Return to lobby</button>
       {notice}
       {room?.status === "waiting" ? <section className="panel web-setup" aria-labelledby="waiting-heading">
-        <h2 id="waiting-heading"><Users size={21} aria-hidden /> Waiting for {room.waitingForName ?? "an opponent"}…</h2>
-        <p>{room.waitingForName ?? "Your opponent"} can choose a deck and join from the lobby.</p>
+        <h2 id="waiting-heading"><Users size={21} aria-hidden /> Waiting for opponent</h2>
+        <Button variant="outline" disabled={sending || !!connectionError}
+          onClick={() => void roomAction<{ id: string }>("cancel", {}, onLobby)}>
+          Close open game
+        </Button>
       </section> : !error && <p role="status">Loading game…</p>}
     </div>
   );

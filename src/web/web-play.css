@@ -48,6 +48,7 @@
 .web-setup p, .web-rooms li span, .web-rooms > p { color: var(--muted); }
 .web-rooms > p { margin: .8rem 0 0; }
 .web-rooms summary { cursor: pointer; font: 1.25rem Georgia, serif; }
+.web-room-actions { display: flex; flex-wrap: wrap; gap: .8rem; }
 .web-table-setup {
   display: flex;
   align-items: end;
@@ -79,6 +80,8 @@
 .web-rooms ul { padding: 0; margin: 1rem 0 0; list-style: none; }
 .web-rooms li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .8rem 0; }
 .web-rooms li + li { border-top: 1px solid var(--border); }
+.web-open-rooms ul { margin-top: .4rem; }
+.web-open-rooms li:last-child { padding-bottom: 0; }
 .web-back { justify-self: start; color: var(--tone-secondary); }
 @media (max-width: 650px) {
   .web-rooms li { flex-wrap: wrap; }
