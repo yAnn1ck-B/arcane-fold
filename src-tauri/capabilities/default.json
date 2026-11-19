@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-window",
-  "description": "Local database and native folder dialogs for Eternal League.",
+  "description": "Local database and native folder dialogs for Arcane Fold.",
   "windows": ["main"],
   "permissions": [
     "core:default",

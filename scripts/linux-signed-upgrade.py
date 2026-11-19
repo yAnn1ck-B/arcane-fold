@@ -157,7 +157,7 @@ def prepare(args):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
         raise RuntimeError('GITHUB_REPOSITORY must identify this release repository.')
     # The old payload hash is pinned to the actual established public release.
-    if repository != 'yAnn1ck-B/eternal-league':
+    if repository != 'yAnn1ck-B/arcane-fold':
         raise RuntimeError('The pinned historical artifact belongs to the established release repository.')
     new_version = args.tag.removeprefix('v')
     if args.tag != f'v{new_version}' or version(new_version) <= version(OLD_VERSION):

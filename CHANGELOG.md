@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename the game to Arcane Fold and introduce its folded-rune logo on the tabletop app, browser tab and desktop icon.
+
 - Add a browser edition with PostgreSQL-backed leagues, private two-player Forge tables, resumable games and reports linked to the exact server-side position.
 
 - Report an issue from a Forge or manual game with the current seat’s position, choices, public history and a required description of the expected play.

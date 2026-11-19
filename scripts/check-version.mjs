@@ -44,7 +44,7 @@ export function readVersionState(root = projectRoot, tag) {
   if (development.identifier !== 'com.eternalleague.preview' || development.identifier !== policy.developmentIdentifier) throw new Error('Development must use the established played profile.');
   if (config.bundle?.createUpdaterArtifacts !== true) throw new Error('Release updater artifacts must be enabled.');
   const updater = config.plugins?.updater;
-  if (!updater?.endpoints?.includes('https://github.com/yAnn1ck-B/eternal-league/releases/latest/download/latest.json')) throw new Error('The release updater endpoint is not configured.');
+  if (!updater?.endpoints?.includes('https://github.com/yAnn1ck-B/arcane-fold/releases/latest/download/latest.json')) throw new Error('The release updater endpoint is not configured.');
   const publicKey = Buffer.from(updater.pubkey ?? '', 'base64').toString('utf8');
   if (!publicKey.startsWith('untrusted comment: minisign public key:') || Buffer.from(publicKey.trim().split(/\r?\n/)[1] ?? '', 'base64').length !== 42) throw new Error('A real updater public key is required.');
   const serialized = JSON.stringify(config);

@@ -112,7 +112,7 @@ const server = http.createServer(async (req, res) => {
 });
 await migrate();
 await new Promise((resolve, rejectListen) => { server.once('error', rejectListen); server.listen(port, bind, resolve); });
-console.log('Eternal League web is listening at ' + [...allowed][0]);
+console.log('Arcane Fold web is listening at ' + [...allowed][0]);
 let ending = false;
 async function shutdown() {
   if (ending) return;

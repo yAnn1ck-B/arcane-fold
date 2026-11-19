@@ -140,7 +140,7 @@ async fn migration_records(
     )
     .fetch_all(connection)
     .await
-    .map_err(|_| "This file does not contain Eternal League migration metadata.".to_string())?;
+    .map_err(|_| "This file does not contain Arcane Fold migration metadata.".to_string())?;
     let mut records = Vec::with_capacity(rows.len());
     for row in rows {
         if !row.get::<bool, _>("success") {
@@ -170,7 +170,7 @@ async fn reject_unexpected_schema(connection: &mut SqliteConnection) -> Result<(
                 && !name.starts_with("sqlite_")
                 && !TABLES.contains(&name))
         {
-            return Err("The selected file has an unexpected database schema. Choose an Eternal League backup.".into());
+            return Err("The selected file has an unexpected database schema. Choose an Arcane Fold backup.".into());
         }
     }
     Ok(())
@@ -249,7 +249,7 @@ async fn upgraded_snapshot(
         let found = migration_records(&mut source_connection).await?;
         if found.is_empty() || found.len() > expected.len() || !expected.starts_with(&found) {
             return Err(
-                "The backup was created by an incompatible Eternal League database version.".into(),
+                "The backup was created by an incompatible Arcane Fold database version.".into(),
             );
         }
         fs::create_dir_all(cache).map_err(|error| error.to_string())?;

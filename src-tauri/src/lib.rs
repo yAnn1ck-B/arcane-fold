@@ -142,5 +142,5 @@ pub fn run() {
             maintenance::clear_image_cache,
         ])
         .run(tauri::generate_context!())
-        .expect("Unable to start Eternal League");
+        .expect("Unable to start Arcane Fold");
 }

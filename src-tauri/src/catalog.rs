@@ -1563,7 +1563,7 @@ fn import_file_with_finalizing(
     ))
     .map_err(|error| {
         if sqlite_busy(&error) {
-            "Another database operation is still running. Close other Eternal League windows and retry catalog setup. Your saved collection and decks were preserved.".to_string()
+            "Another database operation is still running. Close other Arcane Fold windows and retry catalog setup. Your saved collection and decks were preserved.".to_string()
         } else {
             format!("Could not commit the catalog; existing data was preserved: {error}")
         }

@@ -24,7 +24,7 @@ class ForgeMatch {
         this.sharedSeats = sharedSeats;
         game = new Match(new GameRules(GameType.Constructed),
                 List.of(seat(sharedSeats ? "Player 1" : "Player"), seat(sharedSeats ? "Player 2" : "Opponent")),
-                "Eternal League").createGame();
+                "Arcane Fold").createGame();
         player = game.getPlayers().get(0);
         opponent = game.getPlayers().get(1);
         phases = game.getPhaseHandler();

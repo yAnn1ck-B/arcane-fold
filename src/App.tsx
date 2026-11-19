@@ -242,7 +242,7 @@ export default function App() {
     } catch (err) {
       setError(
         isDatabaseBusy(err)
-          ? "Your local database is still busy. Close any other Eternal League windows, then try again. Your saved progress is preserved."
+          ? "Your local database is still busy. Close any other Arcane Fold windows, then try again. Your saved progress is preserved."
           : `Could not open your local database: ${String(err)}`,
       );
     } finally {
@@ -451,11 +451,11 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            <LayersMark />
+            <img src="/arcane-fold.png" width="36" height="36" alt="" />
           </div>
           <div>
-            <strong>ETERNAL</strong>
-            <span>L E A G U E</span>
+            <strong>ARCANE</strong>
+            <span>FOLD</span>
           </div>
         </div>
         <div className="sidebar-divider" />
@@ -723,33 +723,5 @@ export default function App() {
       />
       <ToastProvider />
     </div>
-  );
-}
-
-function LayersMark() {
-  return (
-    <svg
-      width="30"
-      height="36"
-      viewBox="0 0 30 36"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M15 2 28 9.5v17L15 34 2 26.5v-17L15 2Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-      />
-      <path
-        d="m9 12 6-3.5 6 3.5v12l-6 3.5L9 24V12Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-      />
-      <path
-        d="M15 9v18M9 12l12 12M21 12 9 24"
-        stroke="currentColor"
-        strokeWidth=".8"
-      />
-    </svg>
   );
 }

@@ -39,7 +39,7 @@ fn assert_updater(config: &Value) {
     assert_eq!(updater.endpoints[0].scheme(), "https");
     assert_eq!(
         updater.endpoints[0].as_str(),
-        "https://github.com/yAnn1ck-B/eternal-league/releases/latest/download/latest.json"
+        "https://github.com/yAnn1ck-B/arcane-fold/releases/latest/download/latest.json"
     );
 }
 
@@ -54,7 +54,7 @@ fn cold_platform_and_development_configs_keep_signed_updater_settings() {
         let preview = serde_json::json!({
             "identifier":"com.eternalleague.preview",
             "app":{"windows":[{
-                "label":"main","title":"Eternal League - Week 4 preview",
+                "label":"main","title":"Arcane Fold - Week 4 preview",
                 "width":1440,"height":940,"minWidth":980,"minHeight":700,
                 "backgroundColor":"#f1f0ea"
             }]}

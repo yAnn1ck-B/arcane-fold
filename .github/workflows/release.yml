@@ -103,7 +103,7 @@ jobs:
           }
           if (!release) release = await api('/releases', {
             tag_name: tag, target_commitish: process.env.GITHUB_SHA,
-            name: `Eternal League ${tag}`,
+            name: `Arcane Fold ${tag}`,
             body: 'Windows NSIS and Linux AppImage installers. League data is stored outside the installation and preserved on upgrades. Local updater signing and full verification are required before publication when local signing mode is selected.',
             draft: true, prerelease: false,
           });
@@ -181,7 +181,7 @@ jobs:
         with:
           tauriScript: node scripts/tauri.mjs
           releaseId: ${{ needs.preflight.outputs.releaseId }}
-          releaseName: Eternal League v__VERSION__
+          releaseName: Arcane Fold v__VERSION__
           releaseBody: Windows NSIS and Linux AppImage installers. League data is stored outside the installation and preserved on upgrades.
           releaseDraft: true
           prerelease: false
@@ -197,7 +197,7 @@ jobs:
         with:
           tauriScript: node scripts/tauri.mjs
           releaseId: ${{ needs.preflight.outputs.releaseId }}
-          releaseName: Eternal League v__VERSION__
+          releaseName: Arcane Fold v__VERSION__
           releaseBody: Windows NSIS and Linux AppImage installers. Local updater signing and verification are required before publication.
           releaseDraft: true
           prerelease: false

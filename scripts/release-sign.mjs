@@ -44,7 +44,7 @@ try {
     payload.signature = signature;
   }
   const changelog = readFileSync(path.join(projectRoot, 'CHANGELOG.md'), 'utf8');
-  const notes = changelog.split(`## [${version}]`)[1]?.split('\n## [')[0]?.trim() ?? `Eternal League ${version}`;
+  const notes = changelog.split(`## [${version}]`)[1]?.split('\n## [')[0]?.trim() ?? `Arcane Fold ${version}`;
   const manifest = {
     version, notes, pub_date: new Date().toISOString(),
     platforms: Object.fromEntries(payloads.map(payload => [payload.target, { signature: payload.signature, url: canonicalAssetUrl(repository, tag, payload.name) }])),

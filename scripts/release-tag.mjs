@@ -17,7 +17,7 @@ try {
   if (tags.some(previous => compareVersions(version, previous) <= 0)) throw new Error('This version is not newer than every existing release tag. Never replace a release tag.');
   if (git(['tag', '--list', tag])) throw new Error('The release tag already exists locally.');
   git(['push', 'origin', 'HEAD:main']);
-  git(['tag', '-a', tag, '-m', `Eternal League ${version}`]);
+  git(['tag', '-a', tag, '-m', `Arcane Fold ${version}`]);
   git(['push', 'origin', `refs/tags/${tag}`]);
   console.log(`Pushed ${tag}. GitHub Actions will create a draft; verify and sign both platform payloads before publishing it.`);
 } catch (error) { console.error(error.message); process.exitCode = 1; }

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const repository = 'yAnn1ck-B/eternal-league';
+export const repository = 'yAnn1ck-B/arcane-fold';
 
 export function githubEnvironment() {
   const env = { ...process.env, GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1' };

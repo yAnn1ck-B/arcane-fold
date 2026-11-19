@@ -2,7 +2,7 @@
 name = "eternal-league"
 version = "0.4.0"
 description = "A local card-collection companion for MTG Forge"
-authors = ["Eternal League contributors"]
+authors = ["Arcane Fold contributors"]
 edition = "2021"
 rust-version = "1.90"
 

@@ -30,14 +30,14 @@ export function clearImageCache() {
 export function chooseBackupDestination() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   return save({
-    title: "Back up Eternal League",
-    defaultPath: `Eternal-League-${timestamp}.db`,
+    title: "Back up Arcane Fold",
+    defaultPath: `Arcane-Fold-${timestamp}.db`,
     filters: [{ name: "SQLite database", extensions: ["db"] }],
   });
 }
 export async function chooseBackupSource() {
   const selected = await open({
-    title: "Restore an Eternal League backup",
+    title: "Restore an Arcane Fold backup",
     multiple: false,
     filters: [
       { name: "SQLite database", extensions: ["db", "sqlite", "sqlite3"] },

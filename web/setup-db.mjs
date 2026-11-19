@@ -86,7 +86,7 @@ async function provision() {
 try {
   await provision();
   if (!process.argv.includes('--local')) await migrate();
-  console.log('Eternal League web database is ready.');
+  console.log('Arcane Fold web database is ready.');
 } catch (e) {
   console.error(e.message);
   process.exitCode = 1;

@@ -135,8 +135,8 @@ export default function WebApp() {
     <div className="app-shell web-shell">
       <aside className="sidebar">
         <div className="brand">
-          <img src="/favicon.svg" width="32" height="32" alt="" />
-          <div><strong>ETERNAL</strong><span>L E A G U E</span></div>
+          <img src="/arcane-fold.png" width="32" height="32" alt="" />
+          <div><strong>ARCANE</strong><span>FOLD</span></div>
         </div>
         <div className="sidebar-divider" />
         <nav className="main-nav" aria-label="Main navigation">
