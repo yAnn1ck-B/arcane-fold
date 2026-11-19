@@ -34,7 +34,9 @@ export interface MatchTools {
   onLeave: () => void;
   leaveLabel: string;
   leaveDisabled?: boolean;
-  contextLabel?: string;
+  actionStatus?: ReactNode;
+  logActions?: ReactNode;
+  decisionTools?: ReactNode;
   manualSwitch?: ReactNode;
   openingRecovery?: ReactNode;
 }
@@ -198,10 +200,8 @@ export function TableBoard({
         }
       }}
     >
+      {matchTools.actionStatus}
       <div className="pt-turnbar">
-        {matchTools.contextLabel && (
-          <span className="pt-context">{matchTools.contextLabel}</span>
-        )}
         {toolbar}
         <div className="pt-table-tools" role="group" aria-label="Table tools">
           <button
@@ -308,7 +308,7 @@ export function TableBoard({
           <div className="pt-panel-body" hidden={panel !== "stack"}>
             {stack}
           </div>
-          {panel === "log" && <GameHistory entries={matchTools.history} />}
+          {panel === "log" && <>{matchTools.logActions}<GameHistory entries={matchTools.history} /></>}
         </aside>
       </div>
       {children}

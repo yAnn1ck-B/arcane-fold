@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Eye, Library, Search, SquarePlus } from "lucide-react";
 import type { AppSettings } from "@/lib/types";
 import { prepareShuffle, projectMatch } from "./engine";
@@ -14,6 +14,7 @@ import {
   seats,
   type Action,
   type Match,
+  type MatchView,
   type Seat,
   type Zone,
 } from "./types";
@@ -27,7 +28,7 @@ import {
 import { TableDialog } from "./TableDialog";
 import { battlefieldGroup } from "./battlefield";
 import { GameIssueReporting } from "./GameIssueReporter";
-import { captureManualIssue } from "./issue-report";
+import { captureManualIssue, type GameIssueReport } from "./issue-report";
 
 type Dispatch = (action: Action) => void;
 const pileZones = ["library", "hand", "graveyard", "exile", "command"] as const;
@@ -84,7 +85,7 @@ export default function Table({
 }
 
 interface TableViewProps {
-  reportContext: { id: string; revision: string; error?: string };
+  reportContext: { id: string; revision: string | number; error?: string };
   matchTools: MatchTools;
   requiredOpening: boolean;
   match: Match;
@@ -94,16 +95,8 @@ interface TableViewProps {
   changeSeat: () => void;
 }
 
-function TableView({
-  matchTools,
-  requiredOpening,
-  match,
-  viewer,
-  dispatch,
-  imageCacheDir,
-  changeSeat,
-  reportContext,
-}: TableViewProps) {
+function TableView({ match, ...props }: TableViewProps) {
+  const { viewer, dispatch } = props;
   const [looked, setLooked] = useState<ReadonlySet<string>>(new Set());
   const view = projectMatch(match, viewer, looked);
   function onLook(count: number) {
@@ -113,6 +106,22 @@ function TableView({
     setLooked(new Set());
     dispatch(prepareShuffle(match, seat, mulligan));
   }
+  return <ProjectedTable {...props} view={view} onLook={onLook} onShuffle={onShuffle} />;
+}
+
+interface ProjectedTableProps extends Omit<TableViewProps, "match" | "changeSeat"> {
+  view: MatchView;
+  changeSeat?: () => void;
+  onLook: (count: number) => void;
+  looking?: boolean;
+  onShuffle: (seat: Seat, mulligan?: boolean) => void;
+  submitReport?: (report: GameIssueReport) => Promise<void>;
+  openingCanAct?: boolean;
+  locked?: boolean;
+}
+export function ProjectedTable({ matchTools, requiredOpening, view, viewer, dispatch, imageCacheDir,
+  changeSeat, reportContext, onLook, onShuffle, submitReport, openingCanAct = true, locked = false, looking = true,
+}: ProjectedTableProps) {
   const [selected, select] = useState<string | null>(null);
   const [pile, setPile] = useState<Pile | null>(null);
   const [query, setQuery] = useState("");
@@ -124,17 +133,20 @@ function TableView({
   const common = { view, viewer, dispatch };
   const reviewingOpening =
     requiredOpening && view.players.some((p) => !p.kept && p.counts.hand > 0);
+  const boardLocked = locked || (!changeSeat && reviewingOpening);
+  const controls = (children: ReactNode) => changeSeat ? children :
+    <fieldset className="pt-manual-controls" disabled={boardLocked}>{children}</fieldset>;
   function showPile(seat: Seat, zone: Pile["zone"]) {
-    onLook(0);
+    if (looking) onLook(0);
     setQuery("");
     setLookMode("none");
     setPile({ seat, zone });
   }
-  function closePile() {
+  function closePile(clearLook = true) {
     setPile(null);
     setLookMode("none");
     setQuery("");
-    onLook(0);
+    if (clearLook && looking) onLook(0);
   }
   const selectedPiece = selected ? view.pieces[selected] : null;
   const selectedSeat = selected
@@ -164,20 +176,21 @@ function TableView({
       zone={zone}
       dispatch={dispatch}
       imageCacheDir={imageCacheDir}
+      locked={boardLocked}
       onClick={() => select(id)}
     />
   );
 
   return (
-    <GameIssueReporting capture={() => captureManualIssue(reportContext.id, reportContext.revision, view, matchTools.history, reportContext.error)}>
+    <GameIssueReporting submit={submitReport} capture={() => captureManualIssue(reportContext.id, reportContext.revision, view, matchTools.history, reportContext.error)}>
     <TableBoard
       label="Manual game"
-      switchPlayer={<SwitchPlayer player={other + 1} onSwitch={changeSeat} />}
+      switchPlayer={changeSeat && <SwitchPlayer player={other + 1} onSwitch={changeSeat} />}
       matchTools={matchTools}
       stackCount={view.stack.length}
       toolbar={
         <>
-          <TurnControls {...common} />
+          <TurnControls {...common} locked={boardLocked || (!changeSeat && (viewer !== view.active || !!view.handoffDecision))} />
           {view.handoffDecision && (
             <details className="pt-pending-decision" open>
               <summary>Pending decision · P{viewer + 1}</summary>
@@ -192,6 +205,7 @@ function TableView({
               <button
                 type="button"
                 className="pt-btn"
+                disabled={boardLocked}
                 onClick={() =>
                   dispatch({ type: "finishDecision", seat: viewer })
                 }
@@ -221,22 +235,23 @@ function TableView({
                   label={`Player ${seat + 1} ${zone}, ${player.counts[zone]} ${player.counts[zone] === 1 ? "card" : "cards"}`}
                 />
               ))}
-            resources={
+            resources={controls(
               <PlayerControls
                 {...common}
                 seat={seat}
                 onShuffle={(target, mulligan) => {
-                  closePile();
+                  closePile(false);
                   onShuffle(target, mulligan);
                 }}
               />
-            }
+            )}
             battlefieldAction={
               seat === viewer && (
                 <button
                   type="button"
                   className="pt-tool"
                   aria-label="Create token"
+                  disabled={boardLocked}
                   data-hint="Create token"
                   aria-expanded={addingToken}
                   onClick={() => setAddingToken((current) => !current)}
@@ -267,7 +282,7 @@ function TableView({
                     value={tokenName}
                     onChange={(event) => setTokenName(event.target.value)}
                   />
-                  <button className="pt-btn" disabled={!tokenName.trim()}>
+                  <button className="pt-btn" disabled={boardLocked || !tokenName.trim()}>
                     Create
                   </button>
                 </form>
@@ -291,7 +306,7 @@ function TableView({
       handLabel={`Player ${viewer + 1} hand`}
       handCount={view.players[viewer].counts.hand}
       hand={
-        reviewingOpening
+        reviewingOpening && changeSeat
           ? [
               <span key="opening" className="pt-empty">
                 Opening hands
@@ -299,27 +314,31 @@ function TableView({
             ]
           : view.players[viewer].zones.hand.map((id) => renderTile(id, "hand"))
       }
-      stack={<StackControls {...common} imageCacheDir={imageCacheDir} />}
+      stack={controls(<StackControls {...common} imageCacheDir={imageCacheDir} />)}
     >
-      <ManualOpeningHand
+      {openingCanAct && <ManualOpeningHand
         {...common}
         imageCacheDir={imageCacheDir}
         onShuffle={onShuffle}
         required={requiredOpening}
-        error={matchTools.openingRecovery}
-      />
+        allowTable={!changeSeat}
+        locked={locked}
+        error={<>{matchTools.actionStatus}{matchTools.openingRecovery}</>}
+        tools={matchTools.decisionTools}
+      />}
       {pile && (
         <TableDialog
           title={zoneNames[pile.zone]}
           label={`Player ${pile.seat + 1} ${pile.zone}`}
           subtitle={`Player ${pile.seat + 1} · ${view.players[pile.seat].counts[pile.zone]} cards`}
           closeLabel="Close zone"
-          onClose={closePile}
+          onClose={() => closePile()}
         >
           {pile.zone === "library" && pile.seat === viewer && (
             <div className="pt-library-tools">
               <button
                 className="pt-btn"
+                disabled={boardLocked}
                 onClick={() => {
                   onLook(Infinity);
                   setLookMode("all");
@@ -342,7 +361,7 @@ function TableView({
               <button
                 className="pt-btn"
                 disabled={
-                  !Number.isSafeInteger(Number(lookCount)) ||
+                  boardLocked || !Number.isSafeInteger(Number(lookCount)) ||
                   Number(lookCount) < 1
                 }
                 onClick={() => {
@@ -396,6 +415,7 @@ function TableView({
           {...common}
           id={selectedPiece.id}
           zone={selectedZone}
+          locked={boardLocked}
           imageCacheDir={imageCacheDir}
           close={() => select(null)}
         >

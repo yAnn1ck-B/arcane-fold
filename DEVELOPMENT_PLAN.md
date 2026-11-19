@@ -12,7 +12,7 @@ The application manages a permanent Magic: The Gathering card collection. Users 
 
 ### Play (unreleased)
 
-Players can report an unexpected play from the table or a decision dialog. The report freezes the current seat’s view, actions, controls and public history when opened. An optional note describes the expected outcome. Desktop reports live in the local SQLite database.
+Players can report an unexpected play from the table or a decision dialog. The report freezes the current seat’s view, actions, controls and public history when opened. The player supplies a short description of the expected outcome. Desktop reports live in the local SQLite database.
 
 **Play** starts a local rules-enforced game from one or two saved main decks. Forge handles phases, priority, legal actions and player decisions. When one person tests both seats, the board opens the deciding seat’s view automatically. The opening-hand dialog handles keeping, mulligans and bottoming cards. The shared board puts the two battlefields and the current hand beside an optional right panel for the stack and public game log.
 

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, Copy, Users } from "lucide-react";
+import { ArrowLeft, Check, Copy, Hand, Undo2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ForgeBoard, { ForgeImageSource } from "@/game/ForgeBoard";
-import type { ForgeCard } from "@/game/forge-match";
+import type { ForgeCard, ForgeSeat } from "@/game/forge-match";
+import type { MatchTools } from "@/game/TableBoard";
+import { TableDialog } from "@/game/TableDialog";
 import { GameIssueReporting } from "@/game/GameIssueReporter";
-import { captureForgeIssue } from "@/game/issue-report";
-import { errorMessage, playUrl, roomPath, roomRequest, RoomApiError, type Move, type RoomView } from "./room-api";
+import { captureForgeIssue, type GameIssueReport } from "@/game/issue-report";
+import { errorMessage, playUrl, roomPath, roomRequest, RoomApiError, type Move, type ProposalDecision, type RoomView } from "./room-api";
+import { ActionStatus, ConsentDialog, playerName, RewindPicker } from "./RoomRequests";
+import { RemoteManualTable } from "./RemoteManualTable";
 import "@/styles/game.css";
 
 function artSource(card: ForgeCard) {
@@ -44,17 +48,47 @@ function Invitation({ code }: { code: string }) {
   );
 }
 
-export default function WebRoom({ id, onLobby }: { id: string; onLobby: () => void }) {
+export default function WebRoom({ id, onLobby, onSeatChange }: {
+  id: string; onLobby: () => void; onSeatChange: (seat: ForgeSeat | null) => void;
+}) {
   const [room, setRoom] = useState<RoomView>();
   const [connectionError, setConnectionError] = useState("");
   const [actionError, setActionError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [sending, setSending] = useState(false);
+  const [choosingStep, setChoosingStep] = useState(false);
+  const [resolution, setResolution] = useState("");
+  const [rewindKey, setRewindKey] = useState("");
+  const previousProposal = useRef<string | undefined>(undefined);
   const pending = useRef(false);
   const path = roomPath(id);
   const acceptView = useCallback((next: RoomView) => {
-    setRoom((previous) => !previous || next.revision >= previous.revision ? next : previous);
+    setRoom(previous => !previous || next.revision > previous.revision ||
+      (next.revision === previous.revision && next.controlVersion >= previous.controlVersion) ? next : previous);
   }, []);
+
+  useEffect(() => {
+    onSeatChange(room?.seat ?? null);
+    return () => onSeatChange(null);
+  }, [onSeatChange, room?.seat]);
+
+  const proposal = room?.pendingRequest;
+  const result = room?.lastResolution;
+  useEffect(() => {
+    if (proposal) {
+      previousProposal.current = proposal.id;
+      setChoosingStep(false);
+      setResolution("");
+    } else if (result) {
+      if (result.kind === "undo" && result.decision === "accept") setRewindKey(result.requestId);
+      if (previousProposal.current === result.requestId) {
+        const what = result.kind === "undo" ? "undo" : "manual play";
+        const verb = result.decision === "accept" ? "approved" : result.decision === "cancel" ? "canceled" : "declined";
+        setResolution(`${playerName(result.responder)} ${verb} the ${what} request.`);
+      }
+      previousProposal.current = undefined;
+    }
+  }, [proposal?.id, result?.requestId, result?.decision]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,7 +104,6 @@ export default function WebRoom({ id, onLobby }: { id: string; onLobby: () => vo
         if (!controller.signal.aborted) {
           acceptView(view);
           setConnectionError("");
-          terminal = view.status === "finished";
         }
       } catch (cause) {
         if (!controller.signal.aborted) {
@@ -97,14 +130,15 @@ export default function WebRoom({ id, onLobby }: { id: string; onLobby: () => vo
     };
   }, [path, refresh, acceptView]);
 
-  async function act(move: Move) {
-    if (!room?.state || room.status !== "playing" || pending.current || connectionError) return;
-    if ("actionId" in move && room.state.actor !== room.seat) return;
+  async function post(endpoint: string, body: object) {
+    if (!room || pending.current || connectionError) return;
     pending.current = true;
     setSending(true);
     setActionError("");
     try {
-      const next = await roomRequest<RoomView>(`${path}/actions`, { revision: room.revision, ...move });
+      const next = await roomRequest<RoomView>(`${path}/${endpoint}`, {
+        revision: room.revision, controlVersion: room.controlVersion, ...body,
+      });
       acceptView(next);
     } catch (cause) {
       setActionError(errorMessage(cause));
@@ -115,12 +149,36 @@ export default function WebRoom({ id, onLobby }: { id: string; onLobby: () => vo
     }
   }
 
+  function act(move: Move) {
+    if (!room || room.status !== "playing" || proposal) return;
+    if ("actionId" in move && room.state?.actor !== room.seat) return;
+    setResolution("");
+    void post("actions", move);
+  }
+
+  function requestUndo(targetRevision: number) {
+    void post("requests", { kind: "undo", targetRevision });
+  }
+
+  function answer(decision: ProposalDecision) {
+    if (proposal) void post("requests", { requestId: proposal.id, decision });
+  }
+
+  async function submitReport(report: GameIssueReport) {
+    const { id, appVersion, capturedAt, visibleDialog, visibleControls, visibleControlsTruncated, error } = report;
+    await roomRequest(`${path}/reports`, {
+      revision: report.revision, details: report.expectedBehavior,
+      report: { id, appVersion, capturedAt, visibleDialog, visibleControls, visibleControlsTruncated, error },
+    });
+  }
+
   const state = room?.state;
+  const manual = room?.manualState;
   const error = connectionError || actionError;
   const notice = error ? <div role="alert" className="notice notice-error">{error}
     <Button variant="outline" onClick={() => { setActionError(""); setRefresh((value) => value + 1); }}>Refresh table</Button>
   </div> : undefined;
-  if (!room || !state) return (
+  if (!room || (!state && !manual)) return (
     <div className="web-play">
       <button className="web-back" onClick={onLobby}><ArrowLeft size={16} /> Back to tables</button>
       {notice}
@@ -128,37 +186,56 @@ export default function WebRoom({ id, onLobby }: { id: string; onLobby: () => vo
         !error && <p role="status">{room?.status === "waiting" ? "Waiting for your opponent…" : "Loading table…"}</p>}
     </div>
   );
+  const locked = sending || !!connectionError || !!proposal;
+  const canUndo = room.undoAvailable && !locked;
+  const canSwitch = room.mode === "forge" && room.status === "playing";
+  const showSteps = () => { setActionError(""); setChoosingStep(true); };
+  const rewindPicker = <RewindPicker path={path} revision={room.revision} disabled={!canUndo} request={requestUndo} />;
+  const manualButton = canSwitch && (
+    <button type="button" className="pt-tool" aria-label="Request manual play" data-hint="Request manual play"
+      disabled={locked} onClick={() => void post("requests", { kind: "manual" })}><Hand size={16} aria-hidden /></button>
+  );
+  const matchTools: MatchTools = {
+    history: (manual?.history ?? state?.history) || [], undoDisabled: !canUndo, onUndo: showSteps,
+    onLeave: onLobby, leaveLabel: "Back to tables", leaveDisabled: sending,
+    actionStatus: <ActionStatus room={room} />, manualSwitch: manualButton, openingRecovery: notice,
+    logActions: room.undoAvailable && <div className="web-log-rewind">{rewindPicker}</div>,
+    decisionTools: <div className="web-decision-tools">
+      <button type="button" className="pt-btn" disabled={!canUndo} onClick={showSteps}><Undo2 size={15} />Undo to a step</button>
+      {manualButton}
+    </div>,
+  };
   return (
     <div className="web-play pt-forge">
       {notice}
+      {resolution && <p className="web-room-result" role="status">{resolution}</p>}
+      {manual && <RemoteManualTable key={rewindKey} state={manual} matchTools={matchTools}
+        onAction={manualAction => act({ manualAction })} locked={locked}
+        reportContext={{ id, revision: room.revision, error: error || undefined }} submitReport={submitReport} />}
+      {state && (
       <GameIssueReporting
         capture={() => ({
           ...captureForgeIssue(id, room.seat, state, error || undefined),
           revision: room.revision,
         })}
-        submit={async (report) => {
-          const { id, appVersion, capturedAt, visibleDialog, visibleControls, visibleControlsTruncated, error } = report;
-          await roomRequest(`${path}/reports`, {
-            revision: report.revision,
-            details: report.expectedBehavior,
-            report: { id, appVersion, capturedAt, visibleDialog, visibleControls, visibleControlsTruncated, error },
-          });
-        }}
+        submit={submitReport}
       >
         <ForgeImageSource.Provider value={artSource}>
-          <ForgeBoard state={state} viewer={room.seat} locked={sending || !!connectionError} imageCacheDir=""
-            onChoose={(actionId) => void act({ actionId })}
-            onPriorityStop={(stop) => void act({ stop })}
+          <ForgeBoard key={rewindKey} state={state} viewer={room.seat} locked={locked} imageCacheDir=""
+            onChoose={actionId => act({ actionId })}
+            onPriorityStop={stop => act({ stop })}
             replay={onLobby}
-            matchTools={{
-              history: state.history, undoDisabled: true, onLeave: onLobby,
-              leaveLabel: "Back to tables", leaveDisabled: sending,
-              contextLabel: `Player ${room.seat === "player" ? 1 : 2}`,
-              openingRecovery: notice,
-            }}
+            matchTools={matchTools}
           />
         </ForgeImageSource.Provider>
-      </GameIssueReporting>
+      </GameIssueReporting>)}
+      {choosingStep && !proposal && <TableDialog title="Undo to a step" reportable={false}
+        onClose={sending ? undefined : () => setChoosingStep(false)}>
+        {rewindPicker}
+        {error && <p role="alert" className="notice notice-error">{error}</p>}
+      </TableDialog>}
+      {proposal && <ConsentDialog key={proposal.id} proposal={proposal} seat={room.seat}
+        busy={sending || !!connectionError} error={error} answer={answer} />}
     </div>
   );
 }

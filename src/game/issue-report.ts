@@ -40,7 +40,7 @@ export function captureForgeIssue(matchId: string, viewer: ForgeSeat, match: For
 }
 
 /** A manual save contains both libraries and hands. Only the projected table belongs in a report. */
-export function captureManualIssue(matchId: string, revision: string, view: MatchView, history: HistoryEntry[], error?: string): IssuePosition {
+export function captureManualIssue(matchId: string, revision: string | number, view: MatchView, history: HistoryEntry[], error?: string): IssuePosition {
   const { catalog, ...board } = view;
   const printings = Object.fromEntries(Object.entries(catalog).map(([id, card]) => [id, {
     name: card.name, setCode: card.setCode, collectorNumber: card.collectorNumber,

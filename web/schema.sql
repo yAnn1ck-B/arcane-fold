@@ -32,6 +32,21 @@ CREATE TABLE IF NOT EXISTS web_positions (
 -- These server-only offsets locate a historical position in the room's append-only
 -- Forge journal. Earlier captures have no recorded replay cursor.
 ALTER TABLE web_positions ADD COLUMN IF NOT EXISTS replay_cursor jsonb;
+ALTER TABLE web_rooms ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'forge' CHECK (mode IN ('forge','manual'));
+ALTER TABLE web_rooms ADD COLUMN IF NOT EXISTS pending_request jsonb;
+ALTER TABLE web_rooms ADD COLUMN IF NOT EXISTS last_resolution jsonb;
+ALTER TABLE web_rooms ADD COLUMN IF NOT EXISTS control_version integer NOT NULL DEFAULT 0;
+ALTER TABLE web_positions ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'forge' CHECK (mode IN ('forge','manual'));
+ALTER TABLE web_positions ADD COLUMN IF NOT EXISTS manual_checkpoint jsonb;
+ALTER TABLE web_positions ADD COLUMN IF NOT EXISTS retired_at integer;
+CREATE INDEX IF NOT EXISTS web_live_history ON web_positions(room_id,mode,revision) WHERE retired_at IS NULL;
+-- A report on a discarded future still refers to that future's journal and position.
+CREATE TABLE IF NOT EXISTS web_forge_journals (
+  room_id uuid NOT NULL REFERENCES web_rooms,
+  head_revision integer NOT NULL,
+  checkpoint jsonb NOT NULL,
+  PRIMARY KEY (room_id, head_revision)
+);
 CREATE TABLE IF NOT EXISTS web_reports (
   id uuid PRIMARY KEY,
   reporter uuid NOT NULL REFERENCES web_players,

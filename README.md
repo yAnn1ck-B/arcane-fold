@@ -6,13 +6,15 @@ The `experiment/web-multiplayer` branch runs the league in a browser. A Node.js 
 
 **Play locally.** Open [Eternal League](http://127.0.0.1:4317/?page=play), choose a saved deck or one of the two Foundations practice decks, then select **Create table**. Open the invitation in another browser profile or private window and select **Join table**. Each player sees their own hand and makes their own decisions. Each browser can reload the table or return to it from **Your tables**. Keep the session cookie to retain access to that player’s league. Closing a private window may discard its identity.
 
-**Report a play.** Use **Report game issue** on the table or in a decision dialog. The report captures the position you were looking at when you clicked. You may add one sentence about the expected play. PostgreSQL retains the reporting seat’s view, legal choices, controls, public history, match ID and revision. For investigation, join `web_reports` to `web_rooms` by room ID for the saved decks, seed and verified action history. These records are available to the database operator.
+**At the table.** Your seat appears next to **Play**. The board tells you when you have a decision and when the opponent is choosing. To take back a play, open the game log, choose the position you want to return to and request an undo. Either player can also request a switch to manual play. Play pauses for the other player to accept or decline. Manual play starts from the agreed position, and its undo history begins there.
 
-To investigate recent reports, run this query in the web database. The replay cursor identifies the move and priority settings in the saved match journal.
+**Report a play.** Use **Report game issue** on the table or in a decision dialog and briefly describe what you expected. The report captures the position you were looking at when you clicked. PostgreSQL retains the reporting seat’s view, choices, controls, public history, match ID and revision. The database operator can follow that revision to the original position, including after an agreed undo.
+
+To investigate recent reports, run this query in the web database. For Forge games, the replay cursor identifies the move and priority settings. A retired position points to its original journal in `web_forge_journals` through `(room_id, retired_at)`. A manual position stores its full state in `web_positions.manual_checkpoint`.
 
 ```sql
 SELECT r.id, r.created_at, r.details, r.room_id, r.revision, r.seat,
-       r.snapshot, p.replay_cursor
+       r.snapshot, p.replay_cursor, p.retired_at
 FROM web_reports AS r
 JOIN web_positions AS p USING (room_id, revision)
 ORDER BY r.created_at DESC
@@ -54,7 +56,7 @@ Published **0.3.0 still has optional updates** and needs one ordinary upgrade to
 
 ## Play (upcoming release)
 
-Use **Report game issue** at the table or in a decision dialog when a play looks wrong. Opening the report captures that seat’s board, available choices and public game history at that moment. Add a short note about what you expected, or save immediately. The desktop app keeps the report in its SQLite database in `game_issue_reports`.
+Use **Report game issue** at the table or in a decision dialog when a play looks wrong. Opening the report captures that seat’s board, available choices and public game history at that moment. Describe what you expected, then save the report. The desktop app keeps the report in its SQLite database in `game_issue_reports`.
 
 Open **Play**, select the players’ saved decks, and choose **Start game**. You can use the same deck for both seats or choose a solo opponent that passes. Each selected main deck needs at least seven cards. Local rules-enforced play uses Forge Desktop 2.0.13 from Settings and a JDK 17 or newer with `java` on PATH.
 

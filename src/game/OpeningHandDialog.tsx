@@ -10,6 +10,8 @@ export function OpeningHandDialog({
   prompt,
   actions,
   required = true,
+  allowTable = false,
+  tools,
   error,
 }: {
   player: number;
@@ -17,10 +19,13 @@ export function OpeningHandDialog({
   prompt?: string;
   actions: ReactNode;
   required?: boolean;
+  allowTable?: boolean;
+  tools?: ReactNode;
   error?: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  if (!required && !open) {
+  const [open, setOpen] = useState<boolean | undefined>(undefined);
+  const canClose = !required || allowTable;
+  if (canClose && !(open ?? required)) {
     return (
       <button
         type="button"
@@ -38,7 +43,7 @@ export function OpeningHandDialog({
       subtitle={`Player ${player}`}
       className="pt-opening-dialog"
       closeLabel="View table"
-      onClose={required ? undefined : () => setOpen(false)}
+      onClose={canClose ? () => setOpen(false) : undefined}
     >
       {error}
       {prompt && (
@@ -48,6 +53,7 @@ export function OpeningHandDialog({
       )}
       {hand && <div className="pt-opening-cards">{hand}</div>}
       <div className="pt-opening-actions">{actions}</div>
+      {tools}
     </TableDialog>
   );
 }
@@ -60,6 +66,8 @@ export function ForgeOpeningHand({
   onChoose,
   locked,
   error,
+  allowTable,
+  tools,
 }: {
   seat: ForgeSeat;
   prompt: string;
@@ -68,6 +76,8 @@ export function ForgeOpeningHand({
   onChoose: (choice: ForgeChoice) => void;
   locked: boolean;
   error?: ReactNode;
+  allowTable?: boolean;
+  tools?: ReactNode;
 }) {
   return (
     <OpeningHandDialog
@@ -75,6 +85,8 @@ export function ForgeOpeningHand({
       hand={hand}
       prompt={prompt}
       error={error}
+      allowTable={allowTable}
+      tools={tools}
       actions={
         <>
           {choices.map((choice) => (

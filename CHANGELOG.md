@@ -4,7 +4,8 @@
 
 - Add a browser edition with PostgreSQL-backed leagues, private two-player Forge tables, resumable games and reports linked to the exact server-side position.
 
-- Report an issue from a Forge or manual game with the current seat’s position, choices, public history and an optional note about the expected play.
+- Report an issue from a Forge or manual game with the current seat’s position, choices, public history and a required description of the expected play.
+- Let browser opponents agree to rewind to a game-log position or continue the match manually. Show the deciding seat prominently and move the read-only league guide to the bottom of the sidebar.
 
 - Arrange creatures, lands and support cards on a shared tabletop. Show game-log entries newest first and allow confirmed removal of a saved manual game.
 - Switch directly to the next decision maker and keep opening hands focused on mulligans. Add colored mana-pool details, manual mana activation, three stop settings and contextual Next, Pass, Resolve and End Turn actions.

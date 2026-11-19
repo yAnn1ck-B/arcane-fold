@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "npm run web:start",
-    "web:build": "tsc -b && vite build --config vite.web.config.ts",
+    "web:build": "tsc -b && npm run web:manual && vite build --config vite.web.config.ts",
+    "web:manual": "esbuild src/game/remote-manual.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist-web-server/manual.mjs",
+    "preweb:test": "npm run web:manual",
     "web:start": "node --env-file-if-exists=.env.web web/server.mjs",
     "web:db": "node --env-file-if-exists=.env.web web/setup-db.mjs",
     "web:catalog": "node --env-file-if-exists=.env.web web/catalog.mjs",
@@ -50,6 +52,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "esbuild": "^0.28.2",
     "tailwindcss": "^4.3.5",
     "typescript": "~5.9.3",
     "vite": "^7.2.0"

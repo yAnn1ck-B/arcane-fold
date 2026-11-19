@@ -256,7 +256,7 @@ export default function Settings({
       <div
         className="settings-tabs"
         role="tablist"
-        aria-label="Settings sections"
+        aria-label={rulesOnly ? "League guide sections" : "Settings sections"}
       >
         {tabs.map(
           ({ id, label, Icon }) => (

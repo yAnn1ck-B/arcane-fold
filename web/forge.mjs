@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -144,15 +144,25 @@ async function launch(install, decks, seed) {
     const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
     lines.on("line", line => {
       if (line.startsWith("GAME_ERROR ")) return fail();
+      if (line.startsWith("GAME_MANUAL ")) {
+        const prefix = "GAME_MANUAL " + pending?.nonce + " ";
+        if (!pending?.nonce || !line.startsWith(prefix)) return fail();
+        try {
+          const reply = JSON.parse(line.slice(prefix.length));
+          if (reply.match) pending.resolve(reply.match);
+          else pending.reject(new Error("Forge could not export this position. Finish the current decision and try again."));
+        } catch { fail(); }
+        return;
+      }
       if (!line.startsWith("GAME_STATE ")) return;
       try {
         const state = JSON.parse(line.slice("GAME_STATE ".length));
-        if (!pending || state.sharedSeats !== true || !seats.includes(state.actor) ||
+        if (!pending || pending.nonce || state.sharedSeats !== true || !seats.includes(state.actor) ||
             !["decision", "finished"].includes(state.stage) || typeof state.replayState !== "string") return fail();
         pending.resolve(state);
       } catch { fail(); }
     });
-    function next(action) {
+    function next(action, nonce) {
       if (ended || pending) throw new Error("The Forge match is unavailable.");
       return new Promise((resolveState, rejectState) => {
         const timer = setTimeout(fail, action === undefined ? 90_000 : 30_000);
@@ -161,7 +171,7 @@ async function launch(install, decks, seed) {
           pending = undefined;
           callback(value);
         };
-        pending = { resolve: settle(resolveState), reject: settle(rejectState) };
+        pending = { nonce, resolve: settle(resolveState), reject: settle(rejectState) };
         if (action !== undefined) child.stdin.write(action + "\n");
       });
     }
@@ -252,6 +262,12 @@ export async function createGame({ decks, seed, checkpoint: saved, install = pro
     }
     return {
       view, close,
+      exportManual: () => serialized(async () => {
+        if (closed || state.stage !== "decision") throw new Error("Manual play requires a suspended decision.");
+        const nonce = randomUUID();
+        const match = await engine.next("EXPORT_MANUAL " + nonce, nonce);
+        return { match, history: structuredClone(state.history), actor: state.actor };
+      }),
       checkpoint: () => structuredClone({ version: 1, initial, moves, pending }),
       act: (seat, action, revision) => serialized(async () => {
         checkRevision(revision);

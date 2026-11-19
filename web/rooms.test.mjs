@@ -33,6 +33,7 @@ test("only members read their seat and reports retain its authoritative historic
       history:[], board:{privateHand:"fabricated"}, visibleControls:[{label:"Pass"}],
     }};
     await assert.rejects(recordSeatReport(client,room,stranger,note),{status:404});
+    await assert.rejects(recordSeatReport(client,room,guest,{...note,details:" \n "}),{status:400});
     await recordSeatReport(client,room,guest,note);
     await recordSeatReport(client,room,guest,note);
     const {rows:[saved]} = await client.query("SELECT snapshot,details FROM web_reports WHERE room_id=$1",[room]);
@@ -65,7 +66,7 @@ test("only members read their seat and reports retain its authoritative historic
       assert.equal(cursor.version,checkpoint.version);
       assert.equal(checkpoint.moves.slice(0,cursor.moveCount).at(-1).after,cursor.lastMoveDigest);
     }
-    const large = {revision:3,details:"",report:{...note.report,id:randomUUID(),visibleControls:Array.from({length:300},() => ({label:"x".repeat(700)}))}};
+    const large = {revision:3,details:"I expected a response window.",report:{...note.report,id:randomUUID(),visibleControls:Array.from({length:300},() => ({label:"x".repeat(700)}))}};
     await recordSeatReport(client,room,guest,large);
     await recordSeatReport(client,room,guest,large);
     const {rows:[{snapshot}]} = await client.query("SELECT snapshot FROM web_reports WHERE id=$1",[large.report.id]);

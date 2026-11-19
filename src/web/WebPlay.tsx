@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, DoorOpen, Plus, Swords } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { ForgeSeat } from "@/game/forge-match";
 import { errorMessage, playUrl, readSession, roomRequest, type WebSession } from "./room-api";
 import WebRoom from "./WebRoom";
 import "./web-play.css";
@@ -10,7 +11,7 @@ function readRoute() {
   return { room: params.get("room") || "", join: params.get("join") || "" };
 }
 
-export default function WebPlay() {
+export default function WebPlay({ onSeatChange }: { onSeatChange: (seat: ForgeSeat | null) => void }) {
   const [route, setRoute] = useState(readRoute);
   const [session, setSession] = useState<WebSession>();
   const [refresh, setRefresh] = useState(0);
@@ -36,7 +37,7 @@ export default function WebPlay() {
     setRoute(readRoute());
   }
 
-  if (route.room && session) return <WebRoom key={route.room} id={route.room} onLobby={() => navigate()} />;
+  if (route.room && session) return <WebRoom key={route.room} id={route.room} onLobby={() => navigate()} onSeatChange={onSeatChange} />;
   return (
     <div className="web-play">
       {loadError && <div role="alert" className="notice notice-error">{loadError}

@@ -1,6 +1,5 @@
 import { createContext, Fragment, useContext, useEffect, useId, useRef, useState, type Ref } from "react";
 import {
-  CircleHelp,
   ImageOff,
   Layers,
   RotateCcw,
@@ -47,15 +46,6 @@ export const ForgeImageSource = createContext<((card: ForgeCard) => string) | un
 type ArtCache = Map<string, Promise<Artwork | undefined>>;
 const pileNames = { graveyard: "Graveyard", exile: "Exile", library: "Top of library" } as const;
 type Pile = { seat: ForgeSeat; zone: keyof typeof pileNames };
-
-function priorityExplanation(stop: PriorityStop) {
-  switch (stop) {
-    case "auto": return "Forge pauses when you have a play or response, including tapping a mana source in your main phase.";
-    case "next": return "Pause once at your next opportunity on either turn. Choose a particular step to wait until that point instead. After the stop, Automatic resumes.";
-    case "full": return "Forge pauses every time you get priority, even if you can only pass, until you change this setting.";
-    default: return `Forge adds one pause at “${prioritySteps[stop]}” the next time you get priority at that step, then returns to Automatic.`;
-  }
-}
 
 function AbilityLabel({ label }: { label: string }) {
   const separator = label.indexOf(":");
@@ -261,9 +251,7 @@ export default function ForgeBoard({
   onSwitch?: () => void;
   matchTools: MatchTools;
 }) {
-  const [showPriorityHelp, setShowPriorityHelp] = useState(false);
   const priorityId = useId();
-  const priorityHelpId = useId();
   const [pile, setPile] = useState<Pile | null>(null);
   const [menuCard, setMenuCard] = useState<ForgeCard | null>(null);
   const [deferredSearch, setDeferredSearch] = useState<string>();
@@ -576,22 +564,9 @@ export default function ForgeBoard({
   const oneTimeStop = stop !== "auto" && stop !== "full";
   const priorityControl = state.stage === "decision" && (
     <div className="ptc pt-priority-control">
-      <div className="pt-priority-heading">
-        <label htmlFor={priorityId}>Stops</label>
-        <button
-          type="button"
-          aria-label="Explain stops"
-          title="Explain stops"
-          aria-expanded={showPriorityHelp}
-          aria-controls={priorityHelpId}
-          onClick={() => setShowPriorityHelp((open) => !open)}
-        >
-          <CircleHelp size={15} aria-hidden />
-        </button>
-      </div>
+      <label htmlFor={priorityId}>Stops</label>
       <select
         id={priorityId}
-        aria-describedby={showPriorityHelp ? priorityHelpId : undefined}
         value={oneTimeStop ? "next" : stop}
         disabled={locked}
         onChange={(event) => onPriorityStop(event.currentTarget.value as PriorityStop)}
@@ -613,10 +588,6 @@ export default function ForgeBoard({
           ))}
         </select>
       )}
-      <p id={priorityHelpId} hidden={!showPriorityHelp}>
-        Priority is your chance to cast a spell or activate an ability on either player’s turn.{" "}
-        {priorityExplanation(stop)}
-      </p>
     </div>
   );
 
@@ -646,9 +617,9 @@ export default function ForgeBoard({
             </span>
           </div>
           {!opening && priorityControl}
-          {!opening && (
+          {!opening && (!matchTools.actionStatus || !!state.revealedToYou?.length) && (
             <div className="pt-forge-prompt">
-              {state.stage === "decision" &&
+              {!matchTools.actionStatus && state.stage === "decision" &&
                 (!sharedSeats || viewer === actor) && (
                   <strong>
                     {sharedSeats
@@ -656,7 +627,7 @@ export default function ForgeBoard({
                       : actor === viewer ? "You" : "Opponent"}
                   </strong>
                 )}
-              <span role="status">{state.prompt}</span>
+              {!matchTools.actionStatus && <span role="status">{state.prompt}</span>}
               {!!state.revealedToYou?.length && (
                 <small>Revealed to you: {state.revealedToYou.join(", ")}</small>
               )}
@@ -674,12 +645,14 @@ export default function ForgeBoard({
             {opening ? (
               <ForgeOpeningHand
                 seat={viewer}
-                prompt={state.prompt}
+                prompt={matchTools.actionStatus ? "" : state.prompt}
                 hand={hand.map(tile)}
                 choices={toolbar}
                 onChoose={choose}
                 locked={locked}
-                error={matchTools.openingRecovery}
+                error={matchTools.actionStatus ? <>{matchTools.actionStatus}{matchTools.openingRecovery}</> : matchTools.openingRecovery}
+                allowTable={!!matchTools.decisionTools}
+                tools={matchTools.decisionTools}
               />
             ) : (
               toolbar.map((choice) => option(choice, focusFor(choice)))
@@ -768,6 +741,7 @@ export default function ForgeBoard({
               );
             })}
           </div>
+          {matchTools.decisionTools}
         </TableDialog>
       )}
       {menuCard && menuChoices.length > 0 && (

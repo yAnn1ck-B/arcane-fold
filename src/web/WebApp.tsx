@@ -1,9 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Layers, LayoutDashboard, Library, Package, Settings2, Swords } from "lucide-react";
+import { BookOpen, Layers, LayoutDashboard, Library, Package, Swords } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ToastProvider from "@/components/ToastProvider";
 import { defaultAppearance } from "@/lib/appearance";
 import type { AppSettings, CatalogCard, DashboardStats, DeckAddRequest, LeagueStatus, Page } from "@/lib/types";
+import type { ForgeSeat } from "@/game/forge-match";
 import Dashboard from "@/pages/Dashboard";
 import { catalogStatus, getBannerCard } from "@/services/cards";
 import { leagueStatus } from "@/services/progression";
@@ -22,12 +23,15 @@ const navigation = [
   { page: "decks", title: "Deck builder", icon: Swords },
   { page: "play", title: "Play", icon: Layers },
   { page: "boosters", title: "Booster packs", icon: Package },
-  { page: "settings", title: "Settings", icon: Settings2 },
+  { page: "guide", title: "League guide", icon: BookOpen },
 ] as const;
 
-function currentPage(): Page {
+type WebPage = Exclude<Page, "settings"> | "guide";
+
+function currentPage(): WebPage {
   const params = new URL(window.location.href).searchParams;
   if (params.has("room") || params.has("join")) return "play";
+  if (params.get("page") === "settings") return "guide";
   return navigation.find((entry) => entry.page === params.get("page"))?.page ?? "dashboard";
 }
 
@@ -49,6 +53,7 @@ async function loadLeague(): Promise<LeagueView> {
 
 export default function WebApp() {
   const [page, setPage] = useState(currentPage);
+  const [tableSeat, setTableSeat] = useState<ForgeSeat | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [data, setData] = useState<LeagueView>();
   const [banner, setBanner] = useState<CatalogCard | null>(null);
@@ -56,7 +61,7 @@ export default function WebApp() {
   const [reload, setReload] = useState(0);
   const [error, setError] = useState("");
   const [add, setAdd] = useState<DeckAddRequest | null>(null);
-  const [visited, setVisited] = useState<Partial<Record<Page, boolean>>>(() => ({ [currentPage()]: true }));
+  const [visited, setVisited] = useState<Partial<Record<WebPage, boolean>>>(() => ({ [currentPage()]: true }));
   const latestRead = useRef(0);
 
   const refreshLeague = useCallback(async () => {
@@ -113,7 +118,7 @@ export default function WebApp() {
     return () => window.removeEventListener("popstate", restore);
   }, []);
 
-  function navigate(target: Page) {
+  function navigate(target: WebPage) {
     if (page === target) return;
     const url = new URL(window.location.href);
     url.searchParams.delete("room");
@@ -136,7 +141,7 @@ export default function WebApp() {
         <div className="sidebar-divider" />
         <nav className="main-nav" aria-label="Main navigation">
           {navigation.map(({ page: target, title, icon: Icon }) => (
-            <button key={target} className={`nav-item ${target === page ? "active" : ""}`}
+            <button key={target} className={`nav-item ${target === "guide" ? "web-guide-link" : ""} ${target === page ? "active" : ""}`}
               aria-current={target === page ? "page" : undefined} onClick={() => navigate(target)}>
               <Icon size={18} strokeWidth={1.7} /><span>{title}</span>
             </button>
@@ -144,13 +149,15 @@ export default function WebApp() {
         </nav>
       </aside>
       <main className="main-content"><div className="page-content">
-        <header className="page-heading"><h1>{navigation.find((entry) => entry.page === page)?.title}</h1></header>
+        <header className="page-heading"><h1>{navigation.find((entry) => entry.page === page)?.title}
+          {page === "play" && tableSeat && <span className="web-title-seat">Player {tableSeat === "player" ? 1 : 2}</span>}
+        </h1></header>
         {error && <div className="notice notice-error" role="alert">{error}
           <Button variant="outline" onClick={() => setReload((number) => number + 1)}>Retry</Button>
         </div>}
         {!ready && !error && <div className="loading-state" role="status">Opening your league…</div>}
         {sessionReady && <Suspense fallback={<p role="status">Opening page…</p>}>
-          {page === "play" && <WebPlay />}
+          {page === "play" && <WebPlay onSeatChange={setTableSeat} />}
           {data && <>
             {page === "dashboard" && <Dashboard settings={data.settings} stats={data.stats} bannerCard={banner}
               catalogCount={count} league={data.league} revision={revision}
@@ -166,7 +173,7 @@ export default function WebApp() {
               onAddRequestHandled={(id) => setAdd((previous) => previous?.requestId === id ? null : previous)} /></div>}
             {visited.boosters && <div hidden={page !== "boosters"}><Boosters active={page === "boosters"}
               settings={data.settings} revision={revision} onChange={refreshLeague} league={data.league} /></div>}
-            {page === "settings" && <Settings rulesOnly settings={data.settings} leagueStatus={data.league} report={null} catalogCount={count} />}
+            {page === "guide" && <Settings rulesOnly settings={data.settings} leagueStatus={data.league} report={null} catalogCount={count} />}
           </>}
         </Suspense>}
       </div></main>

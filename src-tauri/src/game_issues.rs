@@ -26,7 +26,7 @@ async fn store(pool: &SqlitePool, report: &Value) -> Result<(), String> {
         || !report["actions"].is_array()
         || !report["expectedBehavior"]
             .as_str()
-            .is_some_and(|s| s.chars().count() <= 1000)
+            .is_some_and(|s| !s.trim().is_empty() && s.chars().count() <= 1000)
     {
         return Err("The game issue report could not be read.".into());
     }
@@ -68,6 +68,9 @@ mod tests {
                 "expectedBehavior":"Let me respond.", "actions":[{"label":"Pass"}],
                 "history":[{"turn":3,"text":"Player 1 cast Shock."}], "board":{"stack":["Shock"]}
             });
+            let mut blank = report.clone();
+            blank["expectedBehavior"] = json!("  \n ");
+            assert!(store(&pool, &blank).await.is_err());
             store(&pool, &report).await.unwrap();
             store(&pool, &report).await.unwrap();
             let original = report.clone();

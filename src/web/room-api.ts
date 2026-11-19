@@ -1,4 +1,5 @@
 import type { ForgeMatch, ForgeSeat, PriorityStop } from "@/game/forge-match";
+import type { ManualCommand, ManualState } from "@/game/remote-manual";
 
 interface RoomSummary {
   id: string;
@@ -11,14 +12,37 @@ interface RoomSummary {
 export interface RoomView extends RoomSummary {
   revision: number;
   state: ForgeMatch | null;
+  mode: "forge" | "manual";
+  manualState: ManualState | null;
+  controlVersion: number;
+  undoAvailable: boolean;
+  pendingRequest: RoomProposal | null;
+  lastResolution?: {
+    requestId: string; kind: RoomProposal["kind"]; decision: ProposalDecision;
+    requester: ForgeSeat; responder: ForgeSeat; targetLabel?: string;
+  } | null;
 }
+
+export type ProposalDecision = "accept" | "decline" | "cancel";
+export interface RoomProposal {
+  id: string;
+  kind: "undo" | "manual";
+  requester: ForgeSeat;
+  targetRevision?: number;
+  targetLabel?: string;
+}
+
+export interface RewindStep {
+  revision: number; turn: number; phase: string; historyCount: number; label: string;
+}
+export interface RoomHistory { revision: number; steps: RewindStep[] }
 
 export interface WebSession {
   decks: { id: string; name: string }[];
   rooms: RoomSummary[];
 }
 
-export type Move = { actionId: string } | { stop: PriorityStop };
+export type Move = { actionId: string } | { stop: PriorityStop } | { manualAction: ManualCommand };
 
 export class RoomApiError extends Error {
   constructor(readonly status: number, message: string) {

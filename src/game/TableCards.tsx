@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   Circle,
   Eye,
@@ -9,7 +9,7 @@ import {
   Swords,
   X,
 } from "lucide-react";
-import CardImage from "@/components/CardImage";
+import CardImage, { CardImageSource } from "@/components/CardImage";
 import type { Action, Mana, MatchView, Seat, Zone } from "./types";
 import { manaTypes, seats } from "./types";
 import { CardReading, PreviewAnchor } from "./CardPreview";
@@ -55,6 +55,7 @@ export function CardArt({
   imageCacheDir,
   inspect = false,
 }: CardProps & { inspect?: boolean }) {
+  const imageSource = useContext(CardImageSource);
   const piece = view.pieces[id];
   const card = piece.printing ? view.catalog[piece.printing] : null;
   if (piece.faceDown && (!inspect || (!card && !piece.tokenName)))
@@ -63,8 +64,8 @@ export function CardArt({
         <Layers size={25} aria-hidden />
       </div>
     );
-  if (card && (!piece.back || card.backImageUri)) {
-    if (!card.imageUri && card.id.startsWith("forge:"))
+  if (card && (!piece.back || card.backImageUri || imageSource)) {
+    if (!imageSource && !card.imageUri && card.id.startsWith("forge:"))
       return (
         <div className="pt-token-art">
           <span>{card.name}</span>
@@ -150,6 +151,7 @@ export function CardTile(
   props: CardProps & {
     onClick: () => void;
     zone: Zone;
+    locked?: boolean;
     dispatch: (action: Action) => void;
   },
 ) {
@@ -210,7 +212,7 @@ export function CardTile(
         </>
       }
       quickAction={
-        piece.controller === view.viewer &&
+        !props.locked && piece.controller === view.viewer &&
         zone === "battlefield" && (manaSource && !piece.tapped ? (
           <TapForMana name={name} basicColor={basicColor} colors={printedManaColors(catalog?.oracleText ?? "")} className="pt-quick"
             onTap={(mana, count) => dispatch({ type: "tapMana", id, mana, count })} />
@@ -231,6 +233,7 @@ export function CardTile(
 
 type InspectorProps = CardProps & {
   viewer: Seat;
+  locked?: boolean;
   dispatch: (action: Action) => void;
   zone: Zone;
   close: () => void;
@@ -245,6 +248,7 @@ export function CardInspector({
   zone,
   dispatch,
   close,
+  locked,
   children,
 }: InspectorProps) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -366,7 +370,7 @@ export function CardInspector({
                 .join(" · ")}
             </p>
           )}
-          {canAct && (
+          {canAct && !locked && (
             <>
               <fieldset>
                 <legend>Move card</legend>
@@ -565,7 +569,7 @@ export function CardInspector({
           )}
           {!canAct && (
             <p className="pt-subtle">
-              <Circle size={10} /> Switch seats to control this card.
+              <Circle size={10} /> Player {piece.controller + 1} controls this card.
             </p>
           )}
         </div>

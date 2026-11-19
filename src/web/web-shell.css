@@ -2,6 +2,10 @@ body:has(.web-shell) { min-width: 0; }
 .web-shell [hidden] { display: none; }
 .web-shell .main-content, .web-shell .page-content { min-width: 0; }
 .web-shell .page-content { max-width: 100%; }
+@media (min-width: 801px) {
+  .web-shell .main-nav { flex: 1; padding-bottom: 1.25rem; }
+  .web-shell .web-guide-link { margin-top: auto; }
+}
 @media (max-width: 800px) {
   .web-shell { display: block; }
   .web-shell .sidebar {

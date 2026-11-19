@@ -186,7 +186,8 @@ final class ForgeManual {
         var out = new LinkedHashMap<String, Object>();
         out.put("id", "stack-" + nextId++);
         out.put("kind", copy ? "copy" : physical ? "spell" : "ability");
-        String name = ForgeMatch.publicName(host);
+        boolean hiddenSource = host.getZone() == null || host.getZone().getZoneType().isHidden();
+        String name = !physical && hiddenSource ? "An ability from a hidden card" : ForgeMatch.publicName(host);
         String description = spell.getStackDescription();
         boolean publicText = !host.isFaceDown() && host.getZone() != null && host.getZone().getZoneType().isKnown();
         for (var group : spell.getAllTargetChoices()) {
@@ -211,7 +212,11 @@ final class ForgeManual {
             for (GameObject target : group) {
                 String targetLabel;
                 if (target instanceof Player p) targetLabel = "Player " + (seat(p) + 1);
-                else if (target instanceof SpellAbility ability) targetLabel = ForgeMatch.publicName(ability.getHostCard()) + " (stack)";
+                else if (target instanceof SpellAbility ability) {
+                    Card source = ability.getHostCard();
+                    targetLabel = source.getZone() == null || source.getZone().getZoneType().isHidden()
+                            ? "An ability on the stack" : ForgeMatch.publicName(source) + " (stack)";
+                }
                 else if (target instanceof Card card) {
                     var zone = card.getZone();
                     if (zone != null && zone.getZoneType().isHidden()) {

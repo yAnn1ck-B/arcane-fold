@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { ImageOff, RefreshCw } from "lucide-react";
 import type { CatalogCard } from "@/lib/types";
 import { invalidateCardImage, resolveCardImage } from "@/services/cards";
+
+type ImageCard = Pick<CatalogCard, "id" | "name"> & Partial<Pick<CatalogCard, "setCode" | "collectorNumber">>;
+export const CardImageSource = createContext<((card: ImageCard, face: "front" | "back") => string) | undefined>(undefined);
 
 export default function CardImage({
   card,
@@ -9,7 +12,7 @@ export default function CardImage({
   className = "",
   face = "front",
 }: {
-  card: Pick<CatalogCard, "id" | "name">;
+  card: ImageCard;
   imageCacheDir: string;
   className?: string;
   face?: "front" | "back";
@@ -19,6 +22,8 @@ export default function CardImage({
   const [source, setSource] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const imageSource = useContext(CardImageSource);
+  const provided = imageSource?.(card, face);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -39,7 +44,7 @@ export default function CardImage({
     let cancelled = false;
     setSource(null);
     setError(false);
-    resolveCardImage(card.id, imageCacheDir, face)
+    (provided ? Promise.resolve(provided) : resolveCardImage(card.id, imageCacheDir, face))
       .then((url) => {
         if (!cancelled) setSource(url);
       })
@@ -49,7 +54,7 @@ export default function CardImage({
     return () => {
       cancelled = true;
     };
-  }, [card.id, imageCacheDir, face, visible, attempt]);
+  }, [card.id, imageCacheDir, face, visible, attempt, provided]);
 
   return (
     <div ref={container} className={`card-image ${className}`}>

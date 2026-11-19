@@ -41,7 +41,7 @@ function cardName(view: MatchView, id: string) {
   return card.tokenName ?? view.catalog[card.printing ?? ""]?.name ?? "Card";
 }
 
-export function TurnControls({ view, dispatch }: ControlProps) {
+export function TurnControls({ view, dispatch, locked = false }: ControlProps & { locked?: boolean }) {
   return (
     <section className="ptc ptc-turn" aria-label="Turn, phase and step">
       <div className="ptc-turn-number">
@@ -55,6 +55,7 @@ export function TurnControls({ view, dispatch }: ControlProps) {
       </span>
       <select
         aria-label="Current phase or step"
+        disabled={locked}
         value={view.step}
         onChange={(e) =>
           dispatch({ type: "setStep", step: Number(e.target.value) })
@@ -78,10 +79,10 @@ export function TurnControls({ view, dispatch }: ControlProps) {
           ),
         )}
       </select>
-      <button type="button" onClick={() => dispatch({ type: "nextStep" })}>
+      <button type="button" disabled={locked} onClick={() => dispatch({ type: "nextStep" })}>
         Next step <ChevronRight size={14} />
       </button>
-      <button type="button" onClick={() => dispatch({ type: "nextTurn" })}>
+      <button type="button" disabled={locked} onClick={() => dispatch({ type: "nextTurn" })}>
         Next turn <ChevronsRight size={14} />
       </button>
     </section>
@@ -95,11 +96,17 @@ export function ManualOpeningHand({
   onShuffle,
   imageCacheDir,
   required,
+  allowTable,
+  tools,
+  locked = false,
   error,
 }: ControlProps & {
   onShuffle: PlayerOptions["onShuffle"];
   imageCacheDir: string;
   required: boolean;
+  allowTable?: boolean;
+  tools?: ReactNode;
+  locked?: boolean;
   error?: ReactNode;
 }) {
   const seat = viewer;
@@ -115,6 +122,8 @@ export function ManualOpeningHand({
     <OpeningHandDialog
       player={seat + 1}
       required={required}
+      allowTable={allowTable}
+      tools={tools}
       error={error}
       prompt={
         needed > 0
@@ -173,7 +182,7 @@ export function ManualOpeningHand({
               onShuffle(seat, true);
             }}
             disabled={
-              !hand.length || player.mulligans >= Math.min(7, hand.length)
+              locked || !hand.length || player.mulligans >= Math.min(7, hand.length)
             }
           >
             <Shuffle size={15} aria-hidden /> Mulligan
@@ -181,7 +190,7 @@ export function ManualOpeningHand({
           <button
             type="button"
             className="pt-btn pt-primary"
-            disabled={bottom.length !== needed}
+            disabled={locked || bottom.length !== needed}
             onClick={() => {
               dispatch({ type: "keep", seat, bottom });
               setSelection([]);

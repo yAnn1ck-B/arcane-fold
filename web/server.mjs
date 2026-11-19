@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate, pool, transaction } from './db.mjs';
-import { closeGames, createRoom, joinRoom, lobby, move, reject, report, roomView } from './rooms.mjs';
+import { closeGames, createRoom, joinRoom, lobby, move, reject, report, roomHistory, roomView, tableRequest } from './rooms.mjs';
 import { leagueCommand } from './league.mjs';
 import { deckCatalogCommand } from './league-decks.mjs';
 import { serveArt } from './art.mjs';
@@ -54,13 +54,15 @@ async function api(req, res, url) {
   const initial = req.method === 'GET' && url.pathname === '/api/session';
   const player = await identity(req, res, initial);
   if (initial) return lobby(player);
-  const match = /^\/api\/rooms\/([a-z0-9-]+)(?:\/(actions|reports))?$/.exec(url.pathname);
+  const match = /^\/api\/rooms\/([a-z0-9-]+)(?:\/(actions|reports|history|requests))?$/.exec(url.pathname);
   if (req.method === 'GET' && match && !match[2]) return roomView(match[1], player);
+  if (req.method === 'GET' && match?.[2] === 'history') return roomHistory(match[1], player);
   if (req.method !== 'POST') reject(404, 'Endpoint unavailable.');
   const body = await payload(req);
   if (url.pathname === '/api/rooms') return createRoom(player, body.deckId);
   if (url.pathname === '/api/join') return joinRoom(player, body.code, body.deckId);
   if (match?.[2] === 'actions') return move(match[1], player, body);
+  if (match?.[2] === 'requests') return tableRequest(match[1], player, body);
   if (match?.[2] === 'reports') return report(match[1], player, body);
   const rpc = /^\/api\/league\/([a-z_]+)$/.exec(url.pathname);
   if (rpc) return transaction(async db => {

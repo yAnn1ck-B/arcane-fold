@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { version } from "../../package.json";
 import { GameIssueButton, IssueCaptureContext } from "./GameIssueButton";
@@ -39,6 +39,7 @@ export function GameIssueReporting({ capture, submit = saveDesktopReport, childr
   const [saved, setSaved] = useState(false);
   const submission = useRef<GameIssueReport | null>(null);
   const pending = useRef(false);
+  const noteId = useId();
 
   function open(button: HTMLButtonElement) {
     const dialog = button.closest("dialog");
@@ -55,7 +56,7 @@ export function GameIssueReporting({ capture, submit = saveDesktopReport, childr
   }
 
   async function save() {
-    if (!draft || pending.current) return;
+    if (!draft || pending.current || !note.trim()) return;
     pending.current = true;
     setWorking(true);
     setError("");
@@ -79,13 +80,14 @@ export function GameIssueReporting({ capture, submit = saveDesktopReport, childr
         {saved ? <>
           <p role="status">Report saved. You can continue playing.</p>
           <div className="pt-launch"><button type="button" className="pt-btn pt-primary" onClick={() => setDraft(undefined)}>Back to game</button></div>
-        </> : <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
-          <p>Your current view, available actions and public game history will be included.</p>
-          <label className="pt-issue-note">What did you expect to happen? (optional)
-            <textarea rows={3} maxLength={1000} value={note} disabled={working || submission.current !== null} onChange={(event) => setNote(event.target.value)} />
-          </label>
+        </> : <form className="pt-issue-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+          <label htmlFor={noteId} className="pt-issue-label">What did you expect to happen?</label>
+          <textarea id={noteId} className="ui-input" required rows={4} maxLength={1000}
+            aria-describedby={noteId + "-hint"} value={note} disabled={working || submission.current !== null}
+            onChange={(event) => setNote(event.target.value)} />
+          <p id={noteId + "-hint"} className="pt-issue-hint">Your board, available actions and public game log are included automatically.</p>
           {error && <p role="alert" className="notice notice-error">{error}</p>}
-          <div className="pt-launch"><button type="submit" className="pt-btn pt-primary" disabled={working}>{working ? "Saving…" : error ? "Retry save" : "Save report"}</button></div>
+          <div className="pt-launch"><button type="submit" className="pt-btn pt-primary" disabled={working || !note.trim()}>{working ? "Saving…" : error ? "Retry save" : "Save report"}</button></div>
         </form>}
       </TableDialog>, document.body)}
   </IssueCaptureContext.Provider>;
