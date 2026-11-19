@@ -47,6 +47,10 @@ The local database command provisions a password-protected PostgreSQL cluster on
 
 The server listens on `127.0.0.1:4317` by default. To serve other devices, configure `WEB_HOST`, `WEB_PORT` and the exact public `WEB_ORIGIN`, then put the service behind HTTPS. Forge and PostgreSQL stay on the host.
 
+## Deploy to Azure
+
+The [Azure deployment guide](deploy/azure/README.md) covers the production VM, automatic releases, the pinned Forge installation, and database backups.
+
 ## League rules and support
 
 The **League guide** shows the shared deck limits, pack composition and expansion calendar. Starting and due rewards are credited automatically. Discovery grants first copies, and matching-rarity wildcards add copies of owned cards. [Built-in rules](web/league-rules.json)

@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up Arcane Fold to Azure Blob
+Requires=postgresql@18-arcane.service
+After=network-online.target postgresql@18-arcane.service
+Wants=network-online.target
+RequiresMountsFor=/var/lib/arcane-fold
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/arcane-fold-backup upload
+PrivateTmp=yes
+UMask=0077

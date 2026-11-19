@@ -15,7 +15,8 @@ concurrency:
 
 jobs:
   web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:18
@@ -38,6 +39,16 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - name: Set up JDK 17 and Forge 2.0.13
+        shell: bash
+        run: |
+          "$JAVA_HOME_17_X64/bin/javac" -version
+          printf 'JAVA_HOME=%s\n' "$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          printf '%s/bin\n' "$JAVA_HOME_17_X64" >> "$GITHUB_PATH"
+          printf 'WEB_PLAYER_LOGINS_FILE=%s/arcane-fold-player-logins.json\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+          install=$(bash deploy/azure/install-forge.sh "$RUNNER_TEMP/forge-2.0.13")
+          printf 'FORGE_INSTALL=%s\n' "$install" >> "$GITHUB_ENV"
       - run: npm ci
       - run: npm run build
       - run: npm run web:db

@@ -1,0 +1,33 @@
+[Unit]
+Description=Arcane Fold web application
+After=network.target postgresql@18-arcane.service
+Requires=postgresql@18-arcane.service
+RequiresMountsFor=/var/lib/arcane-fold
+
+[Service]
+User=arcane-fold
+Group=arcane-fold
+WorkingDirectory=/opt/arcane-fold/current
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/arcane-fold/app.env
+EnvironmentFile=/opt/arcane-fold/current/forge.env
+ExecStart=/usr/bin/env node web/server.mjs
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+TimeoutStopSec=30s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+IPAddressDeny=169.254.169.254/32
+ReadWritePaths=/var/lib/arcane-fold/app
+
+[Install]
+WantedBy=multi-user.target

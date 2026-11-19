@@ -1,0 +1,11 @@
+[Unit]
+Description=Deploy the latest Arcane Fold commit that passed Web CI
+Wants=network-online.target
+After=network-online.target postgresql@18-arcane.service
+Requires=postgresql@18-arcane.service
+RequiresMountsFor=/var/lib/arcane-fold
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/arcane-fold-deploy
+TimeoutStartSec=30min

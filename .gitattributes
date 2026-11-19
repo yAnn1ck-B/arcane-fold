@@ -1,2 +1,3 @@
 # Use consistent newlines for the PostgreSQL schema.
 *.sql text eol=lf
+deploy/azure/*.sh text eol=lf
