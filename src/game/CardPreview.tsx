@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import type { CardStatusInfo } from "./CardStatus";
 
 // Pointer hover and keyboard focus can land on different cards at the same time.
 let dismissOpenPreview: (() => void) | undefined;
@@ -18,8 +19,7 @@ export function CardReading({
   typeLine,
   oracleText,
   stats,
-  damage,
-  counters,
+  statuses,
   details,
 }: {
   name: string;
@@ -28,8 +28,7 @@ export function CardReading({
   typeLine?: string;
   oracleText?: string;
   stats?: string;
-  damage?: number;
-  counters?: Record<string, number>;
+  statuses?: CardStatusInfo[];
   details?: string[];
 }) {
   return (
@@ -42,15 +41,16 @@ export function CardReading({
         {oracleText && <p>{oracleText}</p>}
         {details?.map((detail) => <span key={detail}>{detail}</span>)}
         {stats && <b>{stats}</b>}
-        {!!damage && <span>{damage} damage marked</span>}
-        {counters &&
-          Object.entries(counters)
-            .filter(([, count]) => count > 0)
-            .map(([kind, count]) => (
-              <span key={kind}>
-                {count} {kind} {count === 1 ? "counter" : "counters"}
-              </span>
+        {!!statuses?.length && (
+          <ul className="pt-reading-statuses">
+            {statuses.map(({ kind, label, detail }) => (
+              <li key={kind + label}>
+                <b>{label}</b>
+                {detail && <p>{detail}</p>}
+              </li>
             ))}
+          </ul>
+        )}
       </div>
     </div>
   );

@@ -95,14 +95,27 @@ final class ForgeCombat {
                 return minimum <= 1 || !combat.getBlockers(attacker).isEmpty()
                         || defender.getCreaturesInPlay().stream().filter(b -> CombatUtil.canBlock(attacker, b)).limit(minimum).count() >= minimum;
             }).toList();
+            List<ForgeMatch.Choice> reassignments = new ArrayList<>();
             for (Card blocker : defender.getCreaturesInPlay()) {
+                var blocked = combat.getAttackersBlockedBy(blocker);
+                Card previous = blocked.size() == 1 ? blocked.getFirst() : null;
+                Combat withoutBlock = null;
                 for (Card attacker : attackers) {
                     if (combat.isBlocking(blocker, attacker)) {
-                        choices.add(practice.choice("Remove block on " + ForgeMatch.publicName(attacker) + " by " + ForgeMatch.publicName(blocker),
-                                "block", blocker, null, () -> combat.removeBlockAssignment(attacker, blocker)));
+                        choices.add(practice.blockChoice("Remove block on " + ForgeMatch.publicName(attacker) + " by " + ForgeMatch.publicName(blocker),
+                                blocker, attacker, true, () -> combat.removeBlockAssignment(attacker, blocker)));
                     } else if (CombatUtil.canBlock(attacker, blocker, combat)) {
-                        choices.add(practice.choice("Block " + ForgeMatch.publicName(attacker) + " with " + ForgeMatch.publicName(blocker),
-                                "block", blocker, null, () -> combat.addBlocker(attacker, blocker)));
+                        choices.add(practice.blockChoice("Block " + ForgeMatch.publicName(attacker) + " with " + ForgeMatch.publicName(blocker),
+                                blocker, attacker, false, () -> combat.addBlocker(attacker, blocker)));
+                    } else if (previous != null) {
+                        if (withoutBlock == null) withoutBlock = withoutAssignment(combat, previous, blocker);
+                        if (CombatUtil.canBlock(attacker, blocker, withoutBlock)) {
+                            reassignments.add(practice.reassignBlockChoice("Move block to " + ForgeMatch.publicName(attacker)
+                                    + " with " + ForgeMatch.publicName(blocker), blocker, attacker, () -> {
+                                combat.removeBlockAssignment(previous, blocker);
+                                combat.addBlocker(attacker, blocker);
+                            }));
+                        }
                     }
                 }
             }
@@ -114,9 +127,20 @@ final class ForgeCombat {
                 confirm = practice.choice(label, "option", null, null, () -> {});
                 choices.add(confirm);
             }
+            // Append new options so the indices in existing replay journals still match.
+            choices.addAll(reassignments);
             var selected = practice.ask(defender, problem == null ? "Declare blockers" : problem, choices);
             if (selected == confirm) return;
             selected.run();
         }
+    }
+
+    private static Combat withoutAssignment(Combat combat, Card attacker, Card blocker) {
+        Combat preview = new Combat(combat, new forge.game.IEntityMap() {
+            public Game getGame() { return blocker.getGame(); }
+            public GameObject map(GameObject entity) { return entity; }
+        });
+        preview.removeBlockAssignment(attacker, blocker);
+        return preview;
     }
 }

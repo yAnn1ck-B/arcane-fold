@@ -4,6 +4,7 @@ import { pool } from "./db.mjs";
 
 const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
 const maxBytes = 10 * 1024 * 1024;
+const tokenPrintings = new Map();
 
 export function imageLocation(value) {
   if (typeof value !== "string") return null;
@@ -62,6 +63,42 @@ function redirect(res, destination) {
   res.end();
 }
 
+async function tokenPrinting(set, number) {
+  const key = `${set}/${number}`;
+  const cached = tokenPrintings.get(key);
+  if (cached?.expires > Date.now()) return cached.result;
+  if (tokenPrintings.size >= 128) tokenPrintings.delete(tokenPrintings.keys().next().value);
+  const result = (async () => {
+    // Forge associates a token with the parent set. Scryfall gives its
+    // token sheet a separate set code, such as FDN -> TFDN.
+    const response = await fetch(`https://api.scryfall.com/cards/${set}/${encodeURIComponent(number)}`, {
+      headers: { Accept: "application/json", "User-Agent": "Arcane-Fold-Web/0.4 (token artwork)" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const card = await response.json();
+    return ["token", "double_faced_token", "emblem"].includes(card.layout) ? card : null;
+  })().catch(() => null);
+  tokenPrintings.set(key, { expires: Date.now() + 15 * 60_000, result });
+  return result;
+}
+
+async function serveTokenArt(res, { name, set, number, face }) {
+  if (!/^[a-z0-9]{2,15}$/.test(set) || !/^[a-z0-9][a-z0-9*★†-]{0,31}$/i.test(number)) return unavailable(res);
+  const expected = name.toLowerCase().replace(/ token$/, "").trim();
+  const sets = set.startsWith("t") ? [`t${set}`, set] : [`t${set}`];
+  for (const tokenSet of sets) {
+    const card = await tokenPrinting(tokenSet, number);
+    const sides = card?.card_faces?.length ? card.card_faces : card ? [card] : [];
+    const matched = sides.findIndex(side => side.name?.toLowerCase() === expected);
+    if (matched < 0) continue;
+    const side = sides[matched + (face === "back" ? 1 : 0)];
+    const image = imageLocation(side?.image_uris?.normal);
+    if (image) return redirect(res, image);
+  }
+  return unavailable(res);
+}
+
 export async function serveArt(url, res, db = pool) {
   const params = url.searchParams;
   const id = params.get("id");
@@ -72,6 +109,9 @@ export async function serveArt(url, res, db = pool) {
   if (!["front","back"].includes(face) || (!id && !name) || (id && !uuid.test(id))
     || name.length > 250 || set.length > 16 || number.length > 32 || /[\p{Cc}]/u.test(name + set + number)) {
     return unavailable(res, 400);
+  }
+  if (!id && (["1", "printing"].includes(params.get("token")) || / Token$/i.test(name))) {
+    return serveTokenArt(res, { name, set, number, face });
   }
   let row;
   if (id) {
@@ -84,16 +124,7 @@ export async function serveArt(url, res, db = pool) {
         AND ($3='' OR $3 IN (data->>'collectorNumber',data->>'forgeCollectorNumber'))
       ORDER BY (data->>'setCode'='fdn') DESC, id LIMIT 1`, [name, set, number]));
   }
-  if (!row) {
-    // Forge-generated tokens often have no Scryfall ID or collector number.
-    // The table can still display its game-supplied name and rules if there is no image.
-    if (!id && (params.get("token") === "1" || / Token$/i.test(name))) {
-      const token = new URL("https://api.scryfall.com/cards/named");
-      token.search = new URLSearchParams({ exact: name.replace(/ Token$/i, ""), format: "image", version: "normal" });
-      return redirect(res, token.href);
-    }
-    return unavailable(res);
-  }
+  if (!row) return unavailable(res);
   const backName = row.data.name.split(" // ")[1];
   const lookupFace = !id && backName && name.toLowerCase() === backName.toLowerCase() && row.data.backImageUri ? "back" : face;
   const cached = await cachedArt(process.env.WEB_CARD_IMAGE_CACHE, row.id, lookupFace);

@@ -1,6 +1,4 @@
-import { useState } from "react";
 import { Ban, Droplet, Hourglass, Layers2, Orbit, Sparkles } from "lucide-react";
-import { TableDialog } from "./TableDialog";
 
 interface CardState {
   summoningSick?: boolean;
@@ -12,15 +10,15 @@ interface CardState {
   counters?: Record<string, number>;
 }
 
-interface Status {
+export interface CardStatusInfo {
   kind: "sickness" | "phased" | "counter" | "damage" | "ability" | "restriction";
   short: string;
   label: string;
   detail?: string;
 }
 
-export function cardStatuses(card: CardState): Status[] {
-  const statuses: Status[] = [];
+export function cardStatuses(card: CardState): CardStatusInfo[] {
+  const statuses: CardStatusInfo[] = [];
   if (card.phasedOut) statuses.push({
     kind: "phased", short: "Phased out", label: "Phased out",
     detail: "Most effects treat this permanent as though it doesn’t exist until it phases in.",
@@ -48,26 +46,14 @@ export function cardStatuses(card: CardState): Status[] {
 
 const icons = { sickness: Hourglass, phased: Orbit, counter: Layers2, damage: Droplet, ability: Sparkles, restriction: Ban };
 
-export function CardStatus({ name, statuses }: { name: string; statuses: Status[] }) {
-  const [open, setOpen] = useState(false);
+export function CardStatus({ statuses }: { statuses: CardStatusInfo[] }) {
   if (!statuses.length) return null;
   const first = statuses[0];
   const Icon = icons[first.kind];
-  return <>
-    <button type="button" className="pt-card-status" data-kind={first.kind} aria-haspopup="dialog"
-      aria-label={`${name} status: ${statuses.map(status => status.label).join(", ")}`}
-      title={statuses.map(status => status.label).join(" · ")} onClick={() => setOpen(true)}>
+  return (
+    <div className="pt-card-status" data-kind={first.kind} aria-hidden="true">
       <Icon size={12} aria-hidden /><span>{first.short}</span>
       {statuses.length > 1 && <b>+{statuses.length - 1}</b>}
-    </button>
-    {open && <TableDialog title={name} label={`${name} status`} className="pt-state-dialog"
-      reportable={false} onClose={() => setOpen(false)}>
-      <ul className="pt-card-states">{statuses.map(status => {
-        const StateIcon = icons[status.kind];
-        return <li key={status.kind + status.label}><StateIcon size={17} aria-hidden />
-          <div><strong>{status.label}</strong>{status.detail && <p>{status.detail}</p>}</div>
-        </li>;
-      })}</ul>
-    </TableDialog>}
-  </>;
+    </div>
+  );
 }

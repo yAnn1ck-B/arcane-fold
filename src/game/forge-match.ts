@@ -19,6 +19,7 @@ export interface ForgeCard {
   collectorNumber?: string;
   attacking?: boolean;
   blocking?: boolean;
+  blockingIds?: string[];
   summoningSick?: boolean;
   phasedOut?: boolean;
   grantedKeywords?: string[];
@@ -57,6 +58,7 @@ export interface ForgeChoice {
     | "block";
   cardId?: string;
   seat?: ForgeSeat;
+  block?: { attackerId: string; remove: boolean; reassign?: boolean };
 }
 
 interface ForgePlayer {

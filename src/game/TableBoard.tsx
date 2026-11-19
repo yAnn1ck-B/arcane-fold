@@ -181,6 +181,7 @@ export function TableBoard({
   priorityControl,
   switchPlayer,
   seats,
+  arenaOverlay,
   handCount,
   handLabel = "Your hand",
   hand,
@@ -196,6 +197,7 @@ export function TableBoard({
   priorityControl?: PriorityStopSettings;
   switchPlayer?: ReactNode;
   seats: ReactNode;
+  arenaOverlay?: ReactNode;
   handCount: number;
   handLabel?: string;
   hand: ReactNode[];
@@ -311,6 +313,7 @@ export function TableBoard({
               )}
             </div>
           </section>
+          {arenaOverlay}
         </div>
         <aside
           className="pt-side-panel"

@@ -22,7 +22,7 @@ Choose **Create game** to host. Your opponent chooses a deck and selects **Join 
 
 Forge normally asks for decisions when there is a play or response to make. Open **Priority stops** in the three-dot menu to add manual stops on your turns, your opponent’s turns or both. **Select all** and **Clear all** apply to both columns. Checked stops repeat each turn. Your choices carry over to new games, even if you switch seats.
 
-Battlefield cards show a status marker for summoning sickness, phasing, marked damage, counters and abilities granted by effects. Select the marker for details. In manual play, open a permanent to adjust its sickness or phasing when resolving an effect yourself.
+Battlefield cards show a status marker for summoning sickness, phasing, marked damage, counters and abilities granted by effects. Hover over a card or focus it with the keyboard to see the status details in the card preview. In manual play, open a permanent to adjust its sickness or phasing when resolving an effect yourself.
 
 In a running game, use the undo arrow beside a saved point in the game log to request a rewind. The game pauses while your opponent decides. Open the three-dot menu to request manual play, concede, report a game issue or return to the lobby. Switching to manual play also requires your opponent’s approval and starts a new undo history at the agreed position. Confirming a concession gives your opponent the win. Finished games keep their result and final board for review.
 

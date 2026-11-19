@@ -23,12 +23,17 @@ function requireSeat(seat) {
 function seatView(state, seat, revision, pending, seed) {
   requireSeat(seat);
   const activeChoice = state.actor === seat;
+  const choosingBlocks = state.choices.some(option => option.kind === "block");
   const handle = id => createHmac("sha256", seed).update(seat + "/" + id).digest("hex").slice(0, 32);
   const visibleIds = new Set();
   const card = item => {
     visibleIds.add(item.id);
     const result = { ...item, id: handle(item.id) };
     if (item.attachedTo) result.attachedTo = handle(item.attachedTo);
+    if (item.blockingIds) {
+      if (choosingBlocks && !activeChoice) delete result.blockingIds;
+      else result.blockingIds = item.blockingIds.map(handle);
+    }
     return result;
   };
   const players = {};
@@ -62,8 +67,12 @@ function seatView(state, seat, revision, pending, seed) {
     prompt: activeChoice || state.stage === "finished" ? state.prompt : "Waiting for your opponent.",
     priorityStop: pending[seat] ?? state.priorityStops[seat],
     history: state.history, stack, players,
-    choices: activeChoice ? state.choices.map(option => option.cardId
-      ? { ...option, cardId: handle(option.cardId) } : option) : [],
+    choices: activeChoice ? state.choices.map(option => {
+      const projected = { ...option };
+      if (option.cardId) projected.cardId = handle(option.cardId);
+      if (option.block) projected.block = { ...option.block, attackerId: handle(option.block.attackerId) };
+      return projected;
+    }) : [],
   };
   if (librarySearch) view.librarySearch = librarySearch;
   if (activeChoice && state.revealedToYou) view.revealedToYou = state.revealedToYou;
@@ -88,14 +97,17 @@ export function legacyBattlefieldView(state) {
 
 // Map.of iteration order differs between processes. Preserve the order of arrays
 // (including the offered options) while hashing the entire private engine state.
-function digest(state, includeBattlefieldStatus) {
+function digest(state, includeBattlefieldStatus, includeBlockReferences = false) {
   // winner is terminal display metadata derived from Forge. Keep the version-1
   // replay input identical for journals created before it was exposed.
   const { winner, ...replay } = includeBattlefieldStatus ? state : legacyBattlefieldView(state);
+  // Reassignments extend the UI choices. Their resulting assignments are
+  // already checked by blockingIds, and older journal hashes omit the options.
+  replay.choices = replay.choices.filter(choice => !choice.block?.reassign);
   const json = JSON.stringify(replay, (key, value) => {
-    // References annotate the existing stack target text for display. The
-    // underlying decisions and legacy replay digests remain identical.
-    if (key === "targetRefs") return undefined;
+    // Earlier journals hashed the original display snapshots. New moves also
+    // verify the exact combat assignment when attackers share names.
+    if (key === "targetRefs" || (!includeBlockReferences && (key === "blockingIds" || key === "block"))) return undefined;
     if (!value || typeof value !== "object" || Array.isArray(value)) return value;
     return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]));
   });
@@ -258,15 +270,16 @@ export async function createGame({ decks, seed, checkpoint: saved, startingSeat,
     closed = true;
     await engine.close();
   }
-  async function advance(seat, action, settings = pending, includeBattlefieldStatus = true) {
+  async function advance(seat, action, settings = pending, includeBattlefieldStatus = true, includeBlockReferences = true) {
     requireSeat(seat);
     if (!legalAction(state, seat, action, settings)) throw new Error("That choice is unavailable to this seat.");
     const line = Object.keys(settings).length ? "PRIORITY " +
       [settings.player ?? "=", settings.opponent ?? "=", action].join(" ") : action;
     try {
       state = await engine.next(line);
-      const after = digest(state, includeBattlefieldStatus);
-      moves.push({ seat, action, stops: settings, after, ...(includeBattlefieldStatus && { battlefieldStatusVersion: 1 }) });
+      const after = digest(state, includeBattlefieldStatus, includeBlockReferences);
+      moves.push({ seat, action, stops: settings, after, ...(includeBattlefieldStatus && { battlefieldStatusVersion: 1 }),
+        ...(includeBlockReferences && { blockReferencesVersion: 1 }) });
       pending = {};
       if (state.stage === "finished") await engine.close();
     } catch (error) {
@@ -285,10 +298,13 @@ export async function createGame({ decks, seed, checkpoint: saved, startingSeat,
     if (step.battlefieldStatusVersion !== undefined && step.battlefieldStatusVersion !== 1) {
       throw new Error("Unknown saved battlefield format.");
     }
+    if (step.blockReferencesVersion !== undefined && step.blockReferencesVersion !== 1) {
+      throw new Error("Unknown saved block reference format.");
+    }
     pending = validateStops(step.stops);
     // Older moves retain their original hash. Moves made after the upgrade
     // also verify the complete public battlefield, including granted keywords.
-    await advance(step.seat, step.action, pending, step.battlefieldStatusVersion === 1);
+    await advance(step.seat, step.action, pending, step.battlefieldStatusVersion === 1, step.blockReferencesVersion === 1);
     if (moves.at(-1).after !== step.after) throw new Error("Forge could not reproduce a saved decision.");
   }
   try {

@@ -33,15 +33,30 @@ export async function retirePositions(db, room, fromRevision) {
     [room.id, room.revision, fromRevision, room.mode]);
 }
 
+function legacyReferenceList(expected, actual, field) {
+  return actual?.map((item, index) => {
+    if (expected?.[index]?.[field] !== undefined || item[field] === undefined) return item;
+    const legacy = { ...item };
+    delete legacy[field];
+    return legacy;
+  });
+}
+
 function compareView(expected, actual, ignoreStops = false) {
   const { revision: originalRevision, ...a } = expected;
   const restored = expected.battlefieldStatusVersion === undefined ? legacyBattlefieldView(actual) : actual;
   const { revision: restoredRevision, ...b } = restored;
-  if (b.stack) b.stack = b.stack.map((card, index) => {
-    if (a.stack?.[index]?.targetRefs !== undefined) return card;
-    const { targetRefs, ...legacy } = card;
-    return legacy;
-  });
+  if (b.stack) b.stack = legacyReferenceList(a.stack, b.stack, "targetRefs");
+  if (b.choices) {
+    if (!a.choices?.some(choice => choice.block?.reassign)) {
+      b.choices = b.choices.filter(choice => !choice.block?.reassign);
+    }
+    b.choices = legacyReferenceList(a.choices, b.choices, "block");
+  }
+  if (b.players) b.players = Object.fromEntries(seats.map(seat => [seat, {
+    ...b.players[seat],
+    battlefield: legacyReferenceList(a.players[seat].battlefield, b.players[seat].battlefield, "blockingIds"),
+  }]));
   if (ignoreStops) { delete a.priorityStop; delete b.priorityStop; }
   // PostgreSQL JSON and HTTP omit undefined optional fields in engine projections.
   return isDeepStrictEqual(a,JSON.parse(JSON.stringify(b)));

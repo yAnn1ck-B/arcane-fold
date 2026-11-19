@@ -41,7 +41,7 @@ export function TapForMana({
         {basicColor ? <>Tap <ManaPip color={basicColor} /></> : "Tap for mana"}
       </button>
       {open && (
-        <TableDialog title="Tap for mana" subtitle={name} onClose={() => setOpen(false)} className="pt-mana-dialog">
+        <TableDialog title={`Tap ${name} for mana`} reportable={false} onClose={() => setOpen(false)} className="pt-mana-dialog">
           <label className="pt-mana-amount">Amount <input type="number" min="1" step="1" value={count} onChange={event => setCount(event.target.value)} /></label>
           <div className="pt-mana-colors">
             {colors.map(color => (

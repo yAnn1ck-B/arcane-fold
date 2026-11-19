@@ -24,6 +24,7 @@ import { TableDialog } from "./TableDialog";
 import { ManaPip, ManaPool, manaNames } from "./ManaPool";
 import { manaTypes } from "./types";
 import { battlefieldGroup } from "./battlefield";
+import { CombatLinks } from "./CombatLinks";
 import type { PriorityStop } from "./forge-match";
 import type {
   ForgeCard,
@@ -43,8 +44,9 @@ function targetMark(legal: boolean, stacked: boolean) {
   };
 }
 
-function AbilityLabel({ label }: { label: string }) {
-  const separator = label.indexOf(":");
+function CardActionLabel({ choice }: { choice: ForgeChoice }) {
+  const { label } = choice;
+  const separator = choice.kind === "ability" ? label.indexOf(":") : -1;
   if (separator < 1) return <span>{label}</span>;
   return (
     <>
@@ -144,7 +146,7 @@ function ForgeArt({
         <Layers size={25} aria-hidden />
       </div>
     );
-    return inspect ? <CardReading name="Face-down card" art={back} details={cardStatuses(card).map(s => s.label)} /> : back;
+    return inspect ? <CardReading name="Face-down card" art={back} statuses={cardStatuses(card)} /> : back;
   }
   const url = imageSource?.(card);
   const image = url && url !== failedImage ? (
@@ -168,12 +170,10 @@ function ForgeArt({
       oracleText={card.oracleText}
       details={[
         ...attachments,
-        ...cardStatuses(card).filter(s => s.kind !== "counter" && s.kind !== "damage").map(s => s.label),
         ...(card.chosenColors?.map((color) => `Chosen color · ${color}`) ?? []),
         ...(card.namedCards?.map((named) => `Named card · ${named}`) ?? []),
       ]}
-      damage={card.damage}
-      counters={card.counters}
+      statuses={cardStatuses(card)}
       stats={
         card.power != null && card.toughness != null
           ? `${card.power}/${card.toughness}`
@@ -206,7 +206,10 @@ export default function ForgeBoard({
   const [menuCard, setMenuCard] = useState<ForgeCard | null>(null);
   const [deferredSearch, setDeferredSearch] = useState<string>();
   const [cardFilter, setCardFilter] = useState("");
+  const [blockSelection, setBlockSelection] = useState<{ id: string; revision: number } | null>(null);
+  const [showBlockList, setShowBlockList] = useState(false);
   const firstButton = useRef<HTMLButtonElement>(null);
+  const firstBlockTarget = useRef<HTMLButtonElement>(null);
   const focusedRevision = useRef<number | undefined>(undefined);
   const { actor, players, stack, librarySearch, sharedSeats } = state;
   const choices = viewer === actor ? state.choices : [];
@@ -230,6 +233,36 @@ export default function ForgeBoard({
   const hand = players[handSeat].hand;
   const battlefield = [...players.player.battlefield, ...players.opponent.battlefield];
   const pieces = new Map(battlefield.map((piece) => [piece.id, piece]));
+  const blockChoices = choices.flatMap(choice => choice.kind === "block" && choice.cardId && choice.block
+    ? [{ choice, blockerId: choice.cardId, ...choice.block }]
+    : []);
+  const blockers = new Set(blockChoices.map(choice => choice.blockerId));
+  const selectedBlocker = blockSelection?.revision === state.revision && blockers.has(blockSelection.id)
+    ? pieces.get(blockSelection.id)
+    : undefined;
+  const selectedBlocks = selectedBlocker ? blockChoices.filter(choice => choice.blockerId === selectedBlocker.id) : [];
+  const blockTargets = new Map(selectedBlocks.map(choice => [choice.attackerId, choice]));
+
+  const assignments = battlefield.flatMap(card => (card.blockingIds ?? [])
+    .filter(attackerId => pieces.has(attackerId))
+    .map(attackerId => ({ blockerId: card.id, attackerId })));
+  const attackersByName = new Map<string, string[]>();
+  for (const card of battlefield) {
+    if (!card.attacking) continue;
+    const name = card.faceDown ? "Face-down card" : card.name;
+    attackersByName.set(name, [...(attackersByName.get(name) ?? []), card.id]);
+  }
+  const attackNumbers = new Map<string, number>();
+  for (const ids of attackersByName.values()) {
+    if (ids.length > 1) ids.forEach((id, index) => attackNumbers.set(id, index + 1));
+  }
+  const attackName = (id: string) => {
+    const card = pieces.get(id);
+    if (!card) return "attacker";
+    const name = card.faceDown ? "Face-down card" : card.name;
+    const number = attackNumbers.get(id);
+    return number === undefined ? name : `${name} ${number}`;
+  };
   const attachments = new Map<string, string[]>();
   for (const piece of battlefield) {
     if (piece.attachedTo) attachments.set(piece.attachedTo, [...(attachments.get(piece.attachedTo) ?? []), piece.name]);
@@ -271,7 +304,7 @@ export default function ForgeBoard({
   const menuChoices = menuCard
     ? choices.filter((choice) => choice.cardId === menuCard.id)
     : [];
-  const choosingAbility = menuChoices.some(
+  const choosingAbility = menuChoices.every(
     (choice) => choice.kind === "ability",
   );
   const initialChoice = choices[0]?.id;
@@ -290,7 +323,7 @@ export default function ForgeBoard({
   useEffect(() => {
     const button = firstButton.current;
     if (
-      !locked &&
+      !locked && !selectedBlocker &&
       focusedRevision.current !== state.revision &&
       button &&
       !button.closest("[hidden]") &&
@@ -302,15 +335,28 @@ export default function ForgeBoard({
       button.focus({ preventScroll: true });
       delete button.dataset.autoFocus;
     }
-  }, [state.revision, locked]);
+  }, [state.revision, locked, selectedBlocker]);
 
   useEffect(() => {
     setCardFilter("");
   }, [searchId]);
 
+  useEffect(() => {
+    const button = firstBlockTarget.current;
+    if (!selectedBlocker || !button || button.disabled) return;
+    button.dataset.autoFocus = "";
+    button.focus({ preventScroll: true });
+    delete button.dataset.autoFocus;
+  }, [selectedBlocker?.id, state.revision, locked]);
+
   function choose(choice: ForgeChoice) {
     setMenuCard(null);
     setPile(null);
+    // When undoing a block, keep that creature selected for its next legal assignment.
+    setBlockSelection(choice.block?.remove && choice.cardId
+      ? { id: choice.cardId, revision: state.revision + 1 }
+      : null);
+    setShowBlockList(false);
     onChoose(choice.id);
   }
 
@@ -356,7 +402,10 @@ export default function ForgeBoard({
   function tile(card: ForgeCard) {
     const name = card.faceDown ? "Face-down card" : card.name;
     const actions = choices.filter((choice) => choice.cardId === card.id);
-    const mark = targetMark(legalCards.has(card.id), stackTargetCards.has(card.id));
+    const blockTarget = blockTargets.get(card.id);
+    const canSelectBlocker = blockers.has(card.id);
+    const selected = selectedBlocker?.id === card.id;
+    const mark = targetMark(legalCards.has(card.id) || !!blockTarget && !locked, stackTargetCards.has(card.id));
     const statuses = cardStatuses(card);
     const move = actions[0];
     const abilityCount = actions.filter(
@@ -371,37 +420,51 @@ export default function ForgeBoard({
       : card.blocking
         ? "Blocking"
         : "";
-    const combatLabel =
-      card.blocking && card.target ? `Blocking ${card.target}` : combat;
+    const combatLabel = card.blockingIds?.length
+      ? `Blocking ${card.blockingIds.map(attackName).join(", ")}`
+      : card.blocking && card.target ? `Blocking ${card.target}` : combat;
     const attached = attachments.get(card.id) ?? [];
     const attachedTo = card.attachedTo ? pieces.get(card.attachedTo)?.name
       : card.attachedToPlayer && seatNames[card.attachedToPlayer];
     const description = [
-      name, card.token && "Token", stats, card.tapped && "Tapped", combatLabel,
+      card.attacking ? attackName(card.id) : name, card.token && "Token", stats, card.tapped && "Tapped", combatLabel,
       attachedTo && `Attached to ${attachedTo}`, ...attached,
     ]
       .filter(Boolean)
       .join(", ");
-    const actionLabel =
-      actions.length > 1
-        ? `Choose ${abilityCount === actions.length ? "an ability" : "action"} for ${name}`
-        : move?.label;
+    let actionLabel = actions.length > 1
+      ? `Choose ${abilityCount === actions.length ? "an ability" : "action"} for ${name}`
+      : move?.label;
+    if (canSelectBlocker) actionLabel = `Select ${name} to block`;
+    if (blockTarget && selectedBlocker) {
+      const attacker = attackName(card.id);
+      actionLabel = blockTarget.remove
+        ? `Remove block on ${attacker} by ${selectedBlocker.name}`
+        : `${blockTarget.reassign ? "Move block to" : "Block"} ${attacker} with ${selectedBlocker.name}`;
+    }
     const attachmentLabels = [
       ...(attachedTo ? [`Attached to ${attachedTo}`] : []),
       ...(attached.length ? [`Attachments · ${attached.join(", ")}`] : []),
     ];
     const label = actionLabel
-      ? [actionLabel, card.token && "Token", ...attachmentLabels].filter(Boolean).join(", ")
+      ? [actionLabel, card.token && "Token", canSelectBlocker && combatLabel, ...attachmentLabels].filter(Boolean).join(", ")
       : description;
+    function selectBlocker() {
+      setBlockSelection(selected ? null : { id: card.id, revision: state.revision });
+      setShowBlockList(false);
+    }
     return (
       <TableCard
         key={card.id}
         name={name}
+        combatId={card.attacking || card.blockingIds?.length ? card.id : undefined}
+        attackerNumber={attackNumbers.get(card.id)}
         label={[label, ...mark.labels, ...statuses.map(s => s.label)].join(", ")}
-        className={mark.className}
+        className={selected ? `${mark.className} pt-blocker-selected` : mark.className}
         statuses={statuses}
         tapped={card.tapped}
-        opensDialog={actions.length > 1}
+        opensDialog={!canSelectBlocker && actions.length > 1}
+        pressed={canSelectBlocker ? selected : undefined}
         reading={
           <ForgeArt
             card={card}
@@ -423,10 +486,13 @@ export default function ForgeBoard({
         }
         disabled={locked}
         focusRef={
-          actions.some((c) => c.id === initialChoice) ? firstButton : undefined
+          selectedBlocks[0]?.attackerId === card.id ? firstBlockTarget :
+            actions.some((c) => c.id === initialChoice) ? firstButton : undefined
         }
         onClick={
-          move
+          blockTarget ? () => choose(blockTarget.choice)
+            : canSelectBlocker ? selectBlocker
+            : move
             ? () => (actions.length === 1 ? choose(move) : setMenuCard(card))
             : undefined
         }
@@ -561,6 +627,11 @@ export default function ForgeBoard({
               {stackTargets.length > 0 && <span><i className="pt-stack-target" aria-hidden />Targeted on stack</span>}
             </div>
           )}
+          {selectedBlocker && (
+            <Button variant="outline" disabled={locked} aria-haspopup="dialog" onClick={() => setShowBlockList(true)}>
+              Choose from list
+            </Button>
+          )}
           <div className="pt-forge-options pt-turn-actions">
             {librarySearch && !showSearch && (
               <Button
@@ -597,6 +668,7 @@ export default function ForgeBoard({
         </>
       }
       seats={seatOrder.map(renderSeat)}
+      arenaOverlay={assignments.length > 0 ? <CombatLinks assignments={assignments} /> : undefined}
       handLabel={handLabel}
       handCount={players[handSeat].handCount}
       hand={
@@ -646,7 +718,7 @@ export default function ForgeBoard({
       }
     >
       {manaColors.length > 0 && (
-        <TableDialog title={state.prompt} subtitle={seatNames[viewer]} className="pt-mana-dialog">
+        <TableDialog title={state.prompt} reportable={false} className="pt-mana-dialog">
           {matchTools.decisionError}
           <div className="pt-mana-colors">
             {manaColors.map((choice) => {
@@ -664,33 +736,40 @@ export default function ForgeBoard({
         <TableDialog
           title={
             choosingAbility
-              ? "Choose an ability"
+              ? `Choose an ability for ${menuCard.name}`
               : `Actions for ${menuCard.name}`
           }
-          subtitle={choosingAbility ? menuCard.name : undefined}
-          closeLabel={choosingAbility ? "Cancel ability selection" : "Close"}
+          className="pt-card-action-dialog"
+          reportable={false}
+          closeLabel="Close action choices"
           onClose={() => setMenuCard(null)}
         >
-          {choosingAbility ? (
-            <div className="pt-ability-options">
-              {menuChoices.map((choice) => (
-                <button
-                  type="button"
-                  key={choice.id}
-                  disabled={locked}
-                  className="pt-ability-option"
-                  aria-label={choice.label}
-                  onClick={() => choose(choice)}
-                >
-                  <AbilityLabel label={choice.label} />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="pt-forge-options">
-              {menuChoices.map((choice) => option(choice))}
-            </div>
-          )}
+          <div className="pt-card-action-options">
+            {menuChoices.map((choice) => (
+              <button
+                type="button"
+                key={choice.id}
+                disabled={locked}
+                className="pt-card-action-option"
+                aria-label={choice.label}
+                onClick={() => choose(choice)}
+              >
+                <CardActionLabel choice={choice} />
+              </button>
+            ))}
+          </div>
+        </TableDialog>
+      )}
+      {selectedBlocker && showBlockList && (
+        <TableDialog title={`Block with ${selectedBlocker.name}`} reportable={false}
+          onClose={() => setShowBlockList(false)}>
+          <div className="pt-combat-options">
+            {selectedBlocks.map(({ choice, attackerId, remove, reassign }) => (
+              <Button key={choice.id} variant="outline" disabled={locked} onClick={() => choose(choice)}>
+                {remove ? "Remove block on " : reassign ? "Move block to " : "Block "}{attackName(attackerId)}
+              </Button>
+            ))}
+          </div>
         </TableDialog>
       )}
       {pile && (

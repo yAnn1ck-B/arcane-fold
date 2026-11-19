@@ -16,7 +16,7 @@ import "@/styles/game.css";
 
 function artSource(card: ForgeCard) {
   const query = new URLSearchParams({ name: card.name, set: card.setCode ?? "", number: card.collectorNumber ?? "" });
-  if (card.token) query.set("token", "1");
+  if (card.token) query.set("token", "printing");
   return `/api/art?${query}`;
 }
 

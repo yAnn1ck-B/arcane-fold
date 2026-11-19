@@ -89,6 +89,8 @@ export function TableCard({
   name,
   label,
   art,
+  combatId,
+  attackerNumber,
   className,
   tapped,
   flags,
@@ -104,6 +106,8 @@ export function TableCard({
   name: string;
   label: string;
   art: ReactNode;
+  combatId?: string;
+  attackerNumber?: number;
   className?: string;
   tapped?: boolean;
   flags?: ReactNode;
@@ -123,6 +127,9 @@ export function TableCard({
         statuses?.some(s => s.kind === "phased") && "is-phased", className].filter(Boolean).join(" ")}
     >
       {art}
+      {attackerNumber !== undefined && (
+        <span className="pt-combat-badge" aria-hidden="true">{attackerNumber}</span>
+      )}
       <div className="pt-piece-flags" aria-hidden="true">
         {tapped && <RotateCw size={14} />}
         {flags}
@@ -132,6 +139,7 @@ export function TableCard({
           ref={focusRef}
           type="button"
           className="pt-piece-select"
+          data-combat-id={combatId}
           onClick={onClick}
           disabled={disabled}
           aria-label={label}
@@ -141,11 +149,11 @@ export function TableCard({
           <span>{name}</span>
         </button>
       ) : (
-        <div className="pt-piece-select" role="group" tabIndex={0} aria-label={label}>
+        <div className="pt-piece-select" role="group" tabIndex={0} aria-label={label} data-combat-id={combatId}>
           <span>{name}</span>
         </div>
       )}
-      {statuses && <CardStatus name={name} statuses={statuses} />}
+      {statuses && <CardStatus statuses={statuses} />}
       {quickAction}
     </PreviewAnchor>
   );
@@ -188,9 +196,7 @@ export function CardTile(
         <CardReading
           name={name}
           art={<CardArt {...props} />}
-          counters={piece.counters}
-          damage={piece.damage}
-          details={statuses.filter(s => s.kind !== "counter" && s.kind !== "damage").map(s => s.label)}
+          statuses={statuses}
           stats={
             piece.power !== undefined && piece.toughness !== undefined
               ? `${piece.power}/${piece.toughness}`

@@ -145,7 +145,13 @@ class ForgeMatch {
 
     static final class EndInput extends RuntimeException {}
 
-    record Choice(String label, String kind, String cardId, Player seat, Runnable action, boolean manaAbility) {
+    record BlockChoice(String attackerId, boolean remove, boolean reassign) {}
+
+    record Choice(String label, String kind, String cardId, Player seat, Runnable action, boolean manaAbility,
+            BlockChoice block) {
+        Choice(String label, String kind, String cardId, Player seat, Runnable action, boolean manaAbility) {
+            this(label, kind, cardId, seat, action, manaAbility, null);
+        }
         Choice(String label, String kind, String cardId, Player seat, Runnable action) {
             this(label, kind, cardId, seat, action, false);
         }
@@ -156,6 +162,14 @@ class ForgeMatch {
 
     Choice choice(String label, String kind, Card card, Player seat, Runnable action) {
         return new Choice(label, kind, card == null ? null : cardId(card), seat, action);
+    }
+
+    Choice blockChoice(String label, Card blocker, Card attacker, boolean remove, Runnable action) {
+        return new Choice(label, "block", cardId(blocker), null, action, false, new BlockChoice(cardId(attacker), remove, false));
+    }
+
+    Choice reassignBlockChoice(String label, Card blocker, Card attacker, Runnable action) {
+        return new Choice(label, "block", cardId(blocker), null, action, false, new BlockChoice(cardId(attacker), false, true));
     }
 
     private boolean offersEndTurn(Player actor, String prompt, Choice choice) {
@@ -315,6 +329,9 @@ class ForgeMatch {
 
     private Map<String, Object> battlefieldCard(Card card) {
         var out = cardState(card);
+        if (out.containsKey("blocking")) {
+            out.put("blockingIds", phases.getCombat().getAttackersBlockedBy(card).stream().map(this::cardId).toList());
+        }
         if (card.isSick()) out.put("summoningSick", true);
         if (card.isPhasedOut()) {
             out.put("phasedOut", true);
@@ -431,6 +448,13 @@ class ForgeMatch {
             if (c.manaAbility()) out.put("manaAbility", true);
             if (c.cardId() != null) out.put("cardId", c.cardId());
             if (c.seat() != null) out.put("seat", seatId(c.seat()));
+            if (c.block() != null) {
+                Map<String, Object> block = new LinkedHashMap<>();
+                block.put("attackerId", c.block().attackerId());
+                block.put("remove", c.block().remove());
+                if (c.block().reassign()) block.put("reassign", true);
+                out.put("block", block);
+            }
             options.add(out);
         }
         Map<String, Object> state = new LinkedHashMap<>(Map.of("stage", finished ? "finished" : "decision", "prompt", prompt,

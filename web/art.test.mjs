@@ -34,6 +34,28 @@ test("catalog redirects are limited to HTTPS artwork on the exact image host", (
   }
 });
 
+test("the reported Foundations Goblin uses its token printing and never falls back to a regular card", async t => {
+  const art = "https://cards.scryfall.io/normal/front/token.jpg";
+  const upstream = t.mock.method(globalThis, "fetch", async url => {
+    if (url.endsWith("/tfdn/18")) return Response.json({ name: "Goblin", layout: "token", image_uris: { normal: art } });
+    return Response.json({ name: "Goblin", layout: "normal", image_uris: { normal: art } });
+  });
+  const db = { query() { throw Error("Tokens must not hit the ordinary card catalog."); } };
+  const request = async query => {
+    const res = { writeHead(status, headers) { this.status = status; this.headers = headers; }, end() {} };
+    await serveArt(new URL("http://localhost/api/art?" + new URLSearchParams({ token: "1", ...query })), res, db);
+    return res;
+  };
+  const goblin = { name: "Goblin Token", set: "FDN", number: "18" };
+  assert.equal((await request(goblin)).headers.Location, art);
+  assert.equal((await request({ ...goblin, name: "Goblin", token: "printing" })).headers.Location, art);
+  assert.equal((await request({ ...goblin, name: "Elf Token" })).status, 404);
+  assert.equal(upstream.mock.callCount(), 1);
+  assert.equal(upstream.mock.calls[0].arguments[0], "https://api.scryfall.com/cards/tfdn/18");
+  assert.equal((await request({ ...goblin, number: "99" })).status, 404);
+  assert.equal((await request({ name: "Goblin Token" })).status, 404);
+});
+
 test("art requests resolve exact PostgreSQL printing and face across Forge aliases", {
   skip: !process.env.DATABASE_URL && !process.env.PGDATABASE,
 }, async () => {
@@ -58,7 +80,6 @@ test("art requests resolve exact PostgreSQL printing and face across Forge alias
     assert.equal((await request({name:"Night",set:"TST2",number:"1a"})).headers.Location,back);
     assert.equal((await request({id,face:"back"})).headers.Location,back);
     assert.equal((await request({name:"Day",set:"tst",number:"2"})).status,404);
-    assert.equal((await request({name:"Treasure Token",token:"1"})).headers.Location, "https://api.scryfall.com/cards/named?exact=Treasure&format=image&version=normal");
   } finally {
     await client.query("ROLLBACK").finally(() => client.end());
   }
