@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { migrate, pool } from './db.mjs';
 
-const database = 'eternal_league_web';
+const database = 'arcane_fold_web';
 const dir = path.resolve('.web-data');
 const data = path.join(dir, 'postgres');
 const port = 55432;
@@ -69,7 +69,7 @@ async function provision() {
       await admin.query("CREATE ROLE league_app LOGIN PASSWORD '" + password + "'");
     }
     if (!(await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [database])).rowCount) {
-      await admin.query('CREATE DATABASE eternal_league_web' + (local ? ' OWNER league_app' : ''));
+      await admin.query('CREATE DATABASE arcane_fold_web' + (local ? ' OWNER league_app' : ''));
     }
   } finally { await admin.end(); }
   if (local) {

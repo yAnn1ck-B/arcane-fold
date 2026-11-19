@@ -34,7 +34,7 @@ npm run web:build
 npm start
 ```
 
-The local setup uses the PostgreSQL 18 tools under Program Files on Windows or PostgreSQL tools on PATH on Linux. Set `PG_BINDIR` for another installation. It creates a dedicated password-protected cluster on loopback port 55432 and database `eternal_league_web`. Run the same database command after restarting the computer. Keep `.web-data` and the ignored `.env.web` with your database backups. To use an existing PostgreSQL database instead, configure `DATABASE_URL` in `.env.web` and run `npm run web:db`. With a PostgreSQL administrator login configured through the PG environment variables, the same command can create the named database first.
+The local setup uses the PostgreSQL 18 tools under Program Files on Windows or PostgreSQL tools on PATH on Linux. Set `PG_BINDIR` for another installation. It creates a dedicated password-protected cluster on loopback port 55432 and database `arcane_fold_web`. Run the same database command after restarting the computer. Keep `.web-data` and the ignored `.env.web` with your database backups. To use an existing PostgreSQL database instead, configure `DATABASE_URL` in `.env.web` and run `npm run web:db`. With a PostgreSQL administrator login configured through the PG environment variables, the same command can create the named database first.
 
 The web server binds to `127.0.0.1:4317` by default. Two browser profiles on this computer can play together. An operator serving other devices can configure `WEB_HOST`, `WEB_PORT` and the exact `WEB_ORIGIN` and put the service behind HTTPS. Forge and the database stay on the host. Web profiles begin with the standard shared-calendar entitlements.
 

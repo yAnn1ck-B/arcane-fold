@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 // node --env-file-if-exists=.env.web loads the local connection settings.
 const options = process.env.DATABASE_URL
   ? { connectionString: process.env.DATABASE_URL }
-  : { database: process.env.PGDATABASE || 'eternal_league_web' };
+  : { database: process.env.PGDATABASE || 'arcane_fold_web' };
 export const pool = new pg.Pool({ ...options, max: 10, connectionTimeoutMillis: 6000 });
 pool.on('error', () => console.error('A PostgreSQL connection closed.'));
 

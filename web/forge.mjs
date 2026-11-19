@@ -107,7 +107,7 @@ async function launch(install, decks, seed) {
   const jar = join(directory, jarName);
   await access(jar).catch(() => { throw new Error("Forge Desktop 2.0.13 is unavailable on this server."); });
   const source = (await Promise.all(units.map(unit => readFile(new URL(unit + ".java", sources), "utf8")))).join("\n");
-  const scratch = await mkdtemp(join(tmpdir(), "eternal-league-web-game-"));
+  const scratch = await mkdtemp(join(tmpdir(), "arcane-fold-web-game-"));
   const cleanup = () => rm(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   try {
     await Promise.all([

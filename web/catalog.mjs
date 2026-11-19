@@ -138,7 +138,7 @@ async function* scryfall(index) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const res = await fetch("https://api.scryfall.com/cards/collection", {
         method: "POST", headers: { Accept:"application/json","Content-Type":"application/json",
-          "User-Agent":"Eternal-League-Web/0.4 (card catalog)" },
+          "User-Agent":"Arcane-Fold-Web/0.4 (card catalog)" },
         body: JSON.stringify({identifiers:refs.slice(i,i+75)}), signal: AbortSignal.timeout(45000),
       });
       if (res.ok) { batch = await res.json(); break; }

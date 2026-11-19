@@ -56,7 +56,7 @@ const pathFields: { key: EditablePath; label: string; hint: string }[] = [
   {
     key: "deckDir",
     label: "Constructed deck folder",
-    hint: "League decks are saved in an Eternal League subfolder here.",
+    hint: "League decks are saved in a managed subfolder here.",
   },
   {
     key: "imageCacheDir",
