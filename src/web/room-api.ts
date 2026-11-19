@@ -5,12 +5,14 @@ interface RoomSummary {
   id: string;
   status: "waiting" | "playing" | "finished";
   seat: ForgeSeat;
+  seatNames: Record<ForgeSeat, string>;
+  waitingForName: string | null;
   label: string;
-  inviteCode?: string;
 }
 
 export interface RoomView extends RoomSummary {
   revision: number;
+  outcome: { winner: ForgeSeat | null; reason: "rules" | "concession" } | null;
   state: ForgeMatch | null;
   mode: "forge" | "manual";
   manualState: ManualState | null;
@@ -38,8 +40,14 @@ export interface RewindStep {
 export interface RoomHistory { revision: number; steps: RewindStep[] }
 
 export interface WebSession {
-  decks: { id: string; name: string }[];
-  rooms: RoomSummary[];
+  decks: {
+    id: string;
+    name: string;
+    unavailableReason?: string | null;
+    practice?: { name: string; color: "Red" | "Green"; mainCount: number };
+  }[];
+  rooms: (RoomSummary & { current: boolean; paused: boolean; updatedAt: string })[];
+  openRooms: { id: string; hostName: string; openedAt: string }[];
 }
 
 export type Move = { actionId: string } | { stop: PriorityStop } | { manualAction: ManualCommand };
@@ -50,16 +58,26 @@ export class RoomApiError extends Error {
   }
 }
 
+// Keep all requests from this document tied to the account it opened, including
+// delayed autosaves when a different tab has since replaced the shared cookie.
+let documentAccount = "";
+export function bindAccount(email: string) { documentAccount = email; }
+
 export async function roomRequest<T>(path: string, payload?: unknown, signal?: AbortSignal): Promise<T> {
+  const headers = new Headers();
+  if (payload !== undefined) headers.set("Content-Type", "application/json");
+  const protectedRequest = !["/auth", "/login", "/local-login"].includes(path);
+  if (documentAccount && protectedRequest) headers.set("X-Arcane-Account", documentAccount);
   const response = await fetch(`/api${path}`, {
     method: payload === undefined ? "GET" : "POST",
     credentials: "same-origin",
     cache: "no-store",
     signal,
-    headers: payload === undefined ? undefined : { "Content-Type": "application/json" },
+    headers,
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
   if (!response.ok) {
+    if (protectedRequest && response.status === 401) window.dispatchEvent(new Event("league-session-changed"));
     const problem = await response.json().catch(() => null);
     const message = problem?.error?.message ?? problem?.error ?? problem?.message;
     throw new RoomApiError(response.status, typeof message === "string" ? message : `Request failed (${response.status}).`);
@@ -67,27 +85,16 @@ export async function roomRequest<T>(path: string, payload?: unknown, signal?: A
   return response.json();
 }
 
-// Starting two anonymous sessions concurrently can leave the UI with a view
-// for a different cookie. Coalesce startup requests across React remounts.
-let pendingSession: Promise<WebSession> | undefined;
-export function readSession() {
-  if (!pendingSession) {
-    pendingSession = roomRequest<WebSession>("/session").finally(() => { pendingSession = undefined; });
-  }
-  return pendingSession;
-}
-
 export function roomPath(id: string) {
   return `/rooms/${encodeURIComponent(id)}`;
 }
 
-export function playUrl(room: string, join = "") {
+export function playUrl(room: string) {
   const url = new URL(window.location.href);
   url.searchParams.set("page", "play");
   url.searchParams.delete("room");
   url.searchParams.delete("join");
   if (room) url.searchParams.set("room", room);
-  if (join) url.searchParams.set("join", join);
   return url;
 }
 

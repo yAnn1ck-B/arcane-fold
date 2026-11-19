@@ -31,6 +31,7 @@ import type {
 } from "@/lib/types";
 
 interface BoostersProps {
+  accountEmail: string;
   settings: AppSettings;
   revision: number;
   onChange: () => void;
@@ -47,9 +48,9 @@ type Notice = {
   message: string;
   source: "status" | "opening";
 };
-const attemptKey = "eternal-league.pending-booster-opening";
+const legacyAttemptKey = "eternal-league.pending-booster-opening";
 const rarities = ["common", "uncommon", "rare", "mythic"] as const;
-function loadAttempt(): OpeningAttempt | null {
+function loadAttempt(attemptKey: string): OpeningAttempt | null {
   try {
     const value = JSON.parse(
       localStorage.getItem(attemptKey) ?? "null",
@@ -71,7 +72,7 @@ function loadAttempt(): OpeningAttempt | null {
     return null;
   }
 }
-function storeAttempt(attempt: OpeningAttempt | null) {
+function storeAttempt(attemptKey: string, attempt: OpeningAttempt | null) {
   try {
     if (attempt) localStorage.setItem(attemptKey, JSON.stringify(attempt));
     else localStorage.removeItem(attemptKey);
@@ -117,6 +118,7 @@ function expansionName(
 }
 
 export default function Boosters({
+  accountEmail,
   settings,
   revision,
   onChange,
@@ -127,7 +129,8 @@ export default function Boosters({
   const [status, setStatus] = useState<LeagueStatus | null>(league);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [attempt, setAttempt] = useState<OpeningAttempt | null>(loadAttempt);
+  const attemptKey = `${legacyAttemptKey}.${accountEmail}`;
+  const [attempt, setAttempt] = useState<OpeningAttempt | null>(() => loadAttempt(attemptKey) ?? loadAttempt(legacyAttemptKey));
   const [opening, setOpening] = useState<BoosterOpening | null>(null);
   const [selectedCard, setSelectedCard] = useState<CatalogCard | null>(null);
   const [shownCards, setShownCards] = useState(60);
@@ -185,7 +188,7 @@ export default function Boosters({
       setNotice(null);
       setSelectedCard(null);
       setAttempt(next);
-      storeAttempt(next);
+      storeAttempt(attemptKey, next);
       try {
         let request = next;
         let result = resolveOnly
@@ -197,13 +200,13 @@ export default function Boosters({
           : null;
         if (resolveOnly && !result) {
           setAttempt(null);
-          storeAttempt(null);
+          storeAttempt(attemptKey, null);
           // Reloading an old Open all must not spend packs earned since then.
           // Only a fresh click can start another opening after settlement.
           if (fallbackCount === undefined) return;
           request = { count: fallbackCount, requestId: crypto.randomUUID() };
           setAttempt(request);
-          storeAttempt(request);
+          storeAttempt(attemptKey, request);
         }
         if (!result) {
           const open = () =>
@@ -226,7 +229,7 @@ export default function Boosters({
                 );
                 if (!result) {
                   setAttempt(null);
-                  storeAttempt(null);
+                  storeAttempt(attemptKey, null);
                 }
               } catch {
                 /* Preserve the request while its saved outcome is unknown. */
@@ -242,7 +245,8 @@ export default function Boosters({
         }
         setShownCards(60);
         setAttempt(null);
-        storeAttempt(null);
+        storeAttempt(attemptKey, null);
+        if (loadAttempt(legacyAttemptKey)?.requestId === request.requestId) storeAttempt(legacyAttemptKey, null);
         toast(
           result.packs === 1
             ? "Opened one pack."
@@ -275,7 +279,7 @@ export default function Boosters({
         setBusy(false);
       }
     },
-    [onChange, toast],
+    [attemptKey, onChange, toast],
   );
   useEffect(() => {
     if (!active) {
@@ -393,7 +397,6 @@ export default function Boosters({
                         [card],
                         settings.league.expansionSchedule,
                       )}
-                      imageCacheDir={settings.forge.imageCacheDir}
                       onSelect={() => setSelectedCard(card)}
                     />
                   ))}
@@ -435,7 +438,6 @@ export default function Boosters({
                         current === item.id ? null : item.id,
                       )
                     }
-                    imageCacheDir={settings.forge.imageCacheDir}
                     onSelectCard={setSelectedCard}
                   />
                 ))}
@@ -447,7 +449,6 @@ export default function Boosters({
       {selectedCard && (
         <CardDetails
           card={selectedCard}
-          imageCacheDir={settings.forge.imageCacheDir}
           league={league}
           onClose={() => setSelectedCard(null)}
           onChange={onChange}
@@ -481,18 +482,16 @@ function RewardWildcards({
 function RevealedCard({
   card,
   expansion,
-  imageCacheDir,
   onSelect,
 }: {
   card: CatalogCard;
   expansion: string;
-  imageCacheDir: string;
   onSelect: () => void;
 }) {
   return (
     <article className={`booster-result-card booster-result-${card.rarity}`}>
       <div className="booster-card-art">
-        <CardImage card={card} imageCacheDir={imageCacheDir} />
+        <CardImage card={card} />
         <button
           type="button"
           className="card-art-trigger"
@@ -515,14 +514,12 @@ function HistoryRow({
   expansion,
   expanded,
   onToggle,
-  imageCacheDir,
   onSelectCard,
 }: {
   item: BoosterHistory;
   expansion: string;
   expanded: boolean;
   onToggle: () => void;
-  imageCacheDir: string;
   onSelectCard: (card: CatalogCard) => void;
 }) {
   const [shown, setShown] = useState(30);
@@ -560,7 +557,6 @@ function HistoryRow({
                       ? expansion
                       : card.setName.trim() || card.setCode.toUpperCase()
                   }
-                  imageCacheDir={imageCacheDir}
                   onSelect={() => onSelectCard(card)}
                 />
               ))}

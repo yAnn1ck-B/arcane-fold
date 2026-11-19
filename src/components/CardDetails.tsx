@@ -22,7 +22,6 @@ import type { CatalogCard, LeagueStatus, WildcardKind } from "@/lib/types";
 
 interface CardDetailsProps {
   card: CatalogCard;
-  imageCacheDir: string;
   league: LeagueStatus;
   onClose: () => void;
   onChange: () => void;
@@ -33,7 +32,6 @@ interface CardDetailsProps {
 /** Shared card dialog. History snapshots always refresh ownership. */
 export default function CardDetails({
   card,
-  imageCacheDir,
   league,
   onClose,
   onChange,
@@ -180,7 +178,7 @@ export default function CardDetails({
     >
       <div className="card-dialog-layout">
         <div className="card-dialog-art-column">
-          <CardImage card={current} imageCacheDir={imageCacheDir} face={face} />
+          <CardImage card={current} face={face} />
           {current.backImageUri && (
             <Button
               variant="outline"
@@ -311,7 +309,6 @@ export default function CardDetails({
       {choosingPrinting && (
         <PrintingPicker
           card={current}
-          imageCacheDir={imageCacheDir}
           currentCardId={current.id}
           disabled={busy}
           onClose={() => setChoosingPrinting(false)}

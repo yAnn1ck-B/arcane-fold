@@ -6,7 +6,7 @@ import { normalize,parseEdition } from "./catalog.mjs";
 import { leagueCommand } from "./league.mjs";
 
 test("catalog requires a Forge collector number and name in an actual card section", async () => {
-  const fixture = await readFile(new URL("../src-tauri/test-fixtures/forge-printing-sections.txt",import.meta.url),"utf8");
+  const fixture = await readFile(new URL("./fixtures/forge-printing-sections.txt",import.meta.url),"utf8");
   const edition = parseEdition(fixture);
   assert.equal(edition.code,"TST");
   assert.deepEqual([...new Set(edition.entries.map(entry => entry.number))],["227","290","293","439","429","600"]);

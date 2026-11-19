@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { creatureSuggestions, filterOptions, preferPrinting, queryCards } from "./card-browser.mjs";
 import { basic } from "./league-boosters.mjs";
 import { enabledSetCodes, rules } from "./league.mjs";
+import { forgeDeck, forgeFilename } from "./forge-deck.mjs";
 import { practiceDecks } from "./practice.mjs";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -87,20 +88,6 @@ function inspect(entries) {
   return { mainCount, sideboardCount, required, warnings: [...new Set([...required,...warnings])], canExport: !warnings.length && !required.length };
 }
 
-function forgeDeck(name, entries) {
-  const lines = ["[metadata]",`Name=${name}`];
-  for (const section of ["main","sideboard"]) {
-    lines.push(section === "main" ? "[Main]" : "[Sideboard]");
-    const list = entries.filter(row => row.section === section).sort((a,b) => a.card.name.localeCompare(b.card.name));
-    for (const {card,quantity} of list) {
-      const parts = [card.forgeName || card.name, (card.forgeSetCode || card.setCode).toUpperCase(), card.forgeCollectorNumber || card.collectorNumber];
-      if (parts.some(part => typeof part !== "string" || !part || /[\p{Cc}|\[\]]/u.test(part))) throw new Error("A catalog entry has an invalid Forge printing identifier.");
-      lines.push(`${quantity} ${parts[0]}|${parts[1]}|[${parts[2]}]`);
-    }
-  }
-  return lines.join("\n") + "\n";
-}
-
 async function listDecks(db, playerId) {
   const { rows } = await db.query(`SELECT d.id,d.name,d.created_at AS "createdAt",d.updated_at AS "updatedAt",
     COALESCE(SUM((c->>'quantity')::integer) FILTER (WHERE c->>'section'='main'),0)::integer AS "mainCount",
@@ -122,7 +109,6 @@ async function saveDeck(db, playerId, input, createRequestId) {
   const entries = await entriesFor(db,playerId,deck.cards);
   const { required } = inspect(entries);
   if (required.length) throw new Error(required[0]);
-  const content = forgeDeck(deck.name, entries);
   let id = deck.id;
   if (createRequestId !== undefined && createRequestId !== null) {
     if (typeof createRequestId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(createRequestId)) throw new Error("Invalid deck creation identifier.");
@@ -145,12 +131,21 @@ async function saveDeck(db, playerId, input, createRequestId) {
   } else {
     ({rows:[row]} = await db.query('INSERT INTO web_decks(id,player_id,name,cards) VALUES($1,$2,$3,$4::jsonb) RETURNING id,name,created_at AS "createdAt",updated_at AS "updatedAt"', [deck.id || randomUUID(),playerId,deck.name,JSON.stringify(deck.cards)]));
   }
-  return { deck: { ...row, cards: entries }, export: { path: row.name + ".dck", content } };
+  return { ...row, cards: entries };
 }
 
-export async function playableDecks(db, playerId) {
-  const saved = (await listDecks(db,playerId)).filter(deck => deck.mainCount >= 7 && deck.mainCount <= 2000);
-  return [...saved, ...practiceDecks].map(({id,name}) => ({id,name}));
+function deckSizeProblem(count) {
+  if (count < 7) return "Needs at least 7 main-deck cards";
+  if (count > 2000) return "Maximum 2,000 main-deck cards";
+  return null;
+}
+
+export async function playDeckOptions(db, playerId) {
+  const saved = await listDecks(db,playerId);
+  return [
+    ...saved.map(({id,name,mainCount}) => ({id,name,unavailableReason:deckSizeProblem(mainCount)})),
+    ...practiceDecks.map(({id,name,practice}) => ({id,name,practice})),
+  ];
 }
 
 export async function getPlayableDeck(db, playerId, id) {
@@ -159,7 +154,8 @@ export async function getPlayableDeck(db, playerId, id) {
   const deck = await loadDeck(db,playerId,id);
   const {required,mainCount} = inspect(deck.cards);
   if (required.length) throw new Error(required[0]);
-  if (mainCount < 7 || mainCount > 2000) throw new Error("Web matches support 7 to 2,000 main-deck cards per seat.");
+  const sizeProblem = deckSizeProblem(mainCount);
+  if (sizeProblem) throw new Error(sizeProblem + ".");
   return { id, name: deck.name, text: forgeDeck(deck.name,deck.cards) };
 }
 
@@ -204,8 +200,7 @@ export async function deckCatalogCommand(db, playerId, command, args = {}) {
     }
     case "list_decks": return listDecks(db,playerId);
     case "load_deck": return loadDeck(db,playerId,args.id);
-    case "save_deck_to_forge": return saveDeck(db,playerId,args.deck,args.createRequestId);
-    case "save_deck": return (await saveDeck(db,playerId,args.deck,args.createRequestId)).deck;
+    case "save_deck": return saveDeck(db,playerId,args.deck,args.createRequestId);
     case "delete_deck": {
       if (!uuid.test(args.id)) throw notFound();
       const result = await db.query("DELETE FROM web_decks WHERE player_id=$1 AND id=$2",[playerId,args.id]);
@@ -215,7 +210,7 @@ export async function deckCatalogCommand(db, playerId, command, args = {}) {
     case "duplicate_deck": {
       const source = await loadDeck(db,playerId,args.id);
       const cards = source.cards.map(({card,section,quantity}) => ({cardId:card.id,section,quantity}));
-      return (await saveDeck(db,playerId,{name:[...source.name].slice(0,90).join("") + " (copy)",cards})).deck;
+      return saveDeck(db,playerId,{name:[...source.name].slice(0,90).join("") + " (copy)",cards});
     }
     case "validate_deck": case "export_deck": {
       const draft = normalizeDraft(args.deck);
@@ -223,7 +218,7 @@ export async function deckCatalogCommand(db, playerId, command, args = {}) {
       const {mainCount,sideboardCount,warnings,canExport} = inspect(entries);
       if (command === "validate_deck") return {mainCount,sideboardCount,warnings,canExport};
       if (!canExport) throw new Error(warnings.join(" "));
-      return {path:draft.name+".dck",content:forgeDeck(draft.name,entries)};
+      return {path:forgeFilename(draft.name),content:forgeDeck(draft.name,entries)};
     }
     default: return undefined;
   }

@@ -10,7 +10,6 @@ import type { CatalogCard } from "@/lib/types";
 
 interface PrintingPickerProps {
   card: CatalogCard;
-  imageCacheDir: string;
   currentCardId?: string;
   onSelect: (card: CatalogCard) => void;
   onClose: () => void;
@@ -21,7 +20,6 @@ interface PrintingPickerProps {
 /** Eligible globally unlocked printings share the card's pooled ownership budget. */
 export default function PrintingPicker({
   card,
-  imageCacheDir,
   currentCardId = card.id,
   onSelect,
   onClose,
@@ -127,7 +125,7 @@ export default function PrintingPicker({
             }}
           >
             <div className="printing-picker-art">
-              <CardImage card={printing} imageCacheDir={imageCacheDir} />
+              <CardImage card={printing} />
               {printing.id === currentCardId && (
                 <span className="printing-selected-mark">
                   <Check size={15} /> Selected

@@ -1,20 +1,19 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, Layers, LayoutDashboard, Library, Package, Swords } from "lucide-react";
+import { BookOpen, Layers, LayoutDashboard, Library, LogOut, Package, Swords } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ToastProvider from "@/components/ToastProvider";
-import { defaultAppearance } from "@/lib/appearance";
-import type { AppSettings, CatalogCard, DashboardStats, DeckAddRequest, LeagueStatus, Page } from "@/lib/types";
-import type { ForgeSeat } from "@/game/forge-match";
+import type { AppSettings, CatalogCard, DashboardStats, DeckAddRequest, LeagueStatus } from "@/lib/types";
 import Dashboard from "@/pages/Dashboard";
 import { catalogStatus, getBannerCard } from "@/services/cards";
 import { leagueStatus } from "@/services/progression";
-import { invoke } from "./league-transport";
-import { errorMessage, readSession } from "./room-api";
+import { invoke } from "@/services/league-transport";
+import { bindAccount, errorMessage, roomRequest } from "./room-api";
+import WebLogin, { type AuthState } from "./WebLogin";
 
 const Boosters = lazy(() => import("@/pages/Boosters"));
 const Collection = lazy(() => import("@/pages/Collection"));
 const DeckBuilder = lazy(() => import("@/pages/DeckBuilder"));
-const Settings = lazy(() => import("@/pages/Settings"));
+const LeagueGuide = lazy(() => import("@/pages/LeagueGuide"));
 const WebPlay = lazy(() => import("./WebPlay"));
 
 const navigation = [
@@ -26,7 +25,7 @@ const navigation = [
   { page: "guide", title: "League guide", icon: BookOpen },
 ] as const;
 
-type WebPage = Exclude<Page, "settings"> | "guide";
+type WebPage = (typeof navigation)[number]["page"];
 
 function currentPage(): WebPage {
   const params = new URL(window.location.href).searchParams;
@@ -46,15 +45,58 @@ async function loadLeague(): Promise<LeagueView> {
   const [rules, catalog, league] = await Promise.all([invoke<AppSettings["league"]>("league_rules"), catalogStatus(), leagueStatus()]);
   const stats = await invoke<DashboardStats>("load_dashboard_stats");
   return {
-    settings: { league: rules, appearance: defaultAppearance, forge: { dataDir: "", deckDir: "", imageCacheDir: "", installDir: "" } },
+    settings: { league: rules },
     catalogCount: catalog.count, league, stats,
   };
 }
 
+const sessionChangeKey = "arcane-fold.session-change";
+
+function notifySessionChange() {
+  try { localStorage.setItem(sessionChangeKey, Date.now().toString()); }
+  catch { /* Browsers with storage disabled still recheck identity on API requests. */ }
+  window.location.reload();
+}
+
 export default function WebApp() {
+  const [auth, setAuth] = useState<AuthState>();
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setError("");
+    void roomRequest<AuthState>("/auth", undefined, controller.signal).then((state) => {
+      if (controller.signal.aborted) return;
+      if (state.user) bindAccount(state.user.email);
+      setAuth(state);
+    }).catch((cause) => { if (!controller.signal.aborted) setError(errorMessage(cause)); });
+    return () => controller.abort();
+  }, [retry]);
+
+  useEffect(() => {
+    const reloadPage = () => window.location.reload();
+    const storageChange = (event: StorageEvent) => { if (event.key === sessionChangeKey) reloadPage(); };
+    const restorePage = (event: PageTransitionEvent) => { if (event.persisted) reloadPage(); };
+    window.addEventListener("storage", storageChange);
+    window.addEventListener("pageshow", restorePage);
+    window.addEventListener("league-session-changed", reloadPage);
+    return () => {
+      window.removeEventListener("storage", storageChange);
+      window.removeEventListener("pageshow", restorePage);
+      window.removeEventListener("league-session-changed", reloadPage);
+    };
+  }, []);
+
+  if (!auth?.user) return <WebLogin auth={auth} loadError={error}
+    onRetry={() => setRetry((value) => value + 1)} onSignedIn={notifySessionChange} />;
+  return <PlayerLeague user={auth.user} />;
+}
+
+function PlayerLeague({ user }: { user: NonNullable<AuthState["user"]> }) {
   const [page, setPage] = useState(currentPage);
-  const [tableSeat, setTableSeat] = useState<ForgeSeat | null>(null);
-  const [sessionReady, setSessionReady] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const [data, setData] = useState<LeagueView>();
   const [banner, setBanner] = useState<CatalogCard | null>(null);
   const [revision, setRevision] = useState(0);
@@ -63,6 +105,24 @@ export default function WebApp() {
   const [add, setAdd] = useState<DeckAddRequest | null>(null);
   const [visited, setVisited] = useState<Partial<Record<WebPage, boolean>>>(() => ({ [currentPage()]: true }));
   const latestRead = useRef(0);
+  const flushDeck = useRef<(() => Promise<void>) | null>(null);
+
+  async function signOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    setLogoutError("");
+    try {
+      await flushDeck.current?.();
+      await roomRequest("/logout", {});
+      const url = new URL(window.location.href);
+      url.searchParams.delete("room");
+      window.history.replaceState(null, "", url);
+      notifySessionChange();
+    } catch (cause) {
+      setLogoutError(errorMessage(cause));
+      setSigningOut(false);
+    }
+  }
 
   const refreshLeague = useCallback(async () => {
     const sequence = ++latestRead.current;
@@ -78,14 +138,8 @@ export default function WebApp() {
   }, []);
 
   useEffect(() => {
-    let active = true;
-    setError("");
-    void readSession().then(async () => {
-      if (!active) return;
-      setSessionReady(true);
-      await refreshLeague();
-    }).catch((cause) => { if (active) setError(errorMessage(cause)); });
-    return () => { active = false; latestRead.current++; };
+    void refreshLeague();
+    return () => { latestRead.current++; };
   }, [refreshLeague, reload]);
 
   const count = data?.catalogCount ?? 0;
@@ -97,7 +151,6 @@ export default function WebApp() {
   }, [count]);
 
   useEffect(() => {
-    if (!sessionReady) return;
     function refreshVisible() { if (!document.hidden) void refreshLeague(); }
     document.addEventListener("visibilitychange", refreshVisible);
     const due = data?.league.nextRewardAt ? Date.parse(data.league.nextRewardAt) - Date.now() : 0;
@@ -106,7 +159,7 @@ export default function WebApp() {
       document.removeEventListener("visibilitychange", refreshVisible);
       window.clearTimeout(timer);
     };
-  }, [sessionReady, data?.league.nextRewardAt, refreshLeague]);
+  }, [data?.league.nextRewardAt, refreshLeague]);
 
   useEffect(() => {
     function restore() {
@@ -130,7 +183,7 @@ export default function WebApp() {
     window.scrollTo(0, 0);
   }
 
-  const ready = sessionReady && (page === "play" || data);
+  const ready = page === "play" || data;
   return (
     <div className="app-shell web-shell">
       <aside className="sidebar">
@@ -147,35 +200,41 @@ export default function WebApp() {
             </button>
           ))}
         </nav>
+        <div className="web-account">
+          <span className="web-avatar" aria-hidden>{user.name.charAt(0)}</span>
+          <strong>{user.name}</strong>
+          <button type="button" onClick={() => void signOut()} disabled={signingOut} title="Sign out" aria-label="Sign out">
+            <LogOut size={16} aria-hidden />
+          </button>
+        </div>
       </aside>
-      <main className="main-content"><div className="page-content">
-        <header className="page-heading"><h1>{navigation.find((entry) => entry.page === page)?.title}
-          {page === "play" && tableSeat && <span className="web-title-seat">Player {tableSeat === "player" ? 1 : 2}</span>}
-        </h1></header>
+      <main className="main-content" inert={signingOut}><div className="page-content">
+        {page !== "play" && <header className="page-heading"><h1>{navigation.find((entry) => entry.page === page)?.title}</h1></header>}
+        {logoutError && <div className="notice notice-error" role="alert">Sign out failed. {logoutError}</div>}
         {error && <div className="notice notice-error" role="alert">{error}
           <Button variant="outline" onClick={() => setReload((number) => number + 1)}>Retry</Button>
         </div>}
         {!ready && !error && <div className="loading-state" role="status">Opening your league…</div>}
-        {sessionReady && <Suspense fallback={<p role="status">Opening page…</p>}>
-          {page === "play" && <WebPlay onSeatChange={setTableSeat} />}
+        <Suspense fallback={<p role="status">Opening page…</p>}>
+          {page === "play" && <WebPlay leagueRevision={revision} />}
           {data && <>
             {page === "dashboard" && <Dashboard settings={data.settings} stats={data.stats} bannerCard={banner}
               catalogCount={count} league={data.league} revision={revision}
               onCollection={() => navigate("collection")} onDecks={() => navigate("decks")} onBoosters={() => navigate("boosters")} />}
-            {visited.collection && <div hidden={page !== "collection"}><Collection settings={data.settings} revision={revision}
+            {visited.collection && <div hidden={page !== "collection"}><Collection revision={revision}
               league={data.league} catalogCount={count} onChange={refreshLeague}
               onAddToDeck={(card) => {
                 setAdd({ requestId: crypto.randomUUID(), card });
                 setVisited((previous) => ({ ...previous, decks: true }));
               }} /></div>}
             {visited.decks && <div hidden={page !== "decks"}><DeckBuilder settings={data.settings} revision={revision}
-              league={data.league} onChange={refreshLeague} addRequest={add}
+              league={data.league} onChange={refreshLeague} addRequest={add} flushRef={flushDeck}
               onAddRequestHandled={(id) => setAdd((previous) => previous?.requestId === id ? null : previous)} /></div>}
-            {visited.boosters && <div hidden={page !== "boosters"}><Boosters active={page === "boosters"}
+            {visited.boosters && <div hidden={page !== "boosters"}><Boosters active={page === "boosters"} accountEmail={user.email}
               settings={data.settings} revision={revision} onChange={refreshLeague} league={data.league} /></div>}
-            {page === "guide" && <Settings rulesOnly settings={data.settings} leagueStatus={data.league} report={null} catalogCount={count} />}
+            {page === "guide" && <LeagueGuide settings={data.settings} leagueStatus={data.league} catalogCount={count} />}
           </>}
-        </Suspense>}
+        </Suspense>
       </div></main>
       <ToastProvider />
     </div>

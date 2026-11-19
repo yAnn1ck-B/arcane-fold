@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, Copy, Hand, Undo2, Users } from "lucide-react";
+import { ArrowLeft, Flag, Hand, Users } from "lucide-react";
+import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/button";
 import ForgeBoard, { ForgeImageSource } from "@/game/ForgeBoard";
-import type { ForgeCard, ForgeSeat } from "@/game/forge-match";
+import type { ForgeCard } from "@/game/forge-match";
 import type { MatchTools } from "@/game/TableBoard";
 import { TableDialog } from "@/game/TableDialog";
 import { GameIssueReporting } from "@/game/GameIssueReporter";
 import { captureForgeIssue, type GameIssueReport } from "@/game/issue-report";
-import { errorMessage, playUrl, roomPath, roomRequest, RoomApiError, type Move, type ProposalDecision, type RoomView } from "./room-api";
-import { ActionStatus, ConsentDialog, playerName, RewindPicker } from "./RoomRequests";
+import { errorMessage, roomPath, roomRequest, RoomApiError, type Move, type ProposalDecision, type RoomView } from "./room-api";
+import { ActionStatus, ConsentDialog, RoomLog } from "./RoomRequests";
 import { RemoteManualTable } from "./RemoteManualTable";
+import { GameResult } from "./GameResult";
 import "@/styles/game.css";
 
 function artSource(card: ForgeCard) {
@@ -18,46 +20,17 @@ function artSource(card: ForgeCard) {
   return `/api/art?${query}`;
 }
 
-function Invitation({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
-  const link = playUrl("", code).href;
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setCopyFailed(false);
-    } catch {
-      setCopyFailed(true);
-    }
-  }
-  return (
-    <section className="panel web-setup" aria-labelledby="waiting-heading">
-      <h2 id="waiting-heading"><Users size={21} aria-hidden /> Waiting for your opponent</h2>
-      <p>Open the invitation in a separate browser profile or private window. The game starts when the second player chooses a deck and joins.</p>
-      <div className="web-invite">
-        <div><span>Invite code</span><code>{code}</code></div>
-        <Button variant="outline" onClick={() => void copy()}>{copied ? <Check size={16} /> : <Copy size={16} />}
-          {copied ? "Invite link copied" : "Copy invite link"}
-        </Button>
-      </div>
-      {copyFailed && <label className="web-field">Copy this invite link
-        <input value={link} readOnly onFocus={(e) => e.currentTarget.select()} />
-      </label>}
-    </section>
-  );
-}
-
-export default function WebRoom({ id, onLobby, onSeatChange }: {
-  id: string; onLobby: () => void; onSeatChange: (seat: ForgeSeat | null) => void;
+export default function WebRoom({ id, onLobby }: {
+  id: string; onLobby: () => void;
 }) {
   const [room, setRoom] = useState<RoomView>();
   const [connectionError, setConnectionError] = useState("");
   const [actionError, setActionError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [sending, setSending] = useState(false);
-  const [choosingStep, setChoosingStep] = useState(false);
-  const [resolution, setResolution] = useState("");
+  const [confirmConcede, setConfirmConcede] = useState(false);
+  const [reviewRevision, setReviewRevision] = useState<number | null>(null);
+  const toast = useToast();
   const [rewindKey, setRewindKey] = useState("");
   const previousProposal = useRef<string | undefined>(undefined);
   const pending = useRef(false);
@@ -67,28 +40,24 @@ export default function WebRoom({ id, onLobby, onSeatChange }: {
       (next.revision === previous.revision && next.controlVersion >= previous.controlVersion) ? next : previous);
   }, []);
 
-  useEffect(() => {
-    onSeatChange(room?.seat ?? null);
-    return () => onSeatChange(null);
-  }, [onSeatChange, room?.seat]);
-
   const proposal = room?.pendingRequest;
+  const finished = room?.status === "finished";
+  useEffect(() => { if (finished) setConfirmConcede(false); }, [finished]);
   const result = room?.lastResolution;
+  const responderName = result && room?.seatNames[result.responder];
   useEffect(() => {
     if (proposal) {
       previousProposal.current = proposal.id;
-      setChoosingStep(false);
-      setResolution("");
     } else if (result) {
       if (result.kind === "undo" && result.decision === "accept") setRewindKey(result.requestId);
-      if (previousProposal.current === result.requestId) {
+      if (previousProposal.current === result.requestId && responderName) {
         const what = result.kind === "undo" ? "undo" : "manual play";
         const verb = result.decision === "accept" ? "approved" : result.decision === "cancel" ? "canceled" : "declined";
-        setResolution(`${playerName(result.responder)} ${verb} the ${what} request.`);
+        toast(`${responderName} ${verb} the ${what} request.`);
       }
       previousProposal.current = undefined;
     }
-  }, [proposal?.id, result?.requestId, result?.decision]);
+  }, [proposal?.id, result?.requestId, result?.decision, responderName, toast]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -108,7 +77,7 @@ export default function WebRoom({ id, onLobby, onSeatChange }: {
       } catch (cause) {
         if (!controller.signal.aborted) {
           setConnectionError(errorMessage(cause));
-          terminal = cause instanceof RoomApiError && [401, 403, 404].includes(cause.status);
+          terminal = cause instanceof RoomApiError && [401, 403, 404, 409, 410].includes(cause.status);
           if (terminal) setRoom(undefined);
         }
       } finally {
@@ -131,7 +100,7 @@ export default function WebRoom({ id, onLobby, onSeatChange }: {
   }, [path, refresh, acceptView]);
 
   async function post(endpoint: string, body: object) {
-    if (!room || pending.current || connectionError) return;
+    if (!room || pending.current || connectionError) return false;
     pending.current = true;
     setSending(true);
     setActionError("");
@@ -140,9 +109,11 @@ export default function WebRoom({ id, onLobby, onSeatChange }: {
         revision: room.revision, controlVersion: room.controlVersion, ...body,
       });
       acceptView(next);
+      return true;
     } catch (cause) {
       setActionError(errorMessage(cause));
       setRefresh((value) => value + 1);
+      return false;
     } finally {
       pending.current = false;
       setSending(false);
@@ -152,12 +123,11 @@ export default function WebRoom({ id, onLobby, onSeatChange }: {
   function act(move: Move) {
     if (!room || room.status !== "playing" || proposal) return;
     if ("actionId" in move && room.state?.actor !== room.seat) return;
-    setResolution("");
     void post("actions", move);
   }
 
   function requestUndo(targetRevision: number) {
-    void post("requests", { kind: "undo", targetRevision });
+    if (room?.status === "playing" && room.undoAvailable && !proposal) void post("requests", { kind: "undo", targetRevision });
   }
 
   function answer(decision: ProposalDecision) {
@@ -176,43 +146,49 @@ export default function WebRoom({ id, onLobby, onSeatChange }: {
   const manual = room?.manualState;
   const error = connectionError || actionError;
   const notice = error ? <div role="alert" className="notice notice-error">{error}
-    <Button variant="outline" onClick={() => { setActionError(""); setRefresh((value) => value + 1); }}>Refresh table</Button>
+    <Button variant="outline" onClick={() => { setActionError(""); setRefresh((value) => value + 1); }}>Refresh game</Button>
   </div> : undefined;
   if (!room || (!state && !manual)) return (
     <div className="web-play">
-      <button className="web-back" onClick={onLobby}><ArrowLeft size={16} /> Back to tables</button>
+      <button className="web-back" onClick={onLobby}><ArrowLeft size={16} /> Return to lobby</button>
       {notice}
-      {room?.status === "waiting" && room.inviteCode ? <Invitation code={room.inviteCode} /> :
-        !error && <p role="status">{room?.status === "waiting" ? "Waiting for your opponent…" : "Loading table…"}</p>}
+      {room?.status === "waiting" ? <section className="panel web-setup" aria-labelledby="waiting-heading">
+        <h2 id="waiting-heading"><Users size={21} aria-hidden /> Waiting for {room.waitingForName ?? "an opponent"}…</h2>
+        <p>{room.waitingForName ?? "Your opponent"} can choose a deck and join from the lobby.</p>
+      </section> : !error && <p role="status">Loading game…</p>}
     </div>
   );
   const locked = sending || !!connectionError || !!proposal;
-  const canUndo = room.undoAvailable && !locked;
   const canSwitch = room.mode === "forge" && room.status === "playing";
-  const showSteps = () => { setActionError(""); setChoosingStep(true); };
-  const rewindPicker = <RewindPicker path={path} revision={room.revision} disabled={!canUndo} request={requestUndo} />;
+  const showingResult = finished && reviewRevision !== room.revision;
+  const opponentName = room.seatNames[room.seat === "player" ? "opponent" : "player"];
+  const entries = manual?.history ?? state?.history ?? [];
   const manualButton = canSwitch && (
-    <button type="button" className="pt-tool" aria-label="Request manual play" data-hint="Request manual play"
-      disabled={locked} onClick={() => void post("requests", { kind: "manual" })}><Hand size={16} aria-hidden /></button>
+    <button type="button" className="pt-tool"
+      disabled={locked} onClick={() => void post("requests", { kind: "manual" })}><Hand size={16} aria-hidden />Manual play</button>
+  );
+  const concedeButton = !finished && (
+    <button type="button" className="pt-btn" disabled={sending || !!connectionError} aria-haspopup="dialog"
+      onClick={() => { setActionError(""); setConfirmConcede(true); }}><Flag size={15} aria-hidden />Concede</button>
   );
   const matchTools: MatchTools = {
-    history: (manual?.history ?? state?.history) || [], undoDisabled: !canUndo, onUndo: showSteps,
-    onLeave: onLobby, leaveLabel: "Back to tables", leaveDisabled: sending,
-    actionStatus: <ActionStatus room={room} />, manualSwitch: manualButton, openingRecovery: notice,
-    logActions: room.undoAvailable && <div className="web-log-rewind">{rewindPicker}</div>,
-    decisionTools: <div className="web-decision-tools">
-      <button type="button" className="pt-btn" disabled={!canUndo} onClick={showSteps}><Undo2 size={15} />Undo to a step</button>
-      {manualButton}
-    </div>,
+    seatNames: room.seatNames,
+    history: entries,
+    historyLog: <RoomLog path={path} revision={room.revision} entries={entries}
+      available={room.status === "playing" && room.undoAvailable} disabled={locked} request={requestUndo} />,
+    onLeave: onLobby, leaveLabel: "Return to lobby", leaveDisabled: sending,
+    actionStatus: <ActionStatus room={room} />, manualSwitch: manualButton, concede: concedeButton, decisionError: notice,
   };
   return (
     <div className="web-play pt-forge">
       {notice}
-      {resolution && <p className="web-room-result" role="status">{resolution}</p>}
-      {manual && <RemoteManualTable key={rewindKey} state={manual} matchTools={matchTools}
-        onAction={manualAction => act({ manualAction })} locked={locked}
+      {showingResult && <GameResult room={room} onLobby={onLobby} onReview={() => setReviewRevision(room.revision)} />}
+      {finished && !showingResult && <button className="web-back" onClick={() => setReviewRevision(null)}>
+        <ArrowLeft size={16} aria-hidden /> Back to result</button>}
+      {!showingResult && manual && <RemoteManualTable key={rewindKey} state={manual} matchTools={matchTools}
+        onAction={manualAction => act({ manualAction })} locked={locked || finished}
         reportContext={{ id, revision: room.revision, error: error || undefined }} submitReport={submitReport} />}
-      {state && (
+      {!showingResult && state && (
       <GameIssueReporting
         capture={() => ({
           ...captureForgeIssue(id, room.seat, state, error || undefined),
@@ -221,21 +197,25 @@ export default function WebRoom({ id, onLobby, onSeatChange }: {
         submit={submitReport}
       >
         <ForgeImageSource.Provider value={artSource}>
-          <ForgeBoard key={rewindKey} state={state} viewer={room.seat} locked={locked} imageCacheDir=""
+          <ForgeBoard key={rewindKey} state={state} viewer={room.seat} locked={locked || finished}
             onChoose={actionId => act({ actionId })}
-            onPriorityStop={stop => act({ stop })}
-            replay={onLobby}
+            onPriorityStop={stop => post("actions", { stop })}
             matchTools={matchTools}
           />
         </ForgeImageSource.Provider>
       </GameIssueReporting>)}
-      {choosingStep && !proposal && <TableDialog title="Undo to a step" reportable={false}
-        onClose={sending ? undefined : () => setChoosingStep(false)}>
-        {rewindPicker}
-        {error && <p role="alert" className="notice notice-error">{error}</p>}
-      </TableDialog>}
-      {proposal && <ConsentDialog key={proposal.id} proposal={proposal} seat={room.seat}
+      {proposal && !confirmConcede && <ConsentDialog key={proposal.id} proposal={proposal} seat={room.seat} requesterName={room.seatNames[proposal.requester]} opponentName={opponentName}
         busy={sending || !!connectionError} error={error} answer={answer} />}
+      {confirmConcede && !finished && <TableDialog title="Concede this game?" reportable={false}
+        className="web-consent-dialog" onClose={sending ? undefined : () => setConfirmConcede(false)}>
+        <p>{opponentName} will win immediately.</p>
+        {error && <p className="notice notice-error" role="alert">{error}</p>}
+        <div className="pt-launch">
+          <Button variant="outline" disabled={sending} onClick={() => setConfirmConcede(false)}>Keep playing</Button>
+          <Button variant="destructive" disabled={sending || !!connectionError}
+            onClick={() => void post("actions", { concede: true })}><Flag size={15} aria-hidden />Concede game</Button>
+        </div>
+      </TableDialog>}
     </div>
   );
 }

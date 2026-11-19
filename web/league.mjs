@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { randomInt } from "node:crypto";
 import { basic, boosterPool, craftable, drawPack, emptyBalances, kinds, rarities } from "./league-boosters.mjs";
 
-export const rules = JSON.parse(await readFile(new URL("../src-tauri/league-rules.json", import.meta.url), "utf8"));
+export const rules = JSON.parse(await readFile(new URL("./league-rules.json", import.meta.url), "utf8"));
 const weekMs = 7 * 86400 * 1000;
 const period = now => Math.max(0, Math.floor((now - rules.startedAt * 1000) / weekMs));
 const unlocks = [

@@ -1,14 +1,15 @@
 import "@/styles/deck-browser.css";
 import { formatMana } from "@/lib/mana";
-import { appLifecycle } from "@/lib/app-lifecycle";
+import { forgeDeck, forgeFilename } from "../../web/forge-deck.mjs";
 import { createPortal } from "react-dom";
 import {
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
+  type Ref,
 } from "react";
 import {
   AlertTriangle,
@@ -16,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Download,
   Layers3,
   Loader2,
   Minus,
@@ -55,7 +57,6 @@ import {
   persistDeck,
   validateDeck,
 } from "@/services/decks";
-import { syncsToForge } from "@/services/league-transport";
 import type {
   AppSettings,
   CatalogCard,
@@ -71,13 +72,13 @@ import type {
 } from "@/lib/types";
 
 interface DeckBuilderProps {
+  flushRef?: Ref<() => Promise<void>>;
   settings: AppSettings;
   revision: number;
   onChange: () => void;
   league: LeagueStatus;
   addRequest?: DeckAddRequest | null;
   onAddRequestHandled?: (requestId: string) => void;
-  repairOnly?: boolean;
 }
 type Section = "main" | "sideboard";
 type Notice = { kind: "error" | "info"; message: string };
@@ -99,7 +100,7 @@ function savedCardsPerRow(): CardsPerRow {
     if (value && ["auto", "2", "3", "4", "5", "6", "7"].includes(value))
       return value as CardsPerRow;
   } catch {
-    /* Storage can be unavailable in a restricted webview. */
+    /* Storage can be unavailable in a restricted browser. */
   }
   return "auto";
 }
@@ -253,11 +254,9 @@ function withCard(
 function DeckCardTitle({
   card,
   onDetails,
-  disabled = false,
 }: {
   card: CatalogCard;
   onDetails: () => void;
-  disabled?: boolean;
 }) {
   const mana = formatMana(card.manaCost);
   return (
@@ -267,7 +266,6 @@ function DeckCardTitle({
         className="deck-oracle-name"
         title={card.name}
         onClick={onDetails}
-        disabled={disabled}
       >
         {card.name}
       </button>
@@ -327,19 +325,15 @@ function DeckDialog({
 }
 
 export default function DeckBuilder({
+  flushRef,
   settings,
   revision,
   onChange,
   league,
   addRequest,
   onAddRequestHandled,
-  repairOnly = false,
 }: DeckBuilderProps) {
   const toast = useToast();
-  const exitState = useSyncExternalStore(
-    appLifecycle.subscribe,
-    appLifecycle.getSnapshot,
-  );
   const [decks, setDecks] = useState<DeckSummary[]>([]);
   const [loadingDecks, setLoadingDecks] = useState(true);
   const [id, setId] = useState<string | null>(null);
@@ -368,14 +362,12 @@ export default function DeckBuilder({
       ),
   );
   const [section, setSection] = useState<Section>("main");
-  const [taskBusy, setBusy] = useState<string | null>(null);
-  const busy = taskBusy ?? (exitState.busy ? "exit" : null);
+  const [busy, setBusy] = useState<string | null>(null);
   const taskRunning = useRef(false);
-  const activeTask = useRef<Promise<void> | null>(null);
-  const activeTaskName = useRef<string | null>(null);
-  const taskFailure = useRef<{ task: string; message: string } | null>(null);
-  const prepareForExit = useRef<() => Promise<void>>(async () => {});
-  useEffect(() => appLifecycle.register(() => prepareForExit.current()), []);
+  useImperativeHandle(flushRef, () => async () => {
+    if (taskRunning.current) throw new Error("Wait for the current deck change to finish.");
+    await autosave.flush();
+  }, [autosave]);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeckSummary | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -419,17 +411,12 @@ export default function DeckBuilder({
   );
   const dirty = saveState.pending;
   useEffect(() => {
-    if (syncsToForge || (!dirty && !taskBusy)) return;
+    if (!dirty && !busy) return;
     const protectPendingSave = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener("beforeunload", protectPendingSave);
     return () => window.removeEventListener("beforeunload", protectPendingSave);
-  }, [dirty, taskBusy]);
+  }, [dirty, busy]);
   saveEvents.current = ({ deck }) => {
-    if (
-      taskFailure.current &&
-      ["rename", "retry"].includes(taskFailure.current.task)
-    )
-      taskFailure.current = null;
     // Acknowledgements update identity/list metadata, never the current card edits.
     setId(deck.id);
     setAddFlow((current) =>
@@ -443,24 +430,6 @@ export default function DeckBuilder({
       ...current.filter((item) => item.id !== deck.id),
     ]);
     onChange();
-  };
-  prepareForExit.current = async () => {
-    // The global lock prevents another confirmed action from starting while we wait.
-    await activeTask.current;
-    if (taskFailure.current) throw new Error(taskFailure.current.message);
-    const current = autosave.getDraft();
-    if (!current.name.trim() && current.cards.length) {
-      promptForNewDeck("current", true);
-      throw new Error(
-        "Name the pending deck or cancel its proposed edits before leaving.",
-      );
-    }
-    try {
-      await autosave.flush();
-    } catch (error) {
-      setNotice({ kind: "error", message: errorMessage(error) });
-      throw error;
-    }
   };
   const mainCount = entries
     .filter((entry) => entry.section === "main")
@@ -678,7 +647,7 @@ export default function DeckBuilder({
     }
     setChecking(true);
     const timer = window.setTimeout(() => {
-      validateDeck(draft, settings.forge.installDir || settings.forge.dataDir)
+      validateDeck(draft)
         .then((result) => {
           if (request === validationRequest.current) setValidation(result);
         })
@@ -697,7 +666,7 @@ export default function DeckBuilder({
       window.clearTimeout(timer);
       validationRequest.current += 1;
     };
-  }, [draft, settings.forge.installDir, settings.forge.dataDir, revision]);
+  }, [draft, revision]);
   useEffect(() => {
     if (!addRequest) return;
     collectionBases.clear();
@@ -879,36 +848,19 @@ export default function DeckBuilder({
     setSection("main");
     setQuery((current) => ({ ...current, colors: [], color: "", page: 0 }));
   }
-  function rememberTaskError(error: unknown) {
-    const message = errorMessage(error);
-    taskFailure.current = { task: activeTaskName.current ?? "deck", message };
-    return message;
-  }
-  function clearTaskFailure(...tasks: string[]) {
-    if (taskFailure.current && tasks.includes(taskFailure.current.task))
-      taskFailure.current = null;
-  }
   async function runTask(task: string, action: () => Promise<void>) {
-    if (taskRunning.current || appLifecycle.isLocked()) return;
+    if (taskRunning.current) return;
     taskRunning.current = true;
-    activeTaskName.current = task;
-    taskFailure.current = null;
     setBusy(task);
     setNotice(null);
-    const work = (async () => {
-      try {
-        await action();
-      } catch (error) {
-        setNotice({ kind: "error", message: rememberTaskError(error) });
-      } finally {
-        taskRunning.current = false;
-        activeTaskName.current = null;
-        setBusy(null);
-      }
-    })();
-    activeTask.current = work;
-    await work;
-    if (activeTask.current === work) activeTask.current = null;
+    try {
+      await action();
+    } catch (error) {
+      setNotice({ kind: "error", message: errorMessage(error) });
+    } finally {
+      taskRunning.current = false;
+      setBusy(null);
+    }
   }
 
   async function performAction(action: DeckAction) {
@@ -920,23 +872,13 @@ export default function DeckBuilder({
   }
   function requestAction(action: DeckAction) {
     if (
-      repairOnly ||
       taskRunning.current ||
-      appLifecycle.isLocked() ||
       (action.kind === "load" && action.id === autosave.getDraft().id)
     )
       return;
     void performAction(action);
   }
-  function promptForNewDeck(mode: "new" | "current", duringExit = false) {
-    const currentDraft = autosave.getDraft();
-    if (
-      repairOnly &&
-      (mode === "new" ||
-        (!currentDraft.name.trim() && !currentDraft.cards.length))
-    )
-      return;
-    if (appLifecycle.isLocked() && !duringExit) return;
+  function promptForNewDeck(mode: "new" | "current") {
     setNewDeckPrompt(
       (current) =>
         current ?? {
@@ -949,13 +891,7 @@ export default function DeckBuilder({
   }
   function promptForCopy() {
     const sourceId = autosave.getDraft().id;
-    if (
-      repairOnly ||
-      !sourceId ||
-      taskRunning.current ||
-      appLifecycle.isLocked()
-    )
-      return;
+    if (!sourceId || taskRunning.current) return;
     const suffix = " (copy)";
     setNewDeckPrompt({
       mode: "copy",
@@ -966,7 +902,7 @@ export default function DeckBuilder({
     });
   }
   function closeNewDeck() {
-    if (taskRunning.current || appLifecycle.isLocked()) return;
+    if (taskRunning.current) return;
     // Canceling the first creation also cancels its proposed, still-unnamed edits.
     if (
       newDeckPrompt?.mode === "current" &&
@@ -974,12 +910,10 @@ export default function DeckBuilder({
       !latestName.current.trim()
     )
       resetDeck();
-    clearTaskFailure("new", "copy");
     setNewDeckPrompt(null);
   }
   async function createNamedDeck() {
-    if (!newDeckPrompt || taskRunning.current || appLifecycle.isLocked())
-      return;
+    if (!newDeckPrompt || taskRunning.current) return;
     const prompt = newDeckPrompt;
     const nextName = prompt.name.trim();
     if (!nextName || nextName.length > 100) return;
@@ -1007,13 +941,9 @@ export default function DeckBuilder({
           onChange();
         }
         setNewDeckPrompt(null);
-        toast(
-          prompt.mode === "copy"
-            ? (syncsToForge ? "Deck copied and saved to Forge." : "Deck copied.")
-            : (syncsToForge ? "Deck created and saved to Forge." : "Deck created."),
-        );
+        toast(prompt.mode === "copy" ? "Deck copied." : "Deck created.");
       } catch (error) {
-        const message = rememberTaskError(error);
+        const message = errorMessage(error);
         setNewDeckPrompt((current) =>
           current ? { ...current, error: message } : current,
         );
@@ -1047,13 +977,7 @@ export default function DeckBuilder({
     return null;
   }
   function changeCard(card: CatalogCard, target: Section, delta: number) {
-    if (
-      (repairOnly && delta > 0) ||
-      taskRunning.current ||
-      appLifecycle.isLocked() ||
-      !Number.isSafeInteger(delta)
-    )
-      return false;
+    if (taskRunning.current || !Number.isSafeInteger(delta)) return false;
     const reason =
       delta > 0
         ? blockedReason(card, target, latestEntries.current, delta)
@@ -1075,14 +999,12 @@ export default function DeckBuilder({
       oracleCopies(entry.card, entries) > ownedCount(entry.card),
   );
   function closeRename() {
-    if (taskRunning.current || appLifecycle.isLocked()) return;
-    clearTaskFailure("rename");
+    if (taskRunning.current) return;
     setRenameValue(null);
     setRenameError(null);
   }
   async function handleRename() {
-    if (renameValue === null || taskRunning.current || appLifecycle.isLocked())
-      return;
+    if (renameValue === null || taskRunning.current) return;
     const nextName = renameValue.trim();
     if (!nextName || nextName.length > 100) {
       setRenameError("Enter a deck name from 1 to 100 characters.");
@@ -1102,9 +1024,9 @@ export default function DeckBuilder({
         await autosave.flush();
         setRenameValue(null);
         setRenameError(null);
-        toast(syncsToForge ? "Deck renamed and saved to Forge." : "Deck renamed.");
+        toast("Deck renamed.");
       } catch (error) {
-        setRenameError(rememberTaskError(error));
+        setRenameError(errorMessage(error));
       }
     });
   }
@@ -1120,36 +1042,34 @@ export default function DeckBuilder({
         deckListRequest.current++;
         setDecks((current) => current.filter((deck) => deck.id !== target.id));
         onChange();
-        toast(syncsToForge ? `Deleted "${target.name}" and its Forge file.` : `Deleted "${target.name}".`);
+        toast(`Deleted "${target.name}".`);
       } catch (error) {
         autosave.resume();
-        setDeleteError(rememberTaskError(error));
+        setDeleteError(errorMessage(error));
       }
     });
   }
   function closeDelete() {
-    if (taskRunning.current || appLifecycle.isLocked()) return;
-    clearTaskFailure("delete");
+    if (taskRunning.current) return;
     setDeleteTarget(null);
     setDeleteError(null);
   }
   function closeAddFlow() {
-    if (taskRunning.current || appLifecycle.isLocked()) return;
+    if (taskRunning.current) return;
     if (addFlow) onAddRequestHandled?.(addFlow.request.requestId);
-    clearTaskFailure("collection-add", "collection-target");
     setAddFlow(null);
     setTargetError(null);
     collectionBases.clear();
   }
   async function changeAddTarget(targetId: string) {
-    if (taskRunning.current || appLifecycle.isLocked()) return;
+    if (taskRunning.current) return;
     await runTask("collection-target", async () => {
       try {
         await autosave.flush();
         setTargetError(null);
         setAddFlow((flow) => (flow ? { ...flow, targetId } : flow));
       } catch (error) {
-        setTargetError(rememberTaskError(error));
+        setTargetError(errorMessage(error));
       }
     });
   }
@@ -1234,7 +1154,7 @@ export default function DeckBuilder({
           });
         }
       } catch (error) {
-        setTargetError(rememberTaskError(error));
+        setTargetError(errorMessage(error));
       }
     });
   }
@@ -1295,7 +1215,24 @@ export default function DeckBuilder({
           addFlow.quantity,
         )
       : null;
-  const imageCacheDir = settings.forge.imageCacheDir;
+  function downloadForgeDeck() {
+    try {
+      const content = forgeDeck(name, entries);
+      const url = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = forgeFilename(name);
+      document.body.appendChild(link);
+      try {
+        link.click();
+      } finally {
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch (error) {
+      setNotice({ kind: "error", message: errorMessage(error) });
+    }
+  }
 
   return (
     <div className="deck-builder-page">
@@ -1309,10 +1246,7 @@ export default function DeckBuilder({
           <button
             className="deck-dismiss"
             type="button"
-            onClick={() => {
-              taskFailure.current = null;
-              setNotice(null);
-            }}
+            onClick={() => setNotice(null)}
             aria-label="Dismiss deck message"
           >
             <X size={15} />
@@ -1361,9 +1295,7 @@ export default function DeckBuilder({
                   value={id ?? ""}
                   title={name || "Choose or create a deck"}
                   aria-busy={loadingDecks}
-                  disabled={
-                    repairOnly || loadingDecks || !!busy || !decks.length
-                  }
+                  disabled={loadingDecks || !!busy || !decks.length}
                   onChange={(event) =>
                     requestAction({ kind: "load", id: event.target.value })
                   }
@@ -1388,7 +1320,7 @@ export default function DeckBuilder({
                 variant="ghost"
                 title="Rename deck"
                 aria-label="Rename deck"
-                disabled={!!busy || (repairOnly && !name.trim() && !dirty)}
+                disabled={!!busy}
                 onClick={() => {
                   if (!latestName.current.trim()) {
                     promptForNewDeck("current");
@@ -1410,7 +1342,7 @@ export default function DeckBuilder({
                     latestName.current.trim() ? "new" : "current",
                   )
                 }
-                disabled={repairOnly || !!busy}
+                disabled={!!busy}
               >
                 <Plus size={15} /> New deck
               </Button>
@@ -1419,7 +1351,7 @@ export default function DeckBuilder({
                 variant="ghost"
                 title="Copy deck"
                 aria-label="Copy deck"
-                disabled={repairOnly || !!busy || !id || hasUnownedCards}
+                disabled={!!busy || !id || hasUnownedCards}
                 onClick={promptForCopy}
               >
                 <Copy size={16} />
@@ -1427,11 +1359,20 @@ export default function DeckBuilder({
               <Button
                 size="icon"
                 variant="ghost"
+                title="Download Forge deck (.dck)"
+                aria-label="Download Forge deck (.dck)"
+                disabled={!!busy || !name.trim() || !entries.length}
+                onClick={downloadForgeDeck}
+              >
+                <Download size={16} />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
                 aria-label="Delete saved deck"
                 title="Delete saved deck"
-                disabled={repairOnly || !!busy || !selectedSummary}
+                disabled={!!busy || !selectedSummary}
                 onClick={() => {
-                  if (repairOnly) return;
                   setDeleteError(null);
                   if (selectedSummary)
                     setDeleteTarget({ ...selectedSummary, name });
@@ -1538,11 +1479,10 @@ export default function DeckBuilder({
                     key={`${section}:${card.oracleId}`}
                   >
                     <div className="deck-oracle-art">
-                      <CardImage card={card} imageCacheDir={imageCacheDir} />
+                      <CardImage card={card} />
                       <button
                         type="button"
                         className="card-art-trigger"
-                        disabled={repairOnly}
                         onClick={() => setSelectedCard(card)}
                         aria-label={`View ${card.name} details`}
                       />
@@ -1553,7 +1493,6 @@ export default function DeckBuilder({
                     <div className="deck-oracle-copy">
                       <DeckCardTitle
                         card={card}
-                        disabled={repairOnly}
                         onDetails={() => setSelectedCard(card)}
                       />
                       <div className="deck-oracle-controls">
@@ -1574,7 +1513,7 @@ export default function DeckBuilder({
                         <Button
                           size="icon"
                           variant="ghost"
-                          disabled={repairOnly || !!busy || !!reason}
+                          disabled={!!busy || !!reason}
                           title={reason ?? "Add one copy"}
                           aria-label={`Add one ${card.name} to ${section}`}
                           onClick={() => changeCard(card, section, 1)}
@@ -1681,7 +1620,7 @@ export default function DeckBuilder({
               </>
             ) : validation ? (
               <p className="deck-validation-ok">
-                <CheckCircle2 size={15} /> {syncsToForge ? "Ready for Forge." : "Ready to play."}
+                <CheckCircle2 size={15} /> Ready to play.
               </p>
             ) : (
               <p className="field-hint">
@@ -1776,11 +1715,10 @@ export default function DeckBuilder({
                   return (
                     <article className="deck-browser-card" key={card.oracleId}>
                       <div className="deck-oracle-art">
-                        <CardImage card={card} imageCacheDir={imageCacheDir} />
+                        <CardImage card={card} />
                         <button
                           type="button"
                           className="card-art-trigger"
-                          disabled={repairOnly}
                           onClick={() => setSelectedCard(card)}
                           aria-label={`View ${card.name} details`}
                         />
@@ -1802,7 +1740,7 @@ export default function DeckBuilder({
                             variant="secondary"
                             aria-label={`Add ${card.name} to ${section}`}
                             title={reason ?? "Add one copy"}
-                            disabled={repairOnly || !!busy || !!reason}
+                            disabled={!!busy || !!reason}
                             onClick={() => changeCard(card, section, 1)}
                           >
                             <Plus size={16} />
@@ -1861,7 +1799,7 @@ export default function DeckBuilder({
           onClose={closeDelete}
         >
           <p className="deck-dialog-copy">
-            Delete <strong>{deleteTarget.name}</strong>? {syncsToForge ? "The saved deck and its managed Forge file will be removed." : "The saved deck will be removed."}
+            Delete <strong>{deleteTarget.name}</strong>? The saved deck will be removed.
           </p>
           {deleteError && (
             <div className="notice notice-error" role="alert">
@@ -2030,7 +1968,7 @@ export default function DeckBuilder({
         <DeckDialog title="Add to a deck" onClose={closeAddFlow}>
           <div className="deck-add-layout">
             <div className="deck-add-art">
-              <CardImage card={addFlow.card} imageCacheDir={imageCacheDir} />
+              <CardImage card={addFlow.card} />
             </div>
             <div className="deck-add-fields">
               <div className="deck-add-card-heading">
@@ -2125,7 +2063,6 @@ export default function DeckBuilder({
                       size="icon"
                       aria-label="Add more copies"
                       disabled={
-                        repairOnly ||
                         !!busy ||
                         !!blockedReason(
                           addFlow.card,
@@ -2192,16 +2129,14 @@ export default function DeckBuilder({
           </div>
         </DeckDialog>
       )}
-      {selectedCard && !repairOnly && (
+      {selectedCard && (
         <CardDetails
           card={selectedCard}
-          imageCacheDir={imageCacheDir}
           league={league}
           onClose={() => setSelectedCard(null)}
           onChange={onChange}
           onPrintingChange={(card) => {
-            if (repairOnly || taskRunning.current || appLifecycle.isLocked())
-              return;
+            if (taskRunning.current) return;
             setSelectedCard(card);
             if (addFlow) {
               setAddFlow((flow) =>

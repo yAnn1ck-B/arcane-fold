@@ -1,11 +1,9 @@
-import { spawn } from "node:child_process";
-import { once } from "node:events";
 import { createReadStream } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { rules } from "./league.mjs";
 import { pool, transaction } from "./db.mjs";
@@ -13,7 +11,7 @@ import { pool, transaction } from "./db.mjs";
 const banners = new Set(["Black Lotus","Mox Pearl","Mox Sapphire","Mox Jet","Mox Ruby","Mox Emerald"]);
 const sets = new Set([...rules.enabledSets,...rules.expansionSchedule.map(entry => entry.code),
   ...rules.autoUnlock.setCodes,"VMA"].map(code => code.toLowerCase()));
-// Forge CardEdition.EditionSectionWithCollectorNumbers, also used by the desktop deck exporter.
+// Printing sections recognized by Forge CardEdition.EditionSectionWithCollectorNumbers.
 const printSections = new Set(["cards","special slot","precon product","borderless","etched","showcase","full art",
   "extended art","alternate art","retro frame","buy a box","promo","prerelease promo","bundle","box topper",
   "jumpstart","rebalanced","eternal","conjured","scheme","printsheets"]);
@@ -111,22 +109,6 @@ async function* jsonLines(input) {
     if (line.trim()) yield JSON.parse(line);
   }
 }
-async function* snapshot(path) {
-  // Do not give the read-only helper the web server's database credentials.
-  const env = { PATH:process.env.PATH, PYTHONUTF8:"1" };
-  for (const key of ["SystemRoot","WINDIR","TEMP","TMP","LANG"]) if (process.env[key]) env[key] = process.env[key];
-  const child = spawn(process.env.PYTHON || "python", ["-I",fileURLToPath(new URL("./catalog-snapshot.py",import.meta.url)),
-    path,...sets], { env,windowsHide:true,stdio:["ignore","pipe","inherit"] });
-  const done = once(child,"close").then(([code]) => ({ code }), error => ({ error }));
-  try {
-    yield* jsonLines(child.stdout);
-    const result = await done;
-    if (result.error) throw new Error("Cannot start Python to read the public catalog snapshot.", { cause:result.error });
-    if (result.code !== 0) throw new Error("The public card-metadata reader failed.");
-  } finally {
-    if (child.exitCode === null && child.pid) child.kill();
-  }
-}
 async function* scryfall(index) {
   const refs = [...index.keys()].map(key => {
     const [set,collector_number] = key.split("/");
@@ -153,10 +135,9 @@ async function* scryfall(index) {
 }
 
 async function run() {
-  const {values} = parseArgs({ options: { forge:{type:"string"},sqlite:{type:"string"},jsonl:{type:"string"} } });
-  if (values.sqlite && values.jsonl) throw new Error("Choose one public card metadata source.");
+  const {values} = parseArgs({ options: { forge:{type:"string"},jsonl:{type:"string"} } });
   const index = await editions(values.forge || process.env.FORGE_INSTALL);
-  const records = values.sqlite ? snapshot(values.sqlite) : values.jsonl ? jsonLines(createReadStream(values.jsonl)) : scryfall(index);
+  const records = values.jsonl ? jsonLines(createReadStream(values.jsonl)) : scryfall(index);
   const cards = new Map();
   for await (const record of records) {
     const card = normalize(record,index);

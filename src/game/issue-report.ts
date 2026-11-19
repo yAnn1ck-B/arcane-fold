@@ -56,7 +56,7 @@ export function captureManualIssue(matchId: string, revision: string | number, v
 export function freezeGameIssue(position: IssuePosition, appVersion: string, visibleControls: IssueAction[] = [], visibleDialog?: string): GameIssueReport {
   return structuredClone({
     ...position, schemaVersion: 1 as const, id: crypto.randomUUID(), capturedAt: new Date().toISOString(),
-    engineVersion: position.mode === "forge" ? "Forge Desktop 2.0.13" : "Manual table v1",
+    engineVersion: position.mode === "forge" ? "Forge Desktop 2.0.13" : "Manual play v1",
     appVersion, visibleControls, visibleDialog, expectedBehavior: "",
   });
 }

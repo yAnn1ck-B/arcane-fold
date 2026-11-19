@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react";
 import { Eye, Library, Search, SquarePlus } from "lucide-react";
-import type { AppSettings } from "@/lib/types";
 import { prepareShuffle, projectMatch } from "./engine";
 import {
   CombatControls,
@@ -22,6 +21,7 @@ import {
   SwitchPlayer,
   TableBoard,
   TableSeat,
+  TurnSummary,
   ZoneCounter,
   type MatchTools,
 } from "./TableBoard";
@@ -44,7 +44,7 @@ type Pile = { seat: Seat; zone: (typeof pileZones)[number] };
 
 export default function Table({
   match,
-  settings,
+  submitReport,
   dispatch,
   matchTools,
   initialViewer,
@@ -52,7 +52,7 @@ export default function Table({
   reportContext,
 }: {
   match: Match;
-  settings: AppSettings;
+  submitReport: (report: GameIssueReport) => Promise<void>;
   dispatch: Dispatch;
   matchTools: MatchTools;
   initialViewer?: Seat;
@@ -78,7 +78,7 @@ export default function Table({
       reportContext={reportContext}
       viewer={viewer}
       dispatch={dispatch}
-      imageCacheDir={settings.forge.imageCacheDir}
+      submitReport={submitReport}
       changeSeat={() => setSelection({ turn: match.turn, seat: viewer === 0 ? 1 : 0 })}
     />
   );
@@ -91,7 +91,7 @@ interface TableViewProps {
   match: Match;
   viewer: Seat;
   dispatch: Dispatch;
-  imageCacheDir: string;
+  submitReport: (report: GameIssueReport) => Promise<void>;
   changeSeat: () => void;
 }
 
@@ -115,11 +115,10 @@ interface ProjectedTableProps extends Omit<TableViewProps, "match" | "changeSeat
   onLook: (count: number) => void;
   looking?: boolean;
   onShuffle: (seat: Seat, mulligan?: boolean) => void;
-  submitReport?: (report: GameIssueReport) => Promise<void>;
   openingCanAct?: boolean;
   locked?: boolean;
 }
-export function ProjectedTable({ matchTools, requiredOpening, view, viewer, dispatch, imageCacheDir,
+export function ProjectedTable({ matchTools, requiredOpening, view, viewer, dispatch,
   changeSeat, reportContext, onLook, onShuffle, submitReport, openingCanAct = true, locked = false, looking = true,
 }: ProjectedTableProps) {
   const [selected, select] = useState<string | null>(null);
@@ -130,7 +129,8 @@ export function ProjectedTable({ matchTools, requiredOpening, view, viewer, disp
   const [tokenName, setTokenName] = useState("");
   const [addingToken, setAddingToken] = useState(false);
   const other: Seat = viewer === 0 ? 1 : 0;
-  const common = { view, viewer, dispatch };
+  const seatNames = [matchTools.seatNames.player, matchTools.seatNames.opponent] as const;
+  const common = { view, viewer, dispatch, seatNames };
   const reviewingOpening =
     requiredOpening && view.players.some((p) => !p.kept && p.counts.hand > 0);
   const boardLocked = locked || (!changeSeat && reviewingOpening);
@@ -175,7 +175,6 @@ export function ProjectedTable({ matchTools, requiredOpening, view, viewer, disp
       view={view}
       zone={zone}
       dispatch={dispatch}
-      imageCacheDir={imageCacheDir}
       locked={boardLocked}
       onClick={() => select(id)}
     />
@@ -185,15 +184,16 @@ export function ProjectedTable({ matchTools, requiredOpening, view, viewer, disp
     <GameIssueReporting submit={submitReport} capture={() => captureManualIssue(reportContext.id, reportContext.revision, view, matchTools.history, reportContext.error)}>
     <TableBoard
       label="Manual game"
-      switchPlayer={changeSeat && <SwitchPlayer player={other + 1} onSwitch={changeSeat} />}
+      switchPlayer={changeSeat && <SwitchPlayer playerName={seatNames[other]} onSwitch={changeSeat} />}
       matchTools={matchTools}
       stackCount={view.stack.length}
-      toolbar={
+      toolbar={<TurnSummary turn={view.turn} activeName={seatNames[view.active]} />}
+      actions={
         <>
           <TurnControls {...common} locked={boardLocked || (!changeSeat && (viewer !== view.active || !!view.handoffDecision))} />
           {view.handoffDecision && (
             <details className="pt-pending-decision" open>
-              <summary>Pending decision · P{viewer + 1}</summary>
+              <summary>Pending decision · {seatNames[view.handoffDecision.seat]}</summary>
               <p>{view.handoffDecision.text}</p>
               {view.handoffDecision.choices.length > 0 && (
                 <ul>
@@ -222,7 +222,7 @@ export function ProjectedTable({ matchTools, requiredOpening, view, viewer, disp
           <TableSeat
             key={seat}
             own={seat === viewer}
-            player={seat + 1}
+            playerName={seatNames[seat]}
             piles={pileZones
               .filter((zone) => zone !== "command" || player.counts.command > 0)
               .map((zone) => (
@@ -232,7 +232,7 @@ export function ProjectedTable({ matchTools, requiredOpening, view, viewer, disp
                   count={player.counts[zone]}
                   open={pile?.seat === seat && pile.zone === zone}
                   onOpen={() => showPile(seat, zone)}
-                  label={`Player ${seat + 1} ${zone}, ${player.counts[zone]} ${player.counts[zone] === 1 ? "card" : "cards"}`}
+                  label={`${seatNames[seat]}'s ${zone}, ${player.counts[zone]} ${player.counts[zone] === 1 ? "card" : "cards"}`}
                 />
               ))}
             resources={controls(
@@ -303,7 +303,7 @@ export function ProjectedTable({ matchTools, requiredOpening, view, viewer, disp
           />
         );
       })}
-      handLabel={`Player ${viewer + 1} hand`}
+      handLabel={`${seatNames[viewer]}'s hand`}
       handCount={view.players[viewer].counts.hand}
       hand={
         reviewingOpening && changeSeat
@@ -314,23 +314,21 @@ export function ProjectedTable({ matchTools, requiredOpening, view, viewer, disp
             ]
           : view.players[viewer].zones.hand.map((id) => renderTile(id, "hand"))
       }
-      stack={controls(<StackControls {...common} imageCacheDir={imageCacheDir} />)}
+      stack={controls(<StackControls {...common} />)}
     >
       {openingCanAct && <ManualOpeningHand
         {...common}
-        imageCacheDir={imageCacheDir}
         onShuffle={onShuffle}
         required={requiredOpening}
         allowTable={!changeSeat}
         locked={locked}
-        error={<>{matchTools.actionStatus}{matchTools.openingRecovery}</>}
-        tools={matchTools.decisionTools}
+        error={matchTools.decisionError}
       />}
       {pile && (
         <TableDialog
           title={zoneNames[pile.zone]}
-          label={`Player ${pile.seat + 1} ${pile.zone}`}
-          subtitle={`Player ${pile.seat + 1} · ${view.players[pile.seat].counts[pile.zone]} cards`}
+          label={`${seatNames[pile.seat]}'s ${pile.zone}`}
+          subtitle={`${seatNames[pile.seat]} · ${view.players[pile.seat].counts[pile.zone]} cards`}
           closeLabel="Close zone"
           onClose={() => closePile()}
         >
@@ -416,7 +414,6 @@ export function ProjectedTable({ matchTools, requiredOpening, view, viewer, disp
           id={selectedPiece.id}
           zone={selectedZone}
           locked={boardLocked}
-          imageCacheDir={imageCacheDir}
           close={() => select(null)}
         >
           {selectedZone === "battlefield" &&

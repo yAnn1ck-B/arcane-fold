@@ -92,7 +92,7 @@ export interface Match {
   version: 1;
   players: [Player, Player];
   pieces: Record<string, Piece>;
-  catalog: Record<string, CatalogCard>;
+  catalog: Record<string, CatalogCard & { printedHaste?: boolean[] }>;
   stack: StackEntry[]; // Top is index 0.
   turn: number;
   active: Seat;
@@ -115,6 +115,7 @@ export type Action =
   | { type: "keep"; seat: Seat; bottom: string[] }
   | { type: "move"; id: string; zone: Zone; position?: "top" | "bottom" }
   | { type: "tap" | "flip" | "faceDown" | "reveal" | "control"; id: string }
+  | { type: "markStatus"; id: string; status: "phasedOut" | "summoningSick"; marked: boolean }
   | { type: "tapMana"; id: string; mana: Mana; count: number }
   | { type: "untapAll" | "clearMana"; seat: Seat }
   | { type: "combat"; id: string; mark: Combat }

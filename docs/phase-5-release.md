@@ -1,6 +1,6 @@
 # Phase 5: release and clean production policy
 
-This document defines the release procedure and records implementation/verification as Phase 5 proceeds. The complete delivery scope remains in [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md). The current working preview and legacy development progress must remain intact.
+Historical record of desktop releases through 0.4.0. Commands, paths and profile details below refer to those releases. [Current web app setup](../README.md)
 
 <a id="current-release-040"></a>
 

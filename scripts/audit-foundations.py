@@ -8,9 +8,9 @@ come from SP/AB/DB records, including SVar definitions. Modes and events include
 trigger, replacement and static definitions. Named token scripts are verified
 separately. Engine-generated abilities (e.g. basic land mana) may have no record.
 Decision review lists recognizable script patterns relevant to human input; an
-empty field makes no coverage claim. Focused tests are curated test functions
-that assert a particular interaction for a card. They may use another printing.
-The separate all-printings construction test applies to every row.
+empty field makes no coverage claim. The focused-test column records historical
+desktop regression witnesses from the original Foundations audit. The web
+Forge bridge's active sweeps are in check-foundations-first-play.py.
 """
 
 import argparse
@@ -241,16 +241,10 @@ def inspect_script(source):
     return result
 
 
-def focused_tests(names):
-    paths = [ROOT / "src-tauri/src/play.rs", *(ROOT / "src-tauri/src/play").glob("*.rs")]
-    tests = set()
-    for path in paths:
-        tests.update(re.findall(r"\bfn (real_forge_\w+)\(", path.read_text(encoding="utf-8")))
+def historical_tests(names):
     by_name = defaultdict(list)
     for suffix, cards in WITNESSES.items():
         function = "real_forge_" + suffix
-        if function not in tests:
-            raise ValueError(f"Missing test function: {function}")
         for card in cards:
             if card not in names:
                 raise ValueError(f"Test witness is outside FDN: {card}")
@@ -268,7 +262,7 @@ def build_report(install):
     resources = install / "res"
     printings = edition_printings(resources / "editions/Foundations.txt")
     scripts = card_scripts(resources / "cardsfolder/cardsfolder.zip", printings.keys())
-    tests = focused_tests(printings)
+    tests = historical_tests(printings)
     stream = io.StringIO(newline="")
     output = csv.writer(stream, delimiter="\t", lineterminator="\n")
     output.writerow([
@@ -293,7 +287,7 @@ def build_report(install):
             joined(rules["modes_events"]), joined(rules["token_scripts"]), joined(token_ops),
             joined(rules["decisions"]), joined(tests.get(name, [])),
         ])
-    print(f"Mapped 771 printings to {len(scripts)} scripts. {len(tests)} names with a focused "
+    print(f"Mapped 771 printings to {len(scripts)} scripts. {len(tests)} names with a historical "
           f"regression witness. {reviewed} names with a decision-review label.", file=sys.stderr)
     return stream.getvalue().encode("utf-8")
 

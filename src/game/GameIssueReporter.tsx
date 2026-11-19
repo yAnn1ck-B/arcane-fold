@@ -1,19 +1,14 @@
 import { useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { version } from "../../package.json";
-import { GameIssueButton, IssueCaptureContext } from "./GameIssueButton";
+import { IssueCaptureContext } from "./GameIssueButton";
 import { TableDialog } from "./TableDialog";
 import { freezeGameIssue, type GameIssueReport, type IssueAction, type IssuePosition } from "./issue-report";
 
 type ReportingProps = {
   capture: () => IssuePosition;
-  submit?: (report: GameIssueReport) => Promise<void>;
+  submit: (report: GameIssueReport) => Promise<void>;
 };
-
-async function saveDesktopReport(report: GameIssueReport) {
-  const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("save_game_issue", { report });
-}
 
 function visibleControls(container: Element | null) {
   const items: IssueAction[] = [];
@@ -31,7 +26,7 @@ function visibleControls(container: Element | null) {
   return { items, truncated };
 }
 
-export function GameIssueReporting({ capture, submit = saveDesktopReport, children }: ReportingProps & { children: ReactNode }) {
+export function GameIssueReporting({ capture, submit, children }: ReportingProps & { children: ReactNode }) {
   const [draft, setDraft] = useState<GameIssueReport>();
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -91,8 +86,4 @@ export function GameIssueReporting({ capture, submit = saveDesktopReport, childr
         </form>}
       </TableDialog>, document.body)}
   </IssueCaptureContext.Provider>;
-}
-
-export function GameIssueReporter(props: ReportingProps) {
-  return <GameIssueReporting {...props}><GameIssueButton /></GameIssueReporting>;
 }

@@ -1,2 +1,2 @@
-# SQLx hashes the exact migration bytes. Every checkout must embed the same LF SQL.
+# Use consistent newlines for the PostgreSQL schema.
 *.sql text eol=lf

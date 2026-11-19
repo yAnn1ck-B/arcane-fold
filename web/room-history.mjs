@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import { createGame } from './forge.mjs';
+import { createGame, legacyBattlefieldView } from './forge.mjs';
 
 export async function historySteps(db, room, viewer = null) {
   const { rows } = await db.query(`SELECT revision, COALESCE((player->>'turn')::int,0) AS turn,
@@ -35,7 +35,8 @@ export async function retirePositions(db, room, fromRevision) {
 
 function compareView(expected, actual, ignoreStops = false) {
   const { revision: originalRevision, ...a } = expected;
-  const { revision: restoredRevision, ...b } = actual;
+  const restored = expected.battlefieldStatusVersion === undefined ? legacyBattlefieldView(actual) : actual;
+  const { revision: restoredRevision, ...b } = restored;
   if (ignoreStops) { delete a.priorityStop; delete b.priorityStop; }
   // PostgreSQL JSON and HTTP omit undefined optional fields in engine projections.
   return isDeepStrictEqual(a,JSON.parse(JSON.stringify(b)));
@@ -66,15 +67,13 @@ async function locateLegacy(config, journal, position) {
         const pending = {};
         for (const seat of seats) {
           const saved = position[seat].priorityStop;
-          if (saved !== probe.view(seat).priorityStop) pending[seat] = saved;
+          if (saved !== undefined) pending[seat] = saved;
         }
         found = { version: journal.version, initial: journal.initial, moves: journal.moves.slice(0,i), pending };
       }
       if (i === limit) break;
       const move = journal.moves[i];
-      for (const [seat, stop] of Object.entries(move.stops)) await probe.stop(seat,stop);
-      await probe.act(move.seat, move.action);
-      if (probe.checkpoint().moves.at(-1)?.after !== move.after) throw new Error('An earlier decision could not be verified.');
+      await probe.replayStep(move);
     }
   } finally { await probe.close(); }
   if (!found) throw new Error('Forge could not reproduce this older position.');

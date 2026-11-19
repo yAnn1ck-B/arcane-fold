@@ -3,8 +3,6 @@ dist/
 dist-web/
 dist-web-server/
 .web-data/
-src-tauri/target/
-src-tauri/gen/schemas/
 .env
 .env.*
 !.env.example

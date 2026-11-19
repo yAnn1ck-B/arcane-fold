@@ -6,8 +6,9 @@ import pg from 'pg';
 import { createGame } from './forge.mjs';
 import { applyMove, changeRequest, readSeatPosition, recordSeatReport, savePosition } from './rooms.mjs';
 import { historySteps } from './room-history.mjs';
+import { localTestPlayers } from './fixtures/players.mjs';
 
-test('both seats consent to rewinding a finished Forge game, handoff and manual rewind', {
+test('rewinds require consent in a running Forge or manual game and finished games are final', {
   skip: !process.env.FORGE_INSTALL || (!process.env.DATABASE_URL && !process.env.PGDATABASE), timeout: 240_000,
 }, async t => {
   const db = new pg.Client(process.env.DATABASE_URL ? {connectionString:process.env.DATABASE_URL} : {});
@@ -18,16 +19,21 @@ test('both seats consent to rewinding a finished Forge game, handoff and manual 
   await db.query('CREATE SCHEMA ' + schema);
   await db.query('SET LOCAL search_path TO ' + schema);
   await db.query(await readFile(new URL('./schema.sql',import.meta.url),'utf8'));
-  const host = randomUUID(), guest = randomUUID(), outsider = randomUUID(), id = randomUUID();
-  for (const player of [host,guest,outsider]) await db.query('INSERT INTO web_players(id,session_hash) VALUES($1,$2)',[player,player]);
+  const { yannick: host, jef: guest } = await localTestPlayers(db);
+  const outsider = randomUUID();
   const decks = ['[Main]\n7 Forest\n','[Main]\n7 Mountain\n'];
   const seed = '8946949592';
-  await db.query("INSERT INTO web_rooms(id,invite_code,host,guest,host_deck,guest_deck,label,seed) VALUES ($1,'invite',$2,$3,$4,$5,'test',$6)",
-    [id,host,guest,...decks,seed]);
-  const room = {id,revision:0,mode:'forge'};
-  const game = await createGame({decks,seed});
-  t.after(() => game.close());
-  await savePosition(db,room,game);
+  async function startGame() {
+    const id = randomUUID();
+    await db.query("INSERT INTO web_rooms(id,invite_code,host,guest,host_deck,guest_deck,label,seed) VALUES ($1,$2,$3,$4,$5,$6,'test',$7)",
+      [id,id,host,guest,...decks,seed]);
+    const room = {id,revision:0,mode:'forge'};
+    const game = await createGame({decks,seed});
+    t.after(() => game.close());
+    await savePosition(db,room,game);
+    return {id, room, game};
+  }
+  const {id, room, game} = await startGame();
   // The earliest version of the web app only retained the two seat projections.
   await db.query('UPDATE web_positions SET replay_cursor=NULL WHERE room_id=$1 AND revision=1',[id]);
   const first = await readSeatPosition(db,id,host);
@@ -55,18 +61,11 @@ test('both seats consent to rewinding a finished Forge game, handoff and manual 
   await assert.rejects(request(host,cancel),{status:403});
   assert.equal((await request(guest,cancel)).lastResolution.decision,'cancel');
 
-  // Empty libraries ensure a real rules-enforced loss on the first required draw.
-  while (game.view('player').stage !== 'finished' && room.revision < 30) {
-    const actor = game.view('player').actor;
-    const {choices} = game.view(actor);
-    const action = choices.find(c => c.label === 'Keep hand') ?? choices.find(c => c.kind === 'pass') ?? choices[0];
-    await game.act(actor,action.id);
-    await savePosition(db,room,game);
-  }
-  assert.equal(game.view('player').stage,'finished');
-  const finalRevision = room.revision;
-  const finalHistory = game.view('player').history;
-  const archiveReport = {revision:finalRevision,details:'Check this final position',report:{
+  await game.act('player',game.view('player').choices.find(choice => choice.label === 'Keep hand').id);
+  await savePosition(db,room,game);
+  const branchRevision = room.revision;
+  const branchHistory = game.view('player').history;
+  const archiveReport = {revision:branchRevision,details:'Check this opening decision',report:{
     id:randomUUID(),appVersion:'test',capturedAt:new Date().toISOString(),
   }};
   await recordSeatReport(db,id,guest,archiveReport);
@@ -74,12 +73,13 @@ test('both seats consent to rewinding a finished Forge game, handoff and manual 
   assert.equal(steps[0].revision,1);
   assert.equal(steps[0].label,'Opening hands dealt');
   assert.doesNotMatch(JSON.stringify(steps),/Forest|Mountain/);
-  const rewind = await request(guest,{revision:finalRevision,kind:'undo',targetRevision:1});
-  assert.equal(rewind.status,'finished');
-  const accept = {revision:finalRevision,requestId:rewind.pendingRequest.id,decision:'accept'};
+  const rewind = await request(guest,{revision:branchRevision,kind:'undo',targetRevision:1});
+  assert.equal(rewind.status,'playing');
+  const accept = {revision:branchRevision,requestId:rewind.pendingRequest.id,decision:'accept'};
   const returned = await request(host,accept);
   assert.equal(returned.status,'playing');
-  assert.equal(returned.revision,finalRevision+1);
+  assert.equal(returned.outcome,null);
+  assert.equal(returned.revision,branchRevision+1);
   assert.deepEqual({...returned.state,revision:first.state.revision},first.state);
   assert.equal(returned.undoAvailable,false);
   await assert.rejects(request(host,accept),{status:409});
@@ -87,9 +87,9 @@ test('both seats consent to rewinding a finished Forge game, handoff and manual 
   const archived = (await db.query(`SELECT p.retired_at,j.checkpoint,r.snapshot FROM web_reports r
     JOIN web_positions p USING(room_id,revision) JOIN web_forge_journals j
     ON j.room_id=p.room_id AND j.head_revision=p.retired_at WHERE r.id=$1`,[archiveReport.report.id])).rows[0];
-  assert.equal(archived.retired_at,finalRevision);
-  assert.equal(archived.checkpoint.moves.length,finalRevision-1);
-  assert.deepEqual(archived.snapshot.history,finalHistory);
+  assert.equal(archived.retired_at,branchRevision);
+  assert.equal(archived.checkpoint.moves.length,branchRevision-1);
+  assert.deepEqual(archived.snapshot.history,branchHistory);
 
   // Create a second future, using a modern replay cursor at the branch point.
   const live = {id,revision:returned.revision, mode:'forge'};
@@ -126,4 +126,41 @@ test('both seats consent to rewinding a finished Forge game, handoff and manual 
   const manualOpening = await request(guest,{revision:keep.revision,requestId:manualUndo.pendingRequest.id,decision:'accept'});
   assert.equal(manualOpening.revision,keep.revision+1);
   assert.deepEqual(manualOpening.manualState,switched.manualState);
+  const conceded = await applyMove(db,id,guest,{revision:manualOpening.revision,controlVersion:manualOpening.controlVersion,
+    concede:true},track);
+  assert.deepEqual(conceded.outcome,{winner:'player',reason:'concession'});
+  assert.equal(conceded.manualState.stage,'finished');
+  assert.equal(conceded.manualState.requiredOpening,false);
+  assert.equal(conceded.manualState.actor,null);
+  assert.equal(conceded.manualState.view.players[0].zones.hand.length,0);
+  assert.equal(conceded.manualState.history.at(-1).text,'Jef conceded. Yannick wins.');
+  assert.equal(conceded.undoAvailable,false);
+  await assert.rejects(request(guest,{revision:conceded.revision,kind:'undo',targetRevision:manualOpening.revision}),{status:409});
+  assert.equal((await readSeatPosition(db,id,host)).revision,conceded.revision);
+
+  // Empty libraries ensure a real Forge loss on the first required draw.
+  const rules = await startGame();
+  while (rules.game.view('player').stage !== 'finished' && rules.room.revision < 30) {
+    const actor = rules.game.view('player').actor;
+    const {choices} = rules.game.view(actor);
+    const action = choices.find(c => c.label === 'Keep hand') ?? choices.find(c => c.kind === 'pass') ?? choices[0];
+    await rules.game.act(actor,action.id);
+    await savePosition(db,rules.room,rules.game);
+  }
+  const victory = await readSeatPosition(db,rules.id,host);
+  assert.deepEqual(victory.outcome,{winner:'player',reason:'rules'});
+  assert.deepEqual(victory.seatNames,{player:'Yannick',opponent:'Jef'});
+  assert.equal(victory.undoAvailable,false);
+  // Earlier versions allowed unfinished undo proposals at a terminal revision
+  // and stored Forge's English outcome in place of structured results.
+  const stale = {id:randomUUID(),kind:'undo',requester:'player',targetRevision:1};
+  await db.query('UPDATE web_positions SET outcome=NULL WHERE room_id=$1 AND revision=$2',[rules.id,victory.revision]);
+  await db.query('UPDATE web_rooms SET pending_request=$2 WHERE id=$1',[rules.id,stale]);
+  await assert.rejects(changeRequest(db,rules.id,guest,{
+    revision:victory.revision,requestId:stale.id,decision:'accept',controlVersion:victory.controlVersion,
+  },track),{status:409});
+  const terminal = await readSeatPosition(db,rules.id,guest);
+  assert.equal(terminal.revision,victory.revision);
+  assert.equal(terminal.pendingRequest,null);
+  assert.deepEqual(terminal.outcome,victory.outcome);
 });

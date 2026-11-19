@@ -13,6 +13,7 @@ import CardImage, { CardImageSource } from "@/components/CardImage";
 import type { Action, Mana, MatchView, Seat, Zone } from "./types";
 import { manaTypes, seats } from "./types";
 import { CardReading, PreviewAnchor } from "./CardPreview";
+import { CardStatus, cardStatuses } from "./CardStatus";
 import { TapForMana } from "./ManaPool";
 
 const basicLandMana: Partial<Record<string, Mana>> = {
@@ -46,13 +47,11 @@ export function pieceName(view: MatchView, id: string) {
 interface CardProps {
   id: string;
   view: MatchView;
-  imageCacheDir: string;
 }
 
 export function CardArt({
   id,
   view,
-  imageCacheDir,
   inspect = false,
 }: CardProps & { inspect?: boolean }) {
   const imageSource = useContext(CardImageSource);
@@ -74,7 +73,6 @@ export function CardArt({
     return (
       <CardImage
         card={card}
-        imageCacheDir={imageCacheDir}
         face={piece.back ? "back" : "front"}
       />
     );
@@ -93,6 +91,7 @@ export function TableCard({
   art,
   tapped,
   flags,
+  statuses,
   quickAction,
   onClick,
   disabled,
@@ -106,6 +105,7 @@ export function TableCard({
   art: ReactNode;
   tapped?: boolean;
   flags?: ReactNode;
+  statuses?: ReturnType<typeof cardStatuses>;
   quickAction?: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
@@ -117,7 +117,7 @@ export function TableCard({
   return (
     <PreviewAnchor
       reading={reading}
-      className={`pt-piece ${tapped ? "is-tapped" : ""} ${onClick ? "has-action" : ""}`}
+      className={`pt-piece ${tapped ? "is-tapped" : ""} ${onClick ? "has-action" : ""}${statuses?.some(s => s.kind === "phased") ? " is-phased" : ""}`}
     >
       {art}
       <div className="pt-piece-flags" aria-hidden="true">
@@ -142,6 +142,7 @@ export function TableCard({
           <span>{name}</span>
         </div>
       )}
+      {statuses && <CardStatus name={name} statuses={statuses} />}
       {quickAction}
     </PreviewAnchor>
   );
@@ -164,15 +165,14 @@ export function CardTile(
   const basicColor = catalog && /^Basic\b/.test(faceType ?? "") ? basicLandMana[catalog.name.replace(/^Snow-Covered /, "")] : undefined;
   const hasBasicLandType = /\bLand\b.*\b(Plains|Island|Swamp|Mountain|Forest)\b/.test(faceType ?? "");
   const manaSource = basicColor || hasBasicLandType || /\{T\}[^:\n]*:\s*Add\b/i.test(catalog?.oracleText ?? "");
+  const statuses = cardStatuses(piece);
   const stateLabels = [
     piece.tapped && "Tapped",
     piece.back && !piece.faceDown && "Back face",
     piece.combat && (piece.combat === "attacking" ? "Attacking" : "Blocking"),
     piece.attachedTo && "Attached",
     piece.revealed && "Revealed",
-    ...Object.entries(piece.counters).map(
-      ([label, count]) => `${count} ${label}`,
-    ),
+    ...statuses.map(status => status.label),
   ]
     .filter(Boolean)
     .join(", ");
@@ -187,6 +187,7 @@ export function CardTile(
           art={<CardArt {...props} />}
           counters={piece.counters}
           damage={piece.damage}
+          details={statuses.filter(s => s.kind !== "counter" && s.kind !== "damage").map(s => s.label)}
           stats={
             piece.power !== undefined && piece.toughness !== undefined
               ? `${piece.power}/${piece.toughness}`
@@ -199,16 +200,12 @@ export function CardTile(
       }
       onClick={onClick}
       tapped={piece.tapped}
+      statuses={statuses}
       flags={
         <>
           {piece.combat && <Swords size={14} />}
           {piece.attachedTo && <Link2 size={14} />}
           {piece.revealed && <Eye size={14} />}
-          {Object.values(piece.counters).length > 0 && (
-            <span>
-              ◆ {Object.values(piece.counters).reduce((a, b) => a + b, 0)}
-            </span>
-          )}
         </>
       }
       quickAction={
@@ -232,6 +229,7 @@ export function CardTile(
 }
 
 type InspectorProps = CardProps & {
+  seatNames: readonly [string, string];
   viewer: Seat;
   locked?: boolean;
   dispatch: (action: Action) => void;
@@ -243,8 +241,8 @@ type InspectorProps = CardProps & {
 export function CardInspector({
   view,
   viewer,
+  seatNames,
   id,
-  imageCacheDir,
   zone,
   dispatch,
   close,
@@ -275,8 +273,13 @@ export function CardInspector({
   }
   function labelFor(target: string) {
     const item = view.pieces[target];
+    if (!item) {
+      if (target === "P1") return seatNames[0];
+      if (target === "P2") return seatNames[1];
+      return "a card";
+    }
     const seat = item.controller;
-    return `${item.faceDown ? "Face-down card" : pieceName(view, target)} · P${seat + 1} #${view.players[seat].zones.battlefield.indexOf(target) + 1}`;
+    return `${item.faceDown ? "Face-down card" : pieceName(view, target)} · ${seatNames[seat]} #${view.players[seat].zones.battlefield.indexOf(target) + 1}`;
   }
   return (
     <dialog
@@ -303,7 +306,7 @@ export function CardInspector({
       <header className="pt-pile-heading">
         <div>
           <small>
-            Player {piece.controller + 1} · {zone}
+            {seatNames[piece.controller]} · {zone}
           </small>
           <h2 id="pt-inspect-title">{pieceName(view, id)}</h2>
         </div>
@@ -319,14 +322,14 @@ export function CardInspector({
       </header>
       <div className="pt-inspect-content">
         <div className="pt-inspect-art">
-          <CardArt view={view} id={id} imageCacheDir={imageCacheDir} inspect />
+          <CardArt view={view} id={id} inspect />
           {catalog?.manaCost && <b>{catalog.manaCost}</b>}
           {catalog?.typeLine && <small>{catalog.typeLine}</small>}
           {catalog?.oracleText && <p>{catalog.oracleText}</p>}
         </div>
         <div className="pt-inspect-tools">
           {piece.controller !== piece.owner && (
-            <p>Owned by Player {piece.owner + 1}</p>
+            <p>Owned by {seatNames[piece.owner]}</p>
           )}
           {piece.faceDown && <p>Face down</p>}
           {piece.tapped && <p>Tapped</p>}
@@ -340,20 +343,12 @@ export function CardInspector({
           {piece.summoningSick && <p>Summoning sickness</p>}
           {piece.phasedOut && <p>Phased out</p>}
           {piece.attachedToPlayer !== undefined && (
-            <p>Attached to Player {piece.attachedToPlayer + 1}</p>
+            <p>Attached to {seatNames[piece.attachedToPlayer]}</p>
           )}
           {piece.combat && (
             <p>
               {piece.combat === "attacking" ? "Attacking" : "Blocking"}{" "}
-              {piece.combatTargets
-                ?.map((target) =>
-                  view.pieces[target]
-                    ? labelFor(target)
-                    : /^P[12]$/.test(target)
-                      ? target
-                      : "a card",
-                )
-                .join(", ")}
+              {piece.combatTargets?.map(labelFor).join(", ")}
             </p>
           )}
           {piece.revealed && <p>Revealed to both players</p>}
@@ -432,7 +427,7 @@ export function CardInspector({
                   onClick={() => dispatch({ type: "reveal", id })}
                 >
                   <Eye size={14} />
-                  {piece.revealed ? "Hide card" : "Reveal to opponent"}
+                  {piece.revealed ? "Hide card" : `Reveal to ${seatNames[viewer === 0 ? 1 : 0]}`}
                 </button>
               )}
               <fieldset>
@@ -467,6 +462,14 @@ export function CardInspector({
                       >
                         {piece.tapped ? "Untap" : "Tap"}
                       </button>
+                      <button className="pt-btn" aria-pressed={!!piece.summoningSick}
+                        onClick={() => dispatch({ type: "markStatus", id, status: "summoningSick", marked: !piece.summoningSick })}>
+                        Summoning sickness
+                      </button>
+                      <button className="pt-btn"
+                        onClick={() => dispatch({ type: "markStatus", id, status: "phasedOut", marked: !piece.phasedOut })}>
+                        {piece.phasedOut ? "Phase in" : "Phase out"}
+                      </button>
                       <button
                         className="pt-btn"
                         onClick={() => {
@@ -474,7 +477,7 @@ export function CardInspector({
                           close();
                         }}
                       >
-                        Give control to P{(viewer === 0 ? 1 : 0) + 1}
+                        Give control to {seatNames[viewer === 0 ? 1 : 0]}
                       </button>
                     </div>
                   </fieldset>
@@ -569,7 +572,7 @@ export function CardInspector({
           )}
           {!canAct && (
             <p className="pt-subtle">
-              <Circle size={10} /> Player {piece.controller + 1} controls this card.
+              <Circle size={10} /> {seatNames[piece.controller]} controls this card.
             </p>
           )}
         </div>

@@ -2,30 +2,29 @@ import { createContext, Fragment, useContext, useEffect, useId, useRef, useState
 import {
   ImageOff,
   Layers,
-  RotateCcw,
   Search,
   Target,
 } from "lucide-react";
-import CardImage from "@/components/CardImage";
 import { Button } from "@/components/ui/button";
-import { database } from "@/services/database";
 import {
   LifeValue,
   StackPanel,
   SwitchPlayer,
   TableBoard,
   TableSeat,
+  TurnSummary,
   ZoneCounter,
   type MatchTools,
 } from "./TableBoard";
 import { ForgeOpeningHand } from "./OpeningHandDialog";
 import { TableCard } from "./TableCards";
 import { CardReading, StackCardName } from "./CardPreview";
+import { cardStatuses } from "./CardStatus";
 import { TableDialog } from "./TableDialog";
 import { ManaPip, ManaPool, manaNames } from "./ManaPool";
 import { manaTypes } from "./types";
 import { battlefieldGroup } from "./battlefield";
-import { prioritySteps, type PriorityStop } from "./forge-match";
+import type { PriorityStop } from "./forge-match";
 import type {
   ForgeCard,
   ForgeChoice,
@@ -33,17 +32,8 @@ import type {
   ForgeSeat,
 } from "./forge-match";
 
-type Artwork = {
-  id: string;
-  name: string;
-  manaCost: string;
-  typeLine: string;
-  oracleText: string;
-  imageUri: string | null;
-};
 export const ForgeImageSource = createContext<((card: ForgeCard) => string) | undefined>(undefined);
 
-type ArtCache = Map<string, Promise<Artwork | undefined>>;
 const pileNames = { graveyard: "Graveyard", exile: "Exile", library: "Top of library" } as const;
 type Pile = { seat: ForgeSeat; zone: keyof typeof pileNames };
 
@@ -102,10 +92,6 @@ function TypeChoice({
   );
 }
 
-function pileLabel(seat: ForgeSeat, viewer: ForgeSeat, zone: Pile["zone"]) {
-  return `${seat === viewer ? "Your" : "Opponent's"} ${zone}`;
-}
-
 function NameChoice({
   choice, locked, submit,
 }: {
@@ -136,67 +122,29 @@ function NameChoice({
 
 function ForgeArt({
   card,
-  imageCacheDir,
-  cache,
   inspect = false,
   attachments = [],
 }: {
   card: ForgeCard;
-  imageCacheDir: string;
-  cache: ArtCache;
   inspect?: boolean;
   attachments?: string[];
 }) {
-  const { name, setCode = "", collectorNumber = "" } = card;
-  const [art, setArt] = useState<Artwork>();
+  const { name } = card;
   const imageSource = useContext(ForgeImageSource);
   const [failedImage, setFailedImage] = useState<string>();
-  useEffect(() => {
-    if (card.faceDown || imageSource) return;
-    const key = JSON.stringify([name, setCode, collectorNumber]);
-    let request = cache.get(key);
-    if (!request) {
-      request = database()
-        .then(async (db) => {
-          const [row] = await db.select<Artwork[]>(
-            `SELECT id, name, mana_cost AS manaCost, type_line AS typeLine, oracle_text AS oracleText, image_uri AS imageUri FROM cards
-           WHERE (name = ? COLLATE NOCASE OR (set_code = ? COLLATE NOCASE AND collector_number = ?))
-           ORDER BY (set_code = ? COLLATE NOCASE) DESC, (collector_number = ?) DESC,
-             (name = ? COLLATE NOCASE) DESC, (image_uri IS NOT NULL) DESC, set_code, collector_number, id LIMIT 1`,
-            [name, setCode, collectorNumber, setCode, collectorNumber, name],
-          );
-          return row;
-        })
-        .catch(() => {
-          cache.delete(key);
-          return undefined;
-        });
-      cache.set(key, request);
-    }
-    let active = true;
-    setArt(undefined);
-    void request.then((result) => {
-      if (active) setArt(result);
-    });
-    return () => {
-      active = false;
-    };
-  }, [cache, name, setCode, collectorNumber, card.faceDown, imageSource]);
   if (card.faceDown) {
     const back = (
       <div className="pt-card-back">
         <Layers size={25} aria-hidden />
       </div>
     );
-    return inspect ? <CardReading name="Face-down card" art={back} /> : back;
+    return inspect ? <CardReading name="Face-down card" art={back} details={cardStatuses(card).map(s => s.label)} /> : back;
   }
   const url = imageSource?.(card);
   const image = url && url !== failedImage ? (
     <div className="card-image">
       <img src={url} alt={name} loading="lazy" onError={() => setFailedImage(url)} />
     </div>
-  ) : art?.imageUri ? (
-    <CardImage card={art} imageCacheDir={imageCacheDir} />
   ) : (
     <div className="card-image">
       <div className="card-image-placeholder">
@@ -209,11 +157,12 @@ function ForgeArt({
     <CardReading
       name={card.token ? `${name} · Token` : name}
       art={image}
-      manaCost={art?.manaCost || card.manaCost}
-      typeLine={card.typeLine || art?.typeLine}
-      oracleText={card.token ? card.oracleText : art?.oracleText || card.oracleText}
+      manaCost={card.manaCost}
+      typeLine={card.typeLine}
+      oracleText={card.oracleText}
       details={[
         ...attachments,
+        ...cardStatuses(card).filter(s => s.kind !== "counter" && s.kind !== "damage").map(s => s.label),
         ...(card.chosenColors?.map((color) => `Chosen color · ${color}`) ?? []),
         ...(card.namedCards?.map((named) => `Named card · ${named}`) ?? []),
       ]}
@@ -235,8 +184,6 @@ export default function ForgeBoard({
   locked,
   onChoose,
   onPriorityStop,
-  replay,
-  imageCacheDir,
   viewer,
   onSwitch,
   matchTools,
@@ -244,22 +191,19 @@ export default function ForgeBoard({
   state: ForgeMatch;
   locked: boolean;
   onChoose: (id: string) => void;
-  onPriorityStop: (stop: PriorityStop) => void;
-  replay: () => void;
-  imageCacheDir: string;
+  onPriorityStop: (stop: PriorityStop) => Promise<boolean>;
   viewer: ForgeSeat;
   onSwitch?: () => void;
   matchTools: MatchTools;
 }) {
-  const priorityId = useId();
   const [pile, setPile] = useState<Pile | null>(null);
   const [menuCard, setMenuCard] = useState<ForgeCard | null>(null);
   const [deferredSearch, setDeferredSearch] = useState<string>();
   const [cardFilter, setCardFilter] = useState("");
   const firstButton = useRef<HTMLButtonElement>(null);
   const focusedRevision = useRef<number | undefined>(undefined);
-  const cache = useRef<ArtCache>(new Map());
   const { actor, players, stack, choices, librarySearch, sharedSeats } = state;
+  const { seatNames } = matchTools;
   const searchId = librarySearch ? choices[0]?.id : undefined;
   const libraryOperation = librarySearch?.operation ?? "Library search";
   const showSearch = !!librarySearch && deferredSearch !== searchId;
@@ -283,9 +227,7 @@ export default function ForgeBoard({
     state.phase === "Opening hand" &&
     viewer === actor &&
     choices.length > 0;
-  const handLabel = sharedSeats
-    ? `Player ${viewer === "player" ? 1 : 2} hand`
-    : "Your hand";
+  const handLabel = `${seatNames[viewer]}'s hand`;
   const pileOwner = pile && players[pile.seat];
   const pileCards = pile && pileOwner
     ? pile.zone === "library"
@@ -326,7 +268,7 @@ export default function ForgeBoard({
   const switchButton = (focusRef?: Ref<HTMLButtonElement>) =>
     onSwitch && (
       <SwitchPlayer
-        player={viewer === "player" ? 2 : 1}
+        playerName={seatNames[viewer === "player" ? "opponent" : "player"]}
         onSwitch={onSwitch}
         disabled={locked}
         focusRef={focusRef}
@@ -363,7 +305,7 @@ export default function ForgeBoard({
   function option(choice: ForgeChoice, focusRef?: Ref<HTMLButtonElement>) {
     if (choice.kind === "pass") {
       const ending = state.phase === "Ending phase";
-      const endTurn = (state.priorityStop === "auto" || ending) && choice.endTurnId;
+      const endTurn = (!state.priorityStop.own.length || ending) && choice.endTurnId;
       const lastAdvance = !!endTurn && (ending || state.phase === "Postcombat main phase");
       const label = stack.length ? "Resolve" : state.active === viewer ? "Next" : "Pass";
       return (
@@ -400,6 +342,7 @@ export default function ForgeBoard({
   function tile(card: ForgeCard) {
     const name = card.faceDown ? "Face-down card" : card.name;
     const actions = choices.filter((choice) => choice.cardId === card.id);
+    const statuses = cardStatuses(card);
     const move = actions[0];
     const abilityCount = actions.filter(
       (choice) => choice.kind === "ability",
@@ -417,7 +360,7 @@ export default function ForgeBoard({
       card.blocking && card.target ? `Blocking ${card.target}` : combat;
     const attached = attachments.get(card.id) ?? [];
     const attachedTo = card.attachedTo ? pieces.get(card.attachedTo)?.name
-      : card.attachedToPlayer && (card.attachedToPlayer === viewer ? "you" : "opponent");
+      : card.attachedToPlayer && seatNames[card.attachedToPlayer];
     const description = [
       name, card.token && "Token", stats, card.tapped && "Tapped", combatLabel,
       attachedTo && `Attached to ${attachedTo}`, ...attached,
@@ -439,14 +382,13 @@ export default function ForgeBoard({
       <TableCard
         key={card.id}
         name={name}
-        label={label}
+        label={[label, ...statuses.map(s => s.label)].join(", ")}
+        statuses={statuses}
         tapped={card.tapped}
         opensDialog={actions.length > 1}
         reading={
           <ForgeArt
             card={card}
-            cache={cache.current}
-            imageCacheDir={imageCacheDir}
             inspect
             attachments={attachmentLabels}
           />
@@ -475,8 +417,6 @@ export default function ForgeBoard({
         art={
           <ForgeArt
             card={card}
-            cache={cache.current}
-            imageCacheDir={imageCacheDir}
           />
         }
       />
@@ -494,14 +434,14 @@ export default function ForgeBoard({
       <TableSeat
         key={seat}
         own={own}
-        player={seat === "player" ? 1 : 2}
+        playerName={seatNames[seat]}
         piles={
           <>
             {data.libraryCount != null && (
               <ZoneCounter
                 zone="library"
                 count={data.libraryCount}
-                label={`${own ? "Your" : "Opponent's"} library, ${data.libraryCount} cards${data.libraryTop ? " · View top card" : ""}`}
+                label={`${seatNames[seat]}'s library, ${data.libraryCount} cards${data.libraryTop ? " · View top card" : ""}`}
                 open={pile?.seat === seat && pile.zone === "library"}
                 onOpen={data.libraryTop ? () => setPile({ seat, zone: "library" }) : undefined}
               />
@@ -509,7 +449,7 @@ export default function ForgeBoard({
             <ZoneCounter
               zone="hand"
               count={data.handCount}
-              label={`${own ? "Your" : "Opponent's"} hand, ${data.handCount} cards`}
+              label={`${seatNames[seat]}'s hand, ${data.handCount} cards`}
             />
             {(["graveyard", "exile"] as const).map((zone) => {
               const cards = data[zone];
@@ -520,7 +460,7 @@ export default function ForgeBoard({
                   zone={zone}
                   count={cards.length}
                   open={pile?.seat === seat && pile.zone === zone}
-                  label={`${pileLabel(seat, viewer, zone)}, ${cards.length} ${cards.length === 1 ? "card" : "cards"}`}
+                  label={`${seatNames[seat]}'s ${zone}, ${cards.length} ${cards.length === 1 ? "card" : "cards"}`}
                   onOpen={() => setPile({ seat, zone })}
                 />
               );
@@ -548,7 +488,7 @@ export default function ForgeBoard({
               ) : (
                 <div className="ptc-life">{life}</div>
               )}
-              <ManaPool player={seat === "player" ? 1 : 2} amounts={data.manaByColor} total={data.mana} />
+              <ManaPool playerName={seatNames[seat]} amounts={data.manaByColor} total={data.mana} />
             </div>
           </div>
         }
@@ -560,73 +500,25 @@ export default function ForgeBoard({
     );
   }
 
-  const stop = state.priorityStop ?? "auto";
-  const oneTimeStop = stop !== "auto" && stop !== "full";
-  const priorityControl = state.stage === "decision" && (
-    <div className="ptc pt-priority-control">
-      <div className="pt-priority-mode">
-        <label htmlFor={priorityId}>Stops</label>
-        <select
-          id={priorityId}
-          value={oneTimeStop ? "next" : stop}
-          disabled={locked}
-          onChange={(event) => onPriorityStop(event.currentTarget.value as PriorityStop)}
-        >
-          <option value="auto">Automatic</option>
-          <option value="next">Set a stop</option>
-          <option value="full">Full Control</option>
-        </select>
-      </div>
-      {oneTimeStop && (
-        <select
-          aria-label="When to stop"
-          value={stop}
-          disabled={locked}
-          onChange={(event) => onPriorityStop(event.currentTarget.value as PriorityStop)}
-        >
-          <option value="next">Next opportunity</option>
-          {Object.entries(prioritySteps).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
-      )}
-    </div>
-  );
-
   return (
     <TableBoard
       label="Forge game"
       switchPlayer={switchButton(!choices.length && state.stage === "decision" ? firstButton : undefined)}
       matchTools={matchTools}
       stackCount={stack.length}
-      toolbar={
-        <div className="pt-forge-controls">
-          <div className="ptc ptc-turn" aria-label="Turn, phase and step">
-            {state.turn > 0 && (
-              <span className="ptc-turn-number">
-                Turn <strong>{state.turn}</strong>
-              </span>
-            )}
-            <span className="ptc-turn-player">
-              {[state.phase, state.step].filter(Boolean).join(" · ")}
-              {state.turn > 0 && (
-                <small>
-                  {sharedSeats
-                    ? `Player ${state.active === "player" ? 1 : 2}'s turn`
-                    : state.active === viewer ? "Your turn" : "Opponent's turn"}
-                </small>
-              )}
-            </span>
-          </div>
-          {!opening && priorityControl}
+      toolbar={<TurnSummary turn={state.turn} activeName={seatNames[state.active]} />}
+      priorityControl={state.stage === "decision" ? {
+        stops: state.priorityStop, locked, opponentName: seatNames[viewer === "player" ? "opponent" : "player"],
+        error: matchTools.decisionError, onSave: onPriorityStop,
+      } : undefined}
+      actions={
+        <>
           {!opening && (!matchTools.actionStatus || !!state.revealedToYou?.length) && (
             <div className="pt-forge-prompt">
               {!matchTools.actionStatus && state.stage === "decision" &&
                 (!sharedSeats || viewer === actor) && (
                   <strong>
-                    {sharedSeats
-                      ? `Player ${actor === "player" ? 1 : 2} to act`
-                      : actor === viewer ? "You" : "Opponent"}
+                    {seatNames[actor]} to act
                   </strong>
                 )}
               {!matchTools.actionStatus && <span role="status">{state.prompt}</span>}
@@ -635,7 +527,7 @@ export default function ForgeBoard({
               )}
             </div>
           )}
-          <div className="pt-forge-options">
+          <div className="pt-forge-options pt-turn-actions">
             {librarySearch && !showSearch && (
               <Button
                 variant="outline"
@@ -646,15 +538,14 @@ export default function ForgeBoard({
             )}
             {opening ? (
               <ForgeOpeningHand
-                seat={viewer}
-                prompt={matchTools.actionStatus ? "" : state.prompt}
+                playerName={seatNames[viewer]}
+                prompt={state.prompt}
                 hand={hand.map(tile)}
                 choices={toolbar}
                 onChoose={choose}
                 locked={locked}
-                error={matchTools.actionStatus ? <>{matchTools.actionStatus}{matchTools.openingRecovery}</> : matchTools.openingRecovery}
-                allowTable={!!matchTools.decisionTools}
-                tools={matchTools.decisionTools}
+                error={matchTools.decisionError}
+                allowTable
               />
             ) : (
               toolbar.map((choice) => option(choice, focusFor(choice)))
@@ -668,18 +559,8 @@ export default function ForgeBoard({
               />
             )}
             {nameChoice && <NameChoice key={nameChoice.id} choice={nameChoice} locked={locked} submit={onChoose} />}
-            {state.stage === "finished" && (
-              <Button
-                ref={firstButton}
-                disabled={locked}
-                variant="outline"
-                onClick={replay}
-              >
-                <RotateCcw size={15} /> Play again
-              </Button>
-            )}
           </div>
-        </div>
+        </>
       }
       seats={seatOrder.map(renderSeat)}
       handLabel={handLabel}
@@ -713,8 +594,6 @@ export default function ForgeBoard({
                       reading={
                         <ForgeArt
                           card={card}
-                          cache={cache.current}
-                          imageCacheDir={imageCacheDir}
                           inspect
                         />
                       }
@@ -731,8 +610,8 @@ export default function ForgeBoard({
       }
     >
       {manaColors.length > 0 && (
-        <TableDialog title={state.prompt} subtitle={`Player ${viewer === "player" ? 1 : 2}`} className="pt-mana-dialog">
-          {matchTools.openingRecovery}
+        <TableDialog title={state.prompt} subtitle={seatNames[viewer]} className="pt-mana-dialog">
+          {matchTools.decisionError}
           <div className="pt-mana-colors">
             {manaColors.map((choice) => {
               const color = manaTypes.find((type) => manaNames[type].toLowerCase() === choice.label.toLowerCase());
@@ -743,7 +622,6 @@ export default function ForgeBoard({
               );
             })}
           </div>
-          {matchTools.decisionTools}
         </TableDialog>
       )}
       {menuCard && menuChoices.length > 0 && (
@@ -782,8 +660,8 @@ export default function ForgeBoard({
       {pile && (
         <TableDialog
           title={pileNames[pile.zone]}
-          label={pileLabel(pile.seat, viewer, pile.zone)}
-          subtitle={`${pile.seat === "player" ? "Player 1" : "Player 2"} · ${pileCards.length} ${pileCards.length === 1 ? "card" : "cards"}`}
+          label={`${seatNames[pile.seat]}'s ${pile.zone}`}
+          subtitle={`${seatNames[pile.seat]} · ${pileCards.length} ${pileCards.length === 1 ? "card" : "cards"}`}
           closeLabel="Close zone"
           onClose={() => setPile(null)}
         >

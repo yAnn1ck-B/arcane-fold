@@ -20,7 +20,6 @@ import {
 } from "@/services/cards";
 import "@/styles/card-browser.css";
 import type {
-  AppSettings,
   CardQuery,
   CatalogCard,
   CardFilterOptions,
@@ -28,22 +27,18 @@ import type {
 } from "@/lib/types";
 
 interface CollectionProps {
-  settings: AppSettings;
   revision: number;
   onChange: () => void;
   league: LeagueStatus;
   catalogCount: number;
-  onSettings?: () => void;
   onAddToDeck?: (card: CatalogCard) => void;
 }
 
 export default function Collection({
-  settings,
   revision,
   onChange,
   league,
   catalogCount,
-  onSettings,
   onAddToDeck,
 }: CollectionProps) {
   const [query, setQuery] = useState<CardQuery>({
@@ -215,8 +210,7 @@ export default function Collection({
       )}
       {loading && (
         <div className="results-loading" role="status">
-          <LoaderCircle size={15} className="animate-spin" /> Searching your
-          local catalog…
+          <LoaderCircle size={15} className="animate-spin" /> Searching the card catalog…
         </div>
       )}
       {!loading && !cards.length ? (
@@ -231,18 +225,11 @@ export default function Collection({
           </h2>
           <p>
             {!catalogCount
-              ? (onSettings
-                  ? "Your card catalog is being prepared automatically. Check the Forge folders in Settings if setup cannot finish."
-                  : "The server card catalog is being prepared.")
+              ? "The server card catalog is being prepared."
               : query.ownedOnly && !hasActiveFilters
                 ? "Open booster packs or craft cards with wildcards to grow your collection."
                 : "Try another name or ability, color, expansion, or mana value."}
           </p>
-          {!catalogCount && onSettings && (
-            <Button variant="outline" onClick={onSettings}>
-              Open Settings
-            </Button>
-          )}
           {query.ownedOnly && catalogCount > 0 && (
             <Button variant="outline" onClick={() => changeView(false)}>
               Browse all cards
@@ -254,10 +241,7 @@ export default function Collection({
           {cards.map((card) => (
             <article className="collection-card" key={card.id}>
               <div className="collection-card-art">
-                <CardImage
-                  card={card}
-                  imageCacheDir={settings.forge.imageCacheDir}
-                />
+                <CardImage card={card} />
                 <button
                   type="button"
                   className="card-art-trigger"
@@ -339,7 +323,6 @@ export default function Collection({
       {selected && (
         <CardDetails
           card={selected}
-          imageCacheDir={settings.forge.imageCacheDir}
           onClose={() => setSelected(null)}
           league={league}
           onChange={onChange}

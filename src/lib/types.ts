@@ -1,21 +1,4 @@
-export type Page =
-  "dashboard" | "collection" | "decks" | "play" | "boosters" | "settings";
-
-export interface ForgePaths {
-  dataDir: string;
-  deckDir: string;
-  imageCacheDir: string;
-  installDir: string;
-}
-
-export interface AppearanceSettings {
-  theme: "forest" | "midnight" | "slate" | "light";
-  fontSize: "normal" | "large";
-}
-
 export interface AppSettings {
-  forge: ForgePaths;
-  appearance: AppearanceSettings;
   league: {
     startedAt: number;
     expansionSchedule: ExpansionScheduleEntry[];
@@ -51,23 +34,6 @@ export interface ExpansionScheduleEntry {
   name: string;
   description: string;
   bonusPacks: number;
-}
-
-export interface IntegrationReport {
-  dataDirExists: boolean;
-  deckDirExists: boolean;
-  imageCacheDirExists: boolean;
-  installDirExists: boolean;
-  sampleImagePath: string | null;
-  sampleDeckPath: string | null;
-  warnings: string[];
-  forgeVersion: string | null;
-  forgeInstallDir: string | null;
-}
-
-export interface ExportResult {
-  path: string;
-  content: string;
 }
 
 export interface DashboardStats {
@@ -135,12 +101,6 @@ export interface DeckAddRequest {
 export interface CatalogStatus {
   count: number;
   updatedAt: string | null;
-}
-export interface CatalogProgress {
-  stage: string;
-  processed: number;
-  total: number | null;
-  message: string;
 }
 export interface CatalogSet {
   code: string;

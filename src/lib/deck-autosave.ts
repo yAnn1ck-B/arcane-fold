@@ -44,7 +44,7 @@ function fingerprint(draft: DeckDraft): string {
   });
 }
 
-/** One logical editor, one native write at a time, with the latest full draft queued. */
+/** One logical editor, one save at a time, with the latest full draft queued. */
 export class DeckAutosave {
   private draft: DeckDraft = { id: null, name: "", cards: [] };
   private session = 0;

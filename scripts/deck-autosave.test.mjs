@@ -87,12 +87,12 @@ test('a stale response acknowledges identity without erasing a later name or pri
 
 test('a save error pauses without a retry loop and explicit Retry sends only the latest draft', async () => {
   const { queue, calls, states } = fixture((value, count) => {
-    if (count === 1) throw new Error('Forge folder unavailable');
+    if (count === 1) throw new Error('Server unavailable');
     return detail(value);
   });
   queue.reset(draft(1, 'existing'));
   queue.edit(draft(2, 'existing'));
-  await assert.rejects(queue.flush(), /Forge folder unavailable/);
+  await assert.rejects(queue.flush(), /Server unavailable/);
   await tick();
   await tick();
   assert.equal(calls.length, 1);
@@ -180,7 +180,7 @@ test('explicitly creating a named empty deck is saved even without card changes'
   assert.deepEqual(calls[0].cards, []);
 });
 
-test('a first-create retry keeps its creation token until the native ID is acknowledged', async () => {
+test('a first-create retry keeps its creation token until the server ID is acknowledged', async () => {
   const { queue, calls, tokens } = fixture((value, count) => {
     if (count === 1) throw new Error('reply unavailable after commit');
     return detail(value, 'same-created-deck');
@@ -202,7 +202,7 @@ test('a first-create retry keeps its creation token until the native ID is ackno
   assert.notEqual(tokens[3], tokens[0]);
 });
 
-test('canceling first unnamed creation resets its proposed cards without a native write', async () => {
+test('canceling first unnamed creation resets its proposed cards without a server write', async () => {
   const { queue, calls } = fixture();
   queue.edit(draft(1, null, ''));
   queue.reset({ id: null, name: '', cards: [] });
@@ -235,214 +235,4 @@ test('Add bases distinguish requests and preserve the empty new-target base', ()
   assert.equal(bases.capture('two', 'existing', { quantity: 4 }).quantity, 4);
   bases.clear();
   assert.equal(bases.get('one', 'existing'), undefined);
-});
-
-
-const lifecycleSource = readFileSync(new URL('../src/lib/app-lifecycle.ts', import.meta.url), 'utf8');
-const lifecycleOutput = ts.transpileModule(lifecycleSource, {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
-}).outputText;
-const { AppLifecycle, protectWindowClose } = await import(`data:text/javascript;base64,${Buffer.from(lifecycleOutput).toString('base64')}`);
-
-function closeFixture(lifecycle, options = {}) {
-  let handler;
-  const calls = { destroy: 0, unlisten: 0 };
-  const target = {
-    onCloseRequested: async (next) => {
-      handler = next;
-      if (options.registration) await options.registration;
-      return () => { calls.unlisten++; };
-    },
-    destroy: async () => { calls.destroy++; if (options.destroy) await options.destroy(); },
-  };
-  const guard = protectWindowClose(target, lifecycle);
-  return {
-    guard, calls,
-    close() {
-      const event = { prevented: false, preventDefault() { this.prevented = true; } };
-      return { event, settled: handler(event) };
-    },
-  };
-}
-
-test('closing waits for the active deck task and the latest queued autosave before destroying', async () => {
-  const initialWrite = deferred(), task = deferred(), ordering = [];
-  const { queue, calls } = fixture(async (value, count) => {
-    if (count === 1) await initialWrite.promise;
-    ordering.push(`save:${value.cards[0].quantity}`);
-    return detail(value, 'one-deck');
-  });
-  queue.edit(draft(1));
-  const saving = queue.flush();
-  queue.edit(draft(2));
-  const lifecycle = new AppLifecycle();
-  lifecycle.register(async () => { await task.promise; await queue.flush(); });
-  const window = closeFixture(lifecycle, { destroy: async () => { ordering.push('destroy'); } });
-  await window.guard.ready;
-  const closing = window.close();
-  assert.equal(closing.event.prevented, true);
-  assert.equal(lifecycle.isLocked(), true);
-  initialWrite.resolve();
-  await saving;
-  await tick();
-  assert.equal(window.calls.destroy, 0);
-  task.resolve();
-  await closing.settled;
-  assert.equal(calls.length, 2);
-  assert.deepEqual(ordering, ['save:1', 'save:2', 'destroy']);
-  assert.equal(window.calls.destroy, 1);
-  assert.equal(lifecycle.isLocked(), false);
-  window.guard.dispose();
-});
-
-test('failed autosave keeps the window open with a persistent error and retries the same exit', async () => {
-  let fail = true;
-  const { queue } = fixture(async value => { if (fail) throw Error('Forge folder unavailable'); return detail(value); });
-  queue.edit(draft());
-  const lifecycle = new AppLifecycle();
-  lifecycle.register(() => queue.flush());
-  const window = closeFixture(lifecycle);
-  await window.guard.ready;
-  const closing = window.close();
-  await closing.settled;
-  assert.equal(window.calls.destroy, 0);
-  assert.equal(lifecycle.isLocked(), false);
-  assert.equal(lifecycle.canExit(), false);
-  assert.match(lifecycle.getSnapshot().error, /Forge folder unavailable/);
-  fail = false;
-  await lifecycle.retry();
-  assert.equal(window.calls.destroy, 1);
-  assert.equal(lifecycle.getSnapshot().error, null);
-  window.guard.dispose();
-});
-
-test('an unnamed pending deck blocks exit until named or its proposed edits are cancelled', async () => {
-  const { queue, calls } = fixture();
-  queue.edit(draft(1, null, ''));
-  const lifecycle = new AppLifecycle();
-  lifecycle.register(() => queue.flush());
-  let exits = 0;
-  await assert.rejects(lifecycle.run('close', async () => { exits++; }), /Name this deck/);
-  assert.equal(exits, 0);
-  assert.equal(calls.length, 0);
-  queue.reset({ id: null, name: '', cards: [] });
-  await lifecycle.retry();
-  assert.equal(exits, 1);
-});
-
-test('repeated close, install, and restart intents share one locked operation', async () => {
-  const preparation = deferred(), actions = [];
-  const lifecycle = new AppLifecycle();
-  lifecycle.register(() => preparation.promise);
-  const first = lifecycle.run('close', async () => {
-    assert.equal(lifecycle.isLocked(), true);
-    assert.equal(lifecycle.canExit(), true);
-    actions.push('close');
-  });
-  assert.equal(lifecycle.canExit(), false);
-  const install = lifecycle.run('install-update', async () => { actions.push('install'); });
-  const restart = lifecycle.run('restart', async () => { actions.push('restart'); });
-  assert.equal(first, install);
-  assert.equal(first, restart);
-  preparation.resolve();
-  await first;
-  assert.deepEqual(actions, ['close']);
-  assert.equal(lifecycle.canExit(), false);
-});
-
-test('both update installation and Linux restart await preparation and stay locked through the native action', async () => {
-  for (const intent of ['install-update', 'restart']) {
-    const preparation = deferred(), native = deferred();
-    const lifecycle = new AppLifecycle();
-    let invoked = false;
-    lifecycle.register(() => preparation.promise);
-    const operation = lifecycle.run(intent, async () => { invoked = true; await native.promise; });
-    await tick();
-    assert.equal(invoked, false);
-    preparation.resolve();
-    await tick();
-    assert.equal(invoked, true);
-    assert.equal(lifecycle.isLocked(), true);
-    assert.equal(lifecycle.canExit(), true);
-    native.resolve();
-    await operation;
-    assert.equal(lifecycle.isLocked(), false);
-  }
-});
-
-test('an installer-requested native close is allowed only after deck preparation succeeds', async () => {
-  const lifecycle = new AppLifecycle();
-  const window = closeFixture(lifecycle);
-  await window.guard.ready;
-  let installerEvent;
-  await lifecycle.run('install-update', async () => {
-    const nativeClose = window.close();
-    installerEvent = nativeClose.event;
-    await nativeClose.settled;
-  });
-  assert.equal(installerEvent.prevented, false);
-  assert.equal(window.calls.destroy, 0); // The SDK performs its default destroy after the allowed handler.
-  window.guard.dispose();
-});
-
-test('soft deck-task failure settles without deadlocking and blocks the exit action', async () => {
-  const task = deferred();
-  let taskFailure = null, invoked = false;
-  const lifecycle = new AppLifecycle();
-  lifecycle.register(async () => { await task.promise; if (taskFailure) throw Error(taskFailure); });
-  const exiting = lifecycle.run('restart', async () => { invoked = true; });
-  taskFailure = 'Collection Add did not save';
-  task.resolve();
-  await assert.rejects(exiting, /Collection Add/);
-  assert.equal(lifecycle.isLocked(), false);
-  assert.equal(invoked, false);
-  taskFailure = null; // User explicitly cancelled or corrected the failed modal action.
-  await lifecycle.retry();
-  assert.equal(invoked, true);
-});
-
-test('late native close-listener registration is cleaned up after disposal', async () => {
-  const registration = deferred();
-  const lifecycle = new AppLifecycle();
-  const window = closeFixture(lifecycle, { registration: registration.promise });
-  window.guard.dispose();
-  registration.resolve();
-  await window.guard.ready;
-  assert.equal(window.calls.unlisten, 1);
-  const late = window.close();
-  assert.equal(late.event.prevented, true);
-  await late.settled;
-  assert.equal(window.calls.destroy, 0);
-});
-
-test('native registration and destroy failures stay observable and never force a second close', async () => {
-  const lifecycle = new AppLifecycle();
-  const guard = protectWindowClose({ onCloseRequested: async () => { throw Error('listener denied'); }, destroy: async () => {} }, lifecycle);
-  await assert.rejects(guard.ready, /listener denied/);
-  guard.dispose();
-  const window = closeFixture(lifecycle, { destroy: async () => { throw Error('destroy denied'); } });
-  await window.guard.ready;
-  await window.close().settled;
-  assert.equal(window.calls.destroy, 1);
-  assert.equal(lifecycle.isLocked(), false);
-  assert.match(lifecycle.getSnapshot().error, /destroy denied/);
-  window.guard.dispose();
-});
-
-
-test('a second ordinary close after flushing cannot issue another destroy while the first is pending', async () => {
-  const nativeDestroy = deferred();
-  const lifecycle = new AppLifecycle();
-  const window = closeFixture(lifecycle, { destroy: () => nativeDestroy.promise });
-  await window.guard.ready;
-  const first = window.close();
-  await tick();
-  assert.equal(window.calls.destroy, 1);
-  const second = window.close();
-  assert.equal(second.event.prevented, true);
-  await second.settled;
-  assert.equal(window.calls.destroy, 1);
-  nativeDestroy.resolve();
-  await first.settled;
-  window.guard.dispose();
 });

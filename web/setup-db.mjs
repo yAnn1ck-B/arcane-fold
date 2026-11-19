@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { migrate, pool } from './db.mjs';
+import { credentialsFile } from './accounts.mjs';
 
 const database = 'arcane_fold_web';
 const dir = path.resolve('.web-data');
@@ -87,6 +88,7 @@ try {
   await provision();
   if (!process.argv.includes('--local')) await migrate();
   console.log('Arcane Fold web database is ready.');
+  if (existsSync(credentialsFile)) console.log('Player logins are in ' + path.resolve(credentialsFile));
 } catch (e) {
   console.error(e.message);
   process.exitCode = 1;

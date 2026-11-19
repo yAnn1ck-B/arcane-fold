@@ -95,6 +95,9 @@ function actionText(before: Match, action: Action, after: Match): string {
         publicName(before, action.id) ??
         "a card";
       switch (action.type) {
+        case "markStatus":
+          if (action.status === "phasedOut") return `${who} phased ${name} ${action.marked ? "out" : "in"}.`;
+          return `${who} ${action.marked ? "marked summoning sickness on" : "cleared summoning sickness from"} ${name}.`;
         case "tap":
           return `${who} ${card.tapped ? "tapped" : "untapped"} ${name}.`;
         case "tapMana":

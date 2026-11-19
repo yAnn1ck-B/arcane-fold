@@ -30,6 +30,7 @@ import { OpeningHandDialog } from "./OpeningHandDialog";
 import { ManaPool } from "./ManaPool";
 
 interface ControlProps {
+  seatNames: readonly [string, string];
   view: MatchView;
   viewer: Seat;
   dispatch: (action: Action) => void;
@@ -43,24 +44,16 @@ function cardName(view: MatchView, id: string) {
 
 export function TurnControls({ view, dispatch, locked = false }: ControlProps & { locked?: boolean }) {
   return (
-    <section className="ptc ptc-turn" aria-label="Turn, phase and step">
-      <div className="ptc-turn-number">
-        Turn <strong>{view.turn}</strong>
-      </div>
-      <span
-        className="ptc-turn-player"
-        aria-label={`Player ${view.active + 1}'s turn`}
-      >
-        P{view.active + 1}
-      </span>
+    <section className="ptc pt-turn-actions" aria-label="Turn controls">
       <select
-        aria-label="Current phase or step"
+        aria-label="Change phase or step"
         disabled={locked}
-        value={view.step}
+        value=""
         onChange={(e) =>
           dispatch({ type: "setStep", step: Number(e.target.value) })
         }
       >
+        <option value="" disabled>Change step…</option>
         {turnPhases.map((phase) =>
           phase.steps.length ? (
             <optgroup label={phase.name} key={phase.name}>
@@ -91,21 +84,18 @@ export function TurnControls({ view, dispatch, locked = false }: ControlProps & 
 
 export function ManualOpeningHand({
   view,
+  seatNames,
   viewer,
   dispatch,
   onShuffle,
-  imageCacheDir,
   required,
   allowTable,
-  tools,
   locked = false,
   error,
 }: ControlProps & {
   onShuffle: PlayerOptions["onShuffle"];
-  imageCacheDir: string;
   required: boolean;
   allowTable?: boolean;
-  tools?: ReactNode;
   locked?: boolean;
   error?: ReactNode;
 }) {
@@ -120,15 +110,14 @@ export function ManualOpeningHand({
   if (player.kept || !hand.length) return null;
   return (
     <OpeningHandDialog
-      player={seat + 1}
+      playerName={seatNames[seat]}
       required={required}
       allowTable={allowTable}
-      tools={tools}
       error={error}
       prompt={
         needed > 0
           ? `Choose ${needed} ${needed === 1 ? "card" : "cards"} to put on the bottom, in order (${bottom.length}/${needed}).`
-          : undefined
+          : "Keep this hand?"
       }
       hand={hand.map((id, index) => {
         const piece = view.pieces[id];
@@ -138,7 +127,7 @@ export function ManualOpeningHand({
             ? view.catalog[piece.printing]
             : undefined;
         const art = (
-          <CardArt view={view} id={id} imageCacheDir={imageCacheDir} />
+          <CardArt view={view} id={id} />
         );
         const order = bottom.indexOf(id);
         return (
@@ -210,14 +199,14 @@ interface PlayerOptions {
 }
 
 export function PlayerControls(props: ControlProps & PlayerOptions) {
-  const { view, seat, viewer, dispatch, onShuffle } = props;
+  const { view, seat, viewer, dispatch, onShuffle, seatNames } = props;
   const player = view.players[seat];
   const own = seat === viewer;
   const totalMana = manaTypes.reduce((sum, type) => sum + player.mana[type], 0);
   return (
     <section
       className="ptc ptc-player"
-      aria-label={`Player ${seat + 1} resources`}
+      aria-label={`${seatNames[seat]}'s resources`}
     >
       <div className="ptc-row">
         <div className="ptc-life">
@@ -248,7 +237,7 @@ export function PlayerControls(props: ControlProps & PlayerOptions) {
             {own && (
               <button
                 type="button"
-                aria-label={`Remove one ${name} counter from Player ${seat + 1}`}
+                aria-label={`Remove one ${name} counter from ${seatNames[seat]}`}
                 onClick={() =>
                   dispatch({ type: "playerCounter", seat, name, delta: -1 })
                 }
@@ -260,7 +249,7 @@ export function PlayerControls(props: ControlProps & PlayerOptions) {
             {own && (
               <button
                 type="button"
-                aria-label={`Add one ${name} counter to Player ${seat + 1}`}
+                aria-label={`Add one ${name} counter to ${seatNames[seat]}`}
                 onClick={() =>
                   dispatch({ type: "playerCounter", seat, name, delta: 1 })
                 }
@@ -301,7 +290,7 @@ export function PlayerControls(props: ControlProps & PlayerOptions) {
         )}
       </div>
       <ManaPool
-        player={seat + 1}
+        playerName={seatNames[seat]}
         amounts={player.mana}
         total={totalMana}
         onChange={own ? (mana, delta) => dispatch({ type: "mana", seat, mana, delta }) : undefined}
@@ -360,12 +349,12 @@ function sourceOptions(view: MatchView, viewer: Seat) {
   );
 }
 
-function targetSuggestions(view: MatchView) {
+function targetSuggestions(view: MatchView, seatNames: ControlProps["seatNames"]) {
   return [
     ...view.players.flatMap((player, i) => [
-      `Player ${i + 1}`,
+      seatNames[i],
       ...player.zones.battlefield.map(
-        (id, j) => `${cardName(view, id)} (P${i + 1}, battlefield ${j + 1})`,
+        (id, j) => `${cardName(view, id)} (${seatNames[i]}, battlefield ${j + 1})`,
       ),
     ]),
     ...view.stack.map(
@@ -469,17 +458,16 @@ function StackComposer({
 
 function StackItem({
   view,
+  seatNames,
   viewer,
   dispatch,
   entry,
   top,
   targetList,
-  imageCacheDir,
 }: ControlProps & {
   entry: StackEntry;
   top: boolean;
   targetList: string;
-  imageCacheDir: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [targetDraft, setTargetDraft] = useState("");
@@ -498,8 +486,7 @@ function StackItem({
     <li className="ptc-stack-entry">
       <div className="ptc-stack-meta">
         <span>{top ? "Top" : "Below"}</span> ·{" "}
-        {entry.copyKind ? entry.copyKind + " copy" : entry.kind} · P
-        {entry.controller + 1}
+        {entry.copyKind ? entry.copyKind + " copy" : entry.kind} · {seatNames[entry.controller]}
       </div>
       {card ? (
         <StackCardName
@@ -510,7 +497,6 @@ function StackItem({
               art={
                 <CardImage
                   card={card}
-                  imageCacheDir={imageCacheDir}
                   face={
                     (entry.copyBack || piece?.back) && card.backImageUri
                       ? "back"
@@ -654,13 +640,13 @@ function StackItem({
   );
 }
 
-export function StackControls(props: ControlProps & { imageCacheDir: string }) {
+export function StackControls(props: ControlProps) {
   const { view, viewer } = props;
   const targetList = useId();
   return (
     <StackPanel count={view.stack.length}>
       <datalist id={targetList}>
-        {targetSuggestions(view).map((text) => (
+        {targetSuggestions(view, props.seatNames).map((text) => (
           <option key={text} value={text} />
         ))}
       </datalist>

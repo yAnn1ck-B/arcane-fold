@@ -15,13 +15,13 @@ Read the first-play table as an observation of one route through each card. A pe
 
 ## Automatic passes and priority stops
 
-Play checks which actions the player can legally take at each priority window. A counterspell in hand becomes a reason to stop when a legal target reaches the stack. An available graveyard activation also counts. Players can respond during their own upkeep and to their own spells or triggers. In paired runs of the same two positions, Automatic and Full control offered the same nonmana decisions and reached the same resulting board.
+Play checks which actions the player can legally take at each priority window. A counterspell in hand becomes a reason to stop when a legal target reaches the stack. An available graveyard activation also counts. Players can respond during their own upkeep and to their own spells or triggers. In paired runs of the same two positions, automatic priority and manual stops at every step offered the same nonmana decisions and reached the same resulting board.
 
-During your main phases, Play offers legal mana activations even when tapping for mana is your only play. Outside those phases, Play also pauses for a usable mana source threatened by a direct target or an applicable mass-destruction effect. The player can tap another source first. In the Day of Judgment test, Llanowar Elves floats green before dying, Liliana draws Think Twice, and the green mana plus an Island pays for the spell that phase. An already-tapped Elf and an unaffected Island pass through the same spell. The activation sweep supplies an open priority window so the pilot can select each mana source.
+In the web game, Automatic passes when mana abilities are the only available plays, including during main phases. Lands, payable spells, legal nonmana activations and required decisions still open their normal windows. A usable mana source threatened by a direct target or an applicable mass-destruction effect also gets a response window. The player can tap another source first. In the recorded Day of Judgment test, Llanowar Elves floats green before dying, Liliana draws Think Twice, and the green mana plus an Island pays for the spell that phase. An already-tapped Elf and an unaffected Island pass through the same spell. The historical activation sweep supplied an open priority window so the pilot could select each mana source.
 
-The **Stops** control on the board can reserve the next priority, the next matching step on either turn, or every priority for that seat. A stop after blockers happens before combat damage. A stop after damage happens after damage has been dealt. Players can change their own stops while another seat has a pending decision. The installed regressions cover seat-specific information, retaining priority after producing mana or casting a spell, and reproducing stops through Undo.
+Open **Priority stops** in the three-dot game menu to choose manual stops separately for your turns and your opponent’s turns. A checked step stops whenever Forge grants priority there, even if the only available action is tapping for mana. Unchecked steps use automatic priority. **Select all** and **Clear all** affect both columns. A stop after blockers happens before combat damage. A stop after damage happens after damage has been dealt. Each player can change their own settings while the other seat has a decision. PostgreSQL keeps those choices for future games. Replay and agreed rewinds reproduce the settings at the saved decision. [Web priority and account checks](../web/priority.test.mjs)
 
-Automatic priority cannot infer every reason to float mana before an untargeted effect resolves. For a planned interaction, set a stop in advance. Wizards describes a similar tradeoff in Arena, where the default shortcuts have exceptions for particular game states and players can set stops or use Full Control. [Arena's guide to smart priority](https://magic.wizards.com/en/news/mtg-arena/announcements-october-27-2025) · [Priority regressions](../src-tauri/src/play/priority_tests.rs) · [Full-control and replay tests](../src-tauri/src/play/replay.rs)
+Automatic priority cannot infer every reason to float mana before an untargeted effect resolves. For a planned interaction, set a stop in advance. Wizards describes a similar tradeoff in Arena, where default shortcuts have exceptions for particular game states and players can choose when to hold priority. [Arena's guide to smart priority](https://magic.wizards.com/en/news/mtg-arena/announcements-october-27-2025) · [Priority regressions](https://github.com/yAnn1ck-B/arcane-fold/blob/df53ff20a0879f2e10453f9a5f163c2b4baa8321/src-tauri/src/play/priority_tests.rs) · [Priority and replay tests](https://github.com/yAnn1ck-B/arcane-fold/blob/df53ff20a0879f2e10453f9a5f163c2b4baa8321/src-tauri/src/play/replay.rs)
 
 ## Targeting, casting and paying costs
 
@@ -41,7 +41,7 @@ Automatic priority cannot infer every reason to float mana before an untargeted 
 | Pyromancer's Goggles | A Mountain pays for one Shock and leaves the Goggles untapped. Tapping the Goggles instead copies the spell, gives the controller the option to change its target, and deals 4 damage if both hit the opponent. |
 | Wildborn Preserver and Mentor of the Meek | Wildborn's controller can decline or choose X during resolution. Paying zero or more creates a second, respondable trigger. Mentor offers its optional draw when the controller can pay one, spends the mana on acceptance and leaves it available on decline. |
 
-[Targeting and trigger regressions](../src-tauri/src/play/target_tests.rs) · [Casting permission regressions](../src-tauri/src/play/permission_tests.rs) · [Wildborn Preserver regression](../src-tauri/src/play/variable_combo_tests.rs) · [Wizards' Foundations rulings](https://magic.wizards.com/en/news/feature/foundations-release-notes)
+[Targeting and trigger regressions](https://github.com/yAnn1ck-B/arcane-fold/blob/df53ff20a0879f2e10453f9a5f163c2b4baa8321/src-tauri/src/play/target_tests.rs) · [Casting permission regressions](https://github.com/yAnn1ck-B/arcane-fold/blob/df53ff20a0879f2e10453f9a5f163c2b4baa8321/src-tauri/src/play/permission_tests.rs) · [Wildborn Preserver regression](https://github.com/yAnn1ck-B/arcane-fold/blob/df53ff20a0879f2e10453f9a5f163c2b4baa8321/src-tauri/src/play/variable_combo_tests.rs) · [Wizards' Foundations rulings](https://magic.wizards.com/en/news/feature/foundations-release-notes)
 
 ## Decisions, combat and board information
 
@@ -58,17 +58,17 @@ Automatic priority cannot infer every reason to float mana before an untargeted 
 | Chandra's Hawk copy | The token is visibly distinct from the original. Its inspector includes haste and the sacrifice ability. It can attack immediately and leaves the battlefield at the end step. |
 | Existing interactions | Separate positions cover scry, surveil, library search, flashback, Elf tokens, counters, simultaneous triggers, undo and the Bloodthirsty Conqueror loop, including interrupting that loop with Unsummon. |
 
-[Private choices and costs](../src-tauri/src/play/decision_tests.rs) · [Library and forced-combat decisions](../src-tauri/src/play/integrity_tests.rs) · [Battlefield and combat regressions](../src-tauri/src/play/board_tests.rs) · [Lifegain combo regressions](../src-tauri/src/play/lifegain_combo_tests.rs) · [Foundations combat rules](https://magic.wizards.com/en/news/announcements/foundations-update-bulletin)
+[Private choices and costs](https://github.com/yAnn1ck-B/arcane-fold/blob/df53ff20a0879f2e10453f9a5f163c2b4baa8321/src-tauri/src/play/decision_tests.rs) · [Library and forced-combat decisions](https://github.com/yAnn1ck-B/arcane-fold/blob/df53ff20a0879f2e10453f9a5f163c2b4baa8321/src-tauri/src/play/integrity_tests.rs) · [Battlefield and combat regressions](https://github.com/yAnn1ck-B/arcane-fold/blob/df53ff20a0879f2e10453f9a5f163c2b4baa8321/src-tauri/src/play/board_tests.rs) · [Lifegain combo regressions](https://github.com/yAnn1ck-B/arcane-fold/blob/df53ff20a0879f2e10453f9a5f163c2b4baa8321/src-tauri/src/play/lifegain_combo_tests.rs) · [Foundations combat rules](https://magic.wizards.com/en/news/announcements/foundations-update-bulletin)
 
-## Repeat the checks
+## Run the current web checks
 
 From the repository root, set the path to Forge Desktop 2.0.13 and make `java` and `javac` from JDK 17 available. The Python checks compare the saved reports with fresh results. Omitting `--check` regenerates a report after reviewing a change to the expected behavior. The installed-engine checks use disposable games and separate Forge homes.
 
 ```powershell
-$env:FORGE_BOLT_TEST_INSTALL = 'C:\path\to\Forge 2.0.13'
-python scripts/audit-foundations.py "$env:FORGE_BOLT_TEST_INSTALL" --check
-python scripts/check-foundations-first-play.py "$env:FORGE_BOLT_TEST_INSTALL" --check
-python scripts/check-foundations-first-play.py "$env:FORGE_BOLT_TEST_INSTALL" --activations --check
-npm run test:forge
+$env:FORGE_INSTALL = 'C:\path\to\Forge 2.0.13'
+python scripts/audit-foundations.py "$env:FORGE_INSTALL" --check
+python scripts/check-foundations-first-play.py "$env:FORGE_INSTALL" --check
+python scripts/check-foundations-first-play.py "$env:FORGE_INSTALL" --activations --check
+npm run web:test
 npm run test:game
 ```

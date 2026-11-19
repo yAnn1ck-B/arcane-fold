@@ -23,20 +23,6 @@
 .ptc select {
   max-width: 100%;
 }
-.pt-priority-control,
-.pt-priority-mode {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.pt-priority-control {
-  flex-wrap: wrap;
-  font-size: inherit;
-}
-.pt-priority-control label {
-  color: var(--tone-secondary, #486651);
-  font-weight: 600;
-}
 .ptc button,
 .ptc summary {
   display: inline-flex;
@@ -87,42 +73,11 @@
   transform: translateY(2px) rotate(225deg);
 }
 .ptc-row,
-.ptc-turn,
 .ptc-form {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-}
-.ptc-turn {
-  padding: 8px 12px;
-  border: 1px solid var(--ptc-edge);
-  border-radius: 8px;
-  background: var(--ptc-soft);
-}
-.ptc-turn-number {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.ptc-turn-number strong {
-  font-family: Georgia, serif;
-  font-size: 1.6em;
-}
-.ptc-turn-player {
-  display: grid;
-  line-height: 1.2;
-  margin: 0 auto 0 5px;
-  min-width: 0;
-}
-.ptc-turn-player small {
-  color: var(--tone-muted, #516457);
-  max-width: 20ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .ptc-player {
   display: flex;

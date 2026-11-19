@@ -1,29 +1,25 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { ImageOff, RefreshCw } from "lucide-react";
 import type { CatalogCard } from "@/lib/types";
-import { invalidateCardImage, resolveCardImage } from "@/services/cards";
 
 type ImageCard = Pick<CatalogCard, "id" | "name"> & Partial<Pick<CatalogCard, "setCode" | "collectorNumber">>;
 export const CardImageSource = createContext<((card: ImageCard, face: "front" | "back") => string) | undefined>(undefined);
 
 export default function CardImage({
   card,
-  imageCacheDir,
   className = "",
   face = "front",
 }: {
   card: ImageCard;
-  imageCacheDir: string;
   className?: string;
   face?: "front" | "back";
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
-  const [source, setSource] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-  const [attempt, setAttempt] = useState(0);
+  const [failedSource, setFailedSource] = useState<string>();
   const imageSource = useContext(CardImageSource);
-  const provided = imageSource?.(card, face);
+  const source = imageSource?.(card, face) ?? `/api/art?${new URLSearchParams({ id: card.id, face })}`;
+  const error = source === failedSource;
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -39,35 +35,14 @@ export default function CardImage({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (!visible) return;
-    let cancelled = false;
-    setSource(null);
-    setError(false);
-    (provided ? Promise.resolve(provided) : resolveCardImage(card.id, imageCacheDir, face))
-      .then((url) => {
-        if (!cancelled) setSource(url);
-      })
-      .catch(() => {
-        if (!cancelled) setError(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [card.id, imageCacheDir, face, visible, attempt, provided]);
-
   return (
     <div ref={container} className={`card-image ${className}`}>
-      {source && !error ? (
+      {visible && !error ? (
         <img
           src={source}
           alt={face === "back" ? `${card.name} — back face` : card.name}
           loading="lazy"
-          onError={() => {
-            invalidateCardImage(card.id, imageCacheDir, face);
-            setSource(null);
-            setError(true);
-          }}
+          onError={() => setFailedSource(source)}
         />
       ) : (
         <div className="card-image-placeholder">
@@ -78,8 +53,7 @@ export default function CardImage({
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                invalidateCardImage(card.id, imageCacheDir, face);
-                setAttempt((value) => value + 1);
+                setFailedSource(undefined);
               }}
               aria-label={`Retry artwork for ${card.name}`}
             >

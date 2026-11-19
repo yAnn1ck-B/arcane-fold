@@ -1,0 +1,14 @@
+{
+  "upkeep": "Upkeep",
+  "draw": "After the draw",
+  "precombatMain": "First main phase",
+  "beginCombat": "Before attackers",
+  "afterAttackers": "After attackers",
+  "afterBlockers": "After blockers",
+  "firstStrikeDamage": "After first-strike damage",
+  "combatDamage": "After combat damage",
+  "endCombat": "End of combat",
+  "postcombatMain": "Second main phase",
+  "endStep": "End step",
+  "cleanup": "Cleanup"
+}

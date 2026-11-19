@@ -13,7 +13,7 @@ export interface ManualState {
   looking: boolean;
   requiredOpening: boolean;
   actor: ForgeSeat | null;
-  stage: "decision";
+  stage: "decision" | "finished";
   turn: number;
   phase: string;
 }

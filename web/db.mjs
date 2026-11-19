@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { readFile } from 'node:fs/promises';
+import { seedAccounts } from './accounts.mjs';
 
 // node --env-file-if-exists=.env.web loads the local connection settings.
 const options = process.env.DATABASE_URL
@@ -14,10 +15,11 @@ export async function migrate() {
     await db.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'));
     await db.query(await readFile(new URL('./league.sql', import.meta.url), 'utf8'));
     await db.query(await readFile(new URL('./decks.sql', import.meta.url), 'utf8'));
+    await seedAccounts(db);
   });
 }
-export async function transaction(work) {
-  const db = await pool.connect();
+export async function transaction(work, database = pool) {
+  const db = await database.connect();
   try {
     await db.query('BEGIN');
     const result = await work(db);

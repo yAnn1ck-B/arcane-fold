@@ -13,7 +13,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ADAPTER = ROOT / "src-tauri/resources/game"
+ADAPTER = ROOT / "web/forge-bridge"
 UNITS = ("ForgeImports", "ForgeGame", "ForgeMatch", "ForgeReplay", "ForgeCombat",
          "ForgeLibrary", "ForgeHistory", "ForgeManual", "ForgeNames")
 
@@ -60,8 +60,8 @@ def run(install, names, output, workers, check, activations):
         scratch = Path(folder).resolve()
         source = scratch / "FoundationsFirstPlay.java"
         units = [ADAPTER / f"{name}.java" for name in UNITS]
-        units.append(ROOT / "src-tauri/test-fixtures/FoundationsFirstPlay.java")
-        units.append(ROOT / "src-tauri/test-fixtures/FoundationsActivations.java")
+        units.append(ROOT / "web/fixtures/FoundationsFirstPlay.java")
+        units.append(ROOT / "web/fixtures/FoundationsActivations.java")
         source.write_text("\n".join(unit.read_text(encoding="utf-8") for unit in units), encoding="utf-8")
         subprocess.run(["javac", "-encoding", "UTF-8", "-cp", str(jar), str(source)],
                        cwd=scratch, env=isolated_environment(scratch), check=True)

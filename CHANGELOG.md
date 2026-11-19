@@ -2,18 +2,10 @@
 
 ## [Unreleased]
 
-- Rename the game to Arcane Fold and introduce its folded-rune logo on the tabletop app, browser tab and desktop icon.
-
-- Add a browser edition with PostgreSQL-backed leagues, private two-player Forge tables, resumable games and reports linked to the exact server-side position.
-
-- Report an issue from a Forge or manual game with the current seat’s position, choices, public history and a required description of the expected play.
-- Let browser opponents agree to rewind to a game-log position or continue the match manually. Show the deciding seat prominently and move the read-only league guide to the bottom of the sidebar.
-
-- Arrange creatures, lands and support cards on a shared tabletop. Show game-log entries newest first and allow confirmed removal of a saved manual game.
-- Switch directly to the next decision maker and keep opening hands focused on mulligans. Add colored mana-pool details, manual mana activation, three stop settings and contextual Next, Pass, Resolve and End Turn actions.
-- Add a local Playtest table for saved decks, with manual zones, a shared stack, mana pools and resumable matches.
-- Add Forge-backed saved-deck practice and replayable Lightning Bolt, Counterspell response and creature combat exercises on the shared Playtest table. Forge 2.0.13 handles legality, payment, priority, damage and zone changes.
-- Support two locally controlled decks, private seat changes, phase and step timing, and automatic passes. Add Giant Growth, library search and activated ability exercises, centered zone dialogs and enlarged card previews.
+- Move Arcane Fold to the web. PostgreSQL stores each player's collection, decks, rewards and matches. Retire the desktop client, SQLite backend, installer builds and desktop updater.
+- Autosave decks directly to the league. The deckbuilder now downloads a Forge `.dck` on request, including the chosen printings in the main deck and sideboard.
+- Play Forge matches in private browser seats, resume a table by invitation, and request a rewind or a switch to manual play with the other player's consent.
+- Report an unexpected play with the visible board, available choices, public history and exact server-side revision.
 
 ## [0.4.0] - 2026-11-18
 

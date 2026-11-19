@@ -1,17 +1,14 @@
+import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { fileURLToPath, URL } from 'node:url';
+
+const at = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
+  root: at('./src/web'),
+  publicDir: at('./public'),
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  clearScreen: false,
-  server: {
-    host: '127.0.0.1',
-    port: 1420,
-    strictPort: true,
-    watch: { ignored: ['**/src-tauri/**', '**/.tools/**', '**/.verification/**'] },
-  },
-  envPrefix: ['VITE_', 'TAURI_ENV_*'],
+  resolve: { alias: { '@': at('./src') } },
+  build: { outDir: at('./dist-web'), emptyOutDir: true },
 });

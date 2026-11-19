@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import pg from "pg";
 import { readSeatPosition, recordSeatReport, savePosition } from "./rooms.mjs";
+import { localTestPlayers } from "./fixtures/players.mjs";
 
 test("only members read their seat and reports retain its authoritative historical revision", {
   skip: !process.env.DATABASE_URL && !process.env.PGDATABASE,
@@ -16,8 +17,8 @@ test("only members read their seat and reports retain its authoritative historic
     await client.query("CREATE SCHEMA " + schema);
     await client.query("SET LOCAL search_path TO " + schema);
     await client.query(await readFile(new URL("./schema.sql",import.meta.url),"utf8"));
-    const host = randomUUID(), guest = randomUUID(), stranger = randomUUID(), room = randomUUID();
-    for (const id of [host,guest,stranger]) await client.query("INSERT INTO web_players(id,session_hash) VALUES($1,$2)",[id,id]);
+    const { yannick: host, jef: guest } = await localTestPlayers(client);
+    const stranger = randomUUID(), room = randomUUID();
     await client.query("INSERT INTO web_rooms(id,invite_code,host,guest,host_deck,label,seed,revision,status) VALUES($1,'secret',$2,$3,'private deck','Table',3,2,'playing')",[room,host,guest]);
     for (const revision of [1,2]) {
       const seat = name => ({revision, privateHand:name + " at " + revision, choices:[{label:name + " choice"}], history:[{turn:revision,text:"Turn " + revision}]});

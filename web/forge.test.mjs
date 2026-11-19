@@ -1,6 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createGame } from "./forge.mjs";
+import { decodePriority, encodePriority } from "./priority.mjs";
+import prioritySteps from "./priority-steps.json" with { type: "json" };
+
+test("priority checklists validate both sides, preserve exact windows and read earlier stop settings", () => {
+  const config = {own:["draw","endStep"],opponent:["afterAttackers"]};
+  assert.deepEqual(decodePriority(encodePriority(config)),config);
+  const steps = Object.keys(prioritySteps);
+  assert.deepEqual(decodePriority("full"),{own:steps,opponent:steps});
+  const oldConfig = decodePriority("v2:draw:every,afterAttackers");
+  assert.deepEqual(oldConfig,{own:["draw"],opponent:steps});
+  oldConfig.opponent = oldConfig.opponent.filter(step => step !== "afterAttackers");
+  assert.deepEqual(decodePriority(encodePriority(oldConfig)),oldConfig);
+  assert.doesNotMatch(encodePriority({own:["every"],opponent:[]}),/every/);
+  assert.deepEqual(decodePriority("endStep"),{own:["endStep"],opponent:["endStep"]});
+  assert.deepEqual(decodePriority("next"),{own:[],opponent:[]});
+  for (const bad of [null,{own:"full",opponent:[]},{own:["next"],opponent:[]},{own:["draw","draw"],opponent:[]}]) {
+    assert.throws(() => encodePriority(bad),/Invalid priority/);
+  }
+});
 
 test("separate network seats retain private opening hands, priority and verified replay", {
   skip: !process.env.FORGE_INSTALL, timeout: 240_000,
@@ -21,15 +40,16 @@ test("separate network seats retain private opening hands, priority and verified
   const keep = first.choices.find(choice => choice.label === "Keep hand").id;
   await assert.rejects(game.act("opponent", keep, 0), /unavailable/);
   await assert.rejects(game.act("player", keep + "\nEXPORT_MANUAL 4", 0), /unavailable/);
-  await game.stop("opponent", "full", 0);
-  assert.equal(game.view("player").priorityStop, "auto");
+  await game.stop("opponent", {own:["every"],opponent:["every"]}, 0);
+  assert.deepEqual(decodePriority(game.view("player").priorityStop), {own:[],opponent:[]});
   const [next, duplicate] = await Promise.allSettled([game.act("player", keep, 0), game.act("player", keep, 0)]);
   assert.equal(next.status, "fulfilled");
   assert.equal(duplicate.status, "rejected");
   assert.equal(next.value.actor, "opponent");
   assert.equal(next.value.choices.length, 0);
   const current = game.view("opponent");
-  assert.equal(current.priorityStop, "full");
+  const steps = Object.keys(prioritySteps);
+  assert.deepEqual(decodePriority(current.priorityStop), {own:steps,opponent:steps});
   const keepTwo = current.choices.find(choice => choice.label === "Keep hand").id;
   await game.act("opponent", keepTwo, current.revision);
   await game.stop("player", "afterBlockers", 2);

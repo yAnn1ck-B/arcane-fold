@@ -4,18 +4,14 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { decodePriority, encodePriority, validPriorityToken } from "./priority.mjs";
 
 const seats = ["player", "opponent"];
-const stops = new Set([
-  "auto", "next", "full", "upkeep", "draw", "precombatMain", "beginCombat",
-  "afterAttackers", "afterBlockers", "firstStrikeDamage", "combatDamage", "endCombat",
-  "postcombatMain", "endStep",
-]);
 const units = [
   "ForgeImports", "ForgeGame", "ForgeMatch", "ForgeReplay", "ForgeCombat",
   "ForgeLibrary", "ForgeHistory", "ForgeManual", "ForgeNames",
 ];
-const sources = new URL("../src-tauri/resources/game/", import.meta.url);
+const sources = new URL("./forge-bridge/", import.meta.url);
 const jarName = "forge-gui-desktop-2.0.13-jar-with-dependencies.jar";
 
 function requireSeat(seat) {
@@ -47,7 +43,7 @@ function seatView(state, seat, revision, pending, seed) {
     if (top) players[owner].libraryTop = card(top);
   }
   const view = {
-    revision, canUndo: false, sharedSeats: true, stage: state.stage, turn: state.turn,
+    revision, canUndo: false, sharedSeats: true, battlefieldStatusVersion: 1, stage: state.stage, turn: state.turn,
     active: state.active, actor: state.actor, phase: state.phase, step: state.step,
     prompt: activeChoice || state.stage === "finished" ? state.prompt : "Waiting for your opponent.",
     priorityStop: pending[seat] ?? state.priorityStops[seat],
@@ -62,10 +58,29 @@ function seatView(state, seat, revision, pending, seed) {
   return structuredClone(view);
 }
 
+// Version-1 journals and earlier saved seat views omitted phased-out cards
+// and these display fields. ForgeReplay already fingerprints phasing and
+// summoning sickness in the private engine state.
+export function legacyBattlefieldView(state) {
+  const { battlefieldStatusVersion, ...legacy } = state;
+  legacy.players = Object.fromEntries(seats.map(seat => {
+    const board = state.players[seat];
+    const battlefield = board.battlefield.filter(card => !card.phasedOut).map(card => {
+      const { summoningSick, grantedKeywords, cantAttack, cantBlock, ...original } = card;
+      return original;
+    });
+    return [seat, { ...board, battlefield }];
+  }));
+  return legacy;
+}
+
 // Map.of iteration order differs between processes. Preserve the order of arrays
 // (including the offered options) while hashing the entire private engine state.
-function digest(state) {
-  const json = JSON.stringify(state, (_key, value) => {
+function digest(state, includeBattlefieldStatus) {
+  // winner is terminal display metadata derived from Forge. Keep the version-1
+  // replay input identical for journals created before it was exposed.
+  const { winner, ...replay } = includeBattlefieldStatus ? state : legacyBattlefieldView(state);
+  const json = JSON.stringify(replay, (_key, value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return value;
     return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]));
   });
@@ -79,7 +94,8 @@ function legalAction(state, seat, action, pending) {
   if (extra.length) return false;
   const stop = pending[seat] ?? state.priorityStops[seat];
   return state.choices.some(option => {
-    if (action === option.endTurnId) return option.kind === "pass" && (stop === "auto" || state.phase === "Ending phase");
+    if (action === option.endTurnId) return option.kind === "pass" && (stop === "auto" ||
+      (stop.startsWith("v2:") && !decodePriority(stop).own.length) || state.phase === "Ending phase");
     if (id !== option.id) return false;
     return option.kind === "name" ? !!cardName?.trim() : cardName === undefined;
   });
@@ -158,6 +174,7 @@ async function launch(install, decks, seed) {
       try {
         const state = JSON.parse(line.slice("GAME_STATE ".length));
         if (!pending || pending.nonce || state.sharedSeats !== true || !seats.includes(state.actor) ||
+            (state.stage === "finished" && ![...seats, "draw"].includes(state.winner)) ||
             !["decision", "finished"].includes(state.stage) || typeof state.replayState !== "string") return fail();
         pending.resolve(state);
       } catch { fail(); }
@@ -192,7 +209,7 @@ async function launch(install, decks, seed) {
 
 // The caller persists checkpoint() alongside the immutable decks and private seed.
 // Supplying that checkpoint verifies each historical decision before accepting moves.
-export async function createGame({ decks, seed, checkpoint: saved, install = process.env.FORGE_INSTALL }) {
+export async function createGame({ decks, seed, checkpoint: saved, priorities = {}, install = process.env.FORGE_INSTALL }) {
   if (!Array.isArray(decks) || decks.length !== 2) throw new Error("Two saved decks are required.");
   decks.forEach(validateDeck);
   if (!/^-?\d{1,20}$/.test(String(seed)) || (typeof seed === "number" && !Number.isSafeInteger(seed)) ||
@@ -222,16 +239,15 @@ export async function createGame({ decks, seed, checkpoint: saved, install = pro
     closed = true;
     await engine.close();
   }
-  async function advance(seat, action) {
+  async function advance(seat, action, settings = pending, includeBattlefieldStatus = true) {
     requireSeat(seat);
-    if (!legalAction(state, seat, action, pending)) throw new Error("That choice is unavailable to this seat.");
-    const settings = pending;
+    if (!legalAction(state, seat, action, settings)) throw new Error("That choice is unavailable to this seat.");
     const line = Object.keys(settings).length ? "PRIORITY " +
       [settings.player ?? "=", settings.opponent ?? "=", action].join(" ") : action;
     try {
       state = await engine.next(line);
-      const after = digest(state);
-      moves.push({ seat, action, stops: settings, after });
+      const after = digest(state, includeBattlefieldStatus);
+      moves.push({ seat, action, stops: settings, after, ...(includeBattlefieldStatus && { battlefieldStatusVersion: 1 }) });
       pending = {};
       if (state.stage === "finished") await engine.close();
     } catch (error) {
@@ -241,27 +257,39 @@ export async function createGame({ decks, seed, checkpoint: saved, install = pro
   }
   function validateStops(values) {
     if (!values || typeof values !== "object" || Array.isArray(values) ||
-        Object.entries(values).some(([seat, value]) => !seats.includes(seat) || !stops.has(value))) {
+        Object.entries(values).some(([seat, value]) => !seats.includes(seat) || !validPriorityToken(value))) {
       throw new Error("Invalid saved priority settings.");
     }
     return { ...values };
   }
+  async function replayStep(step) {
+    if (step.battlefieldStatusVersion !== undefined && step.battlefieldStatusVersion !== 1) {
+      throw new Error("Unknown saved battlefield format.");
+    }
+    pending = validateStops(step.stops);
+    // Older moves retain their original hash. Moves made after the upgrade
+    // also verify the complete public battlefield, including granted keywords.
+    await advance(step.seat, step.action, pending, step.battlefieldStatusVersion === 1);
+    if (moves.at(-1).after !== step.after) throw new Error("Forge could not reproduce a saved decision.");
+  }
   try {
     state = await engine.next();
-    initial = digest(state);
+    initial = digest(state, false);
     if (saved != null) {
       if (saved.version !== 1 || saved.initial !== initial || !Array.isArray(saved.moves)) {
         throw new Error("Forge could not reproduce the saved opening position.");
       }
-      for (const step of saved.moves) {
-        pending = validateStops(step.stops);
-        await advance(step.seat, step.action);
-        if (moves.at(-1).after !== step.after) throw new Error("Forge could not reproduce a saved decision.");
-      }
+      for (const step of saved.moves) await replayStep(step);
       pending = validateStops(saved.pending);
+    } else {
+      // Settings take effect on the first move after opening hands. Keeping
+      // the initial snapshot identical also supports version-1 replay cursors.
+      for (const seat of seats) pending[seat] = encodePriority(priorities[seat] ?? {own:[],opponent:[]});
     }
     return {
-      view, close,
+      view, close, replayStep,
+      outcome: () => state.stage === "finished"
+        ? { winner: state.winner === "draw" ? null : state.winner, reason: "rules" } : null,
       exportManual: () => serialized(async () => {
         if (closed || state.stage !== "decision") throw new Error("Manual play requires a suspended decision.");
         const nonce = randomUUID();
@@ -271,14 +299,24 @@ export async function createGame({ decks, seed, checkpoint: saved, install = pro
       checkpoint: () => structuredClone({ version: 1, initial, moves, pending }),
       act: (seat, action, revision) => serialized(async () => {
         checkRevision(revision);
-        await advance(seat, action);
+        // Replay uses its original protocol throughout. On the first live move
+        // at an older position, upgrade each seat's previous setting. Honor an
+        // already armed one-shot "next" until the bridge consumes it.
+        const settings = { ...pending };
+        for (const owner of seats) {
+          const previous = pending[owner] ?? state.priorityStops[owner];
+          if (!previous.startsWith("v2:") && previous !== "next") {
+            settings[owner] = encodePriority(decodePriority(previous));
+          }
+        }
+        await advance(seat, action, settings);
         return view(seat);
       }),
       stop: (seat, stop, revision) => serialized(() => {
         checkRevision(revision);
         requireSeat(seat);
-        if (state.stage !== "decision" || !stops.has(stop)) throw new Error("Invalid priority stop.");
-        pending[seat] = stop;
+        if (state.stage !== "decision") throw new Error("Invalid priority stop.");
+        pending[seat] = encodePriority(typeof stop === "string" ? decodePriority(stop) : stop);
         return view(seat);
       }),
     };

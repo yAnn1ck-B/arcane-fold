@@ -25,9 +25,9 @@ export function RemoteManualTable({ state, matchTools, reportContext, submitRepo
     <CardImageSource.Provider value={(card, face) => "/api/art?" + new URLSearchParams({
       name: card.name, set: card.setCode ?? "", number: card.collectorNumber ?? "", face,
     })}>
-      <ProjectedTable view={state.view} viewer={viewer} matchTools={matchTools} imageCacheDir=""
+      <ProjectedTable view={state.view} viewer={viewer} matchTools={matchTools}
         reportContext={reportContext} submitReport={submitReport} requiredOpening={state.requiredOpening}
-        openingCanAct={canAct} locked={locked || !canAct} looking={state.looking}
+        openingCanAct={canAct && state.stage === "decision"} locked={locked || !canAct} looking={state.looking}
         dispatch={action => {
           if (action.type === "shuffle" || action.type === "mulligan") send({ type: action.type, seat: action.seat });
           else send(action);

@@ -61,16 +61,16 @@ export function TapForMana({
 }
 
 export function ManaPool({
-  player, amounts, total, onChange, onClear,
+  playerName, amounts, total, onChange, onClear,
 }: {
-  player: number;
+  playerName: string;
   amounts?: Record<Mana, number>;
   total: number;
   onChange?: (color: Mana, delta: number) => void;
   onClear?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const title = `Player ${player} mana pool`;
+  const title = `${playerName}'s mana pool`;
   return (
     <>
       <button
@@ -84,7 +84,7 @@ export function ManaPool({
         <Droplet size={14} aria-hidden /> <b>{total}</b>
       </button>
       {open && (
-        <TableDialog title="Mana pool" label={title} subtitle={`Player ${player} · ${total} mana`} onClose={() => setOpen(false)} className="pt-mana-dialog">
+        <TableDialog title="Mana pool" label={title} subtitle={`${playerName} · ${total} mana`} onClose={() => setOpen(false)} className="pt-mana-dialog">
           {amounts || total === 0 ? (
             <ul className="pt-mana-balances">
               {manaTypes.map((color) => (

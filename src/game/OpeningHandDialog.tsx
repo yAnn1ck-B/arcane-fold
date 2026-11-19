@@ -1,26 +1,24 @@
 import { useState, type ReactNode } from "react";
 import { Shuffle } from "lucide-react";
 import { TableDialog } from "./TableDialog";
-import type { ForgeChoice, ForgeSeat } from "./forge-match";
+import type { ForgeChoice } from "./forge-match";
 import "./opening-hand.css";
 
 export function OpeningHandDialog({
-  player,
+  playerName,
   hand,
   prompt,
   actions,
   required = true,
   allowTable = false,
-  tools,
   error,
 }: {
-  player: number;
+  playerName: string;
   hand?: ReactNode;
   prompt?: string;
   actions: ReactNode;
   required?: boolean;
   allowTable?: boolean;
-  tools?: ReactNode;
   error?: ReactNode;
 }) {
   const [open, setOpen] = useState<boolean | undefined>(undefined);
@@ -39,10 +37,10 @@ export function OpeningHandDialog({
   }
   return (
     <TableDialog
-      title="Opening hand"
-      subtitle={`Player ${player}`}
+      title={`${playerName}’s opening hand`}
       className="pt-opening-dialog"
-      closeLabel="View table"
+      reportable={false}
+      closeLabel="View battlefield"
       onClose={canClose ? () => setOpen(false) : undefined}
     >
       {error}
@@ -53,13 +51,12 @@ export function OpeningHandDialog({
       )}
       {hand && <div className="pt-opening-cards">{hand}</div>}
       <div className="pt-opening-actions">{actions}</div>
-      {tools}
     </TableDialog>
   );
 }
 
 export function ForgeOpeningHand({
-  seat,
+  playerName,
   prompt,
   hand,
   choices,
@@ -67,9 +64,8 @@ export function ForgeOpeningHand({
   locked,
   error,
   allowTable,
-  tools,
 }: {
-  seat: ForgeSeat;
+  playerName: string;
   prompt: string;
   hand: ReactNode;
   choices: ForgeChoice[];
@@ -77,16 +73,14 @@ export function ForgeOpeningHand({
   locked: boolean;
   error?: ReactNode;
   allowTable?: boolean;
-  tools?: ReactNode;
 }) {
   return (
     <OpeningHandDialog
-      player={seat === "player" ? 1 : 2}
+      playerName={playerName}
       hand={hand}
       prompt={prompt}
       error={error}
       allowTable={allowTable}
-      tools={tools}
       actions={
         <>
           {choices.map((choice) => (

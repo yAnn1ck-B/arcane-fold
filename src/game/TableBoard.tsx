@@ -4,41 +4,43 @@ import {
   Hand,
   Heart,
   Layers,
-  LogOut,
+  Ellipsis,
+  DoorOpen,
   Orbit,
   PanelRightClose,
   ScrollText,
+  SlidersHorizontal,
   Skull,
   SquareStack,
-  Undo2,
 } from "lucide-react";
 import {
   useId,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
   type Ref,
 } from "react";
-import { GameHistory } from "./GameHistory";
 import { GameIssueButton } from "./GameIssueButton";
+import { PriorityStopsDialog, type PriorityStopSettings } from "./PriorityStopsDialog";
 import type { BattlefieldGroup } from "./battlefield";
 import type { HistoryEntry } from "./types";
+import type { ForgeSeat } from "./forge-match";
 import "./table.css";
 import "./controls.css";
 
 export interface MatchTools {
+  seatNames: Record<ForgeSeat, string>;
   history: HistoryEntry[];
-  onUndo?: () => void;
-  undoDisabled: boolean;
   onLeave: () => void;
   leaveLabel: string;
   leaveDisabled?: boolean;
   actionStatus?: ReactNode;
-  logActions?: ReactNode;
-  decisionTools?: ReactNode;
+  historyLog: ReactNode;
   manualSwitch?: ReactNode;
-  openingRecovery?: ReactNode;
+  concede?: ReactNode;
+  decisionError?: ReactNode;
 }
 
 const zoneIcons = {
@@ -95,12 +97,12 @@ export function ZoneCounter({
 }
 
 export function SwitchPlayer({
-  player,
+  playerName,
   onSwitch,
   disabled,
   focusRef,
 }: {
-  player: number;
+  playerName: string;
   onSwitch: () => void;
   disabled?: boolean;
   focusRef?: Ref<HTMLButtonElement>;
@@ -112,17 +114,69 @@ export function SwitchPlayer({
       onClick={onSwitch}
       disabled={disabled}
       ref={focusRef}
-      aria-label={`Switch to Player ${player}`}
-      data-hint={`Switch to Player ${player}`}
+      aria-label={`Switch to ${playerName}`}
+      data-hint={`Switch to ${playerName}`}
     >
       <ArrowLeftRight size={16} aria-hidden />
     </button>
   );
 }
 
+function TableOptions({ matchTools, priorityControl }: { matchTools: MatchTools; priorityControl?: PriorityStopSettings }) {
+  const [open, setOpen] = useState(false);
+  const [showPriority, setShowPriority] = useState(false);
+  const toolbar = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const optionsId = useId();
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (!toolbar.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+  return <div className="pt-options" ref={toolbar}
+    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
+    onKeyDown={event => {
+      if (event.key === "Escape" && open) {
+        event.preventDefault();
+        setOpen(false);
+        trigger.current?.focus();
+      }
+    }}>
+    <button type="button" className="pt-tool" aria-label="More game options" data-hint="More game options"
+      ref={trigger} aria-expanded={open} aria-controls={optionsId} onClick={() => setOpen(value => !value)}>
+      <Ellipsis size={18} aria-hidden />
+    </button>
+    {open && <div id={optionsId} className="pt-options-list" role="group" aria-label="Game options"
+      onClick={event => {
+        if ((event.target as Element).closest("button")) {
+          setOpen(false);
+          trigger.current?.focus();
+        }
+      }}>
+      {priorityControl && <button type="button" className="pt-tool" disabled={priorityControl.locked}
+        aria-haspopup="dialog" onClick={() => setShowPriority(true)}>
+        <SlidersHorizontal size={16} aria-hidden />Priority stops
+        <small className="pt-stop-mode">{priorityControl.stops.own.length || priorityControl.stops.opponent.length ? "Manual" : "Automatic"}</small>
+      </button>}
+      {matchTools.manualSwitch}
+      {matchTools.concede}
+      <GameIssueButton showLabel />
+      <button type="button" className="pt-tool" disabled={matchTools.leaveDisabled} onClick={matchTools.onLeave}>
+        <DoorOpen size={16} aria-hidden />{matchTools.leaveLabel}
+      </button>
+    </div>}
+    {showPriority && priorityControl && <PriorityStopsDialog {...priorityControl} onClose={() => setShowPriority(false)} />}
+  </div>;
+}
+
 export function TableBoard({
   label,
   toolbar,
+  actions,
+  priorityControl,
   switchPlayer,
   seats,
   handCount,
@@ -135,6 +189,8 @@ export function TableBoard({
 }: {
   label: string;
   toolbar: ReactNode;
+  actions: ReactNode;
+  priorityControl?: PriorityStopSettings;
   switchPlayer?: ReactNode;
   seats: ReactNode;
   handCount: number;
@@ -203,7 +259,7 @@ export function TableBoard({
       {matchTools.actionStatus}
       <div className="pt-turnbar">
         {toolbar}
-        <div className="pt-table-tools" role="group" aria-label="Table tools">
+        <div className="pt-table-tools" role="group" aria-label="Game tools">
           <button
             type="button"
             className="pt-tool"
@@ -229,32 +285,10 @@ export function TableBoard({
           >
             <ScrollText size={16} aria-hidden />
           </button>
-          {matchTools.onUndo && (
-            <button
-              type="button"
-              className="pt-tool"
-              aria-label="Undo"
-              data-hint="Undo"
-              disabled={matchTools.undoDisabled}
-              onClick={matchTools.onUndo}
-            >
-              <Undo2 size={16} aria-hidden />
-            </button>
-          )}
           {switchPlayer}
-          {matchTools.manualSwitch}
-          <GameIssueButton />
-          <button
-            type="button"
-            className="pt-tool"
-            aria-label={matchTools.leaveLabel}
-            data-hint={matchTools.leaveLabel}
-            disabled={matchTools.leaveDisabled}
-            onClick={matchTools.onLeave}
-          >
-            <LogOut size={16} aria-hidden />
-          </button>
+          <TableOptions matchTools={matchTools} priorityControl={priorityControl} />
         </div>
+        {actions}
       </div>
       <div className={`pt-table-layout${panel ? " pt-with-panel" : ""}`}>
         <div className="pt-arena">
@@ -308,7 +342,7 @@ export function TableBoard({
           <div className="pt-panel-body" hidden={panel !== "stack"}>
             {stack}
           </div>
-          {panel === "log" && <>{matchTools.logActions}<GameHistory entries={matchTools.history} /></>}
+          {panel === "log" && matchTools.historyLog}
         </aside>
       </div>
       {children}
@@ -316,9 +350,14 @@ export function TableBoard({
   );
 }
 
+export function TurnSummary({ turn, activeName }: { turn: number; activeName: string }) {
+  if (turn < 1) return null;
+  return <p className="pt-turn-summary">Turn {turn} <span aria-hidden>·</span> {activeName}’s turn</p>;
+}
+
 export function TableSeat({
   own,
-  player,
+  playerName,
   piles,
   resources,
   battlefieldAction,
@@ -326,7 +365,7 @@ export function TableSeat({
   cards,
 }: {
   own: boolean;
-  player: number;
+  playerName: string;
   piles?: ReactNode;
   resources: ReactNode;
   battlefieldAction?: ReactNode;
@@ -351,14 +390,14 @@ export function TableSeat({
     <>
       <header className="pt-seat-heading">
         <h2 className="pt-seat-title">
-          <b>P{player}</b> {own ? "You" : "Opponent"}
+          {playerName}
         </h2>
         {resources}
         {piles && (
           <div
             className="pt-piles"
             role="group"
-            aria-label={`Player ${player} zones`}
+            aria-label={`${playerName}'s zones`}
           >
             {piles}
           </div>
@@ -371,7 +410,7 @@ export function TableSeat({
   return (
     <section
       className={`pt-seat ${own ? "pt-own" : "pt-opponent"}`}
-      aria-label={`Player ${player} battlefield`}
+      aria-label={`${playerName}'s battlefield`}
     >
       {!own && seatTools}
       {cards.length ? (

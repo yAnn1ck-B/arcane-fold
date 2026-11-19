@@ -1,38 +1,28 @@
 import http from 'node:http';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate, pool, transaction } from './db.mjs';
-import { closeGames, createRoom, joinRoom, lobby, move, reject, report, roomHistory, roomView, tableRequest } from './rooms.mjs';
+import { closeGames, createRoom, joinRoom, lobby, move, reject, report, resumeRoom, roomHistory, roomView, tableRequest } from './rooms.mjs';
 import { leagueCommand } from './league.mjs';
 import { deckCatalogCommand } from './league-decks.mjs';
 import { serveArt } from './art.mjs';
+import { activeAccount, allowsLocalPlay, readCookie, signIn, signOut } from './accounts.mjs';
 
 const root = fileURLToPath(new URL('../dist-web/', import.meta.url));
 const bind = process.env.WEB_HOST || '127.0.0.1';
 const port = Number(process.env.WEB_PORT || 4317);
 const allowed = new Set(process.env.WEB_ORIGIN ? [new URL(process.env.WEB_ORIGIN).origin] :
-  ['http://127.0.0.1:' + port, 'http://localhost:' + port]);
+  ['http://127.0.0.1:' + port, 'http://localhost:' + port, 'http://[::1]:' + port]);
 const localForge = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Forge 2.0.13');
 if (!process.env.FORGE_INSTALL && existsSync(path.join(localForge, 'forge-gui-desktop-2.0.13-jar-with-dependencies.jar'))) {
   process.env.FORGE_INSTALL = localForge;
 }
-const cookie = 'el_web_session';
-const digest = value => createHash('sha256').update(value).digest('hex');
-async function identity(req, res, create) {
-  const token = req.headers.cookie?.split(';').map(part => part.trim()).find(part => part.startsWith(cookie + '='))?.slice(cookie.length + 1);
-  if (/^[0-9a-f]{64}$/.test(token ?? '')) {
-    const result = await pool.query('SELECT id FROM web_players WHERE session_hash=$1', [digest(token)]);
-    if (result.rowCount) return result.rows[0].id;
-  }
-  if (!create) reject(401, 'Open the lobby to start your browser session.');
-  const id = randomUUID(), key = randomBytes(32).toString('hex');
-  await pool.query('INSERT INTO web_players(id,session_hash) VALUES($1,$2)', [id, digest(key)]);
+const loginCookie = 'el_web_login';
+function writeLoginCookie(res, token) {
   const secure = process.env.WEB_ORIGIN?.startsWith('https://') ? '; Secure' : '';
-  res.setHeader('Set-Cookie', cookie + '=' + key + '; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000' + secure);
-  return id;
+  res.setHeader('Set-Cookie', loginCookie + '=' + token + '; HttpOnly; SameSite=Lax; Path=/; Max-Age=' + (token ? 31536000 : 0) + secure);
 }
 async function payload(req) {
   if (req.headers['content-type']?.split(';')[0] !== 'application/json') reject(415, 'Send JSON.');
@@ -51,16 +41,45 @@ async function payload(req) {
 }
 async function api(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/art') return serveArt(url, res);
-  const initial = req.method === 'GET' && url.pathname === '/api/session';
-  const player = await identity(req, res, initial);
-  if (initial) return lobby(player);
-  const match = /^\/api\/rooms\/([a-z0-9-]+)(?:\/(actions|reports|history|requests))?$/.exec(url.pathname);
+  const previousToken = readCookie(req, loginCookie);
+  const localPlay = allowsLocalPlay(req, url, bind);
+  if (req.method === 'POST' && (url.pathname === '/api/login' || url.pathname === '/api/local-login')) {
+    const local = url.pathname === '/api/local-login';
+    if (local && !localPlay) reject(403, 'Local play is available only on the host computer.');
+    const body = await payload(req);
+    const { user, token } = await transaction(db => signIn(db, body, {
+      local, previousToken, legacyToken: readCookie(req, 'el_web_session'),
+    }));
+    writeLoginCookie(res, token);
+    return { user, localPlay };
+  }
+  const account = await activeAccount(pool, previousToken);
+  if (req.method === 'GET' && url.pathname === '/api/auth') {
+    return { user: account && { name: account.name, email: account.email }, localPlay };
+  }
+  const expectedAccount = req.headers['x-arcane-account'];
+  if (account && expectedAccount !== undefined && expectedAccount !== account.email) {
+    reject(401, 'Sign in to continue.');
+  }
+  if (req.method === 'POST' && url.pathname === '/api/logout') {
+    await payload(req);
+    if (account) {
+      await signOut(pool, previousToken);
+      writeLoginCookie(res, '');
+    }
+    return { user: null, localPlay };
+  }
+  if (!account) reject(401, 'Sign in to continue.');
+  const player = account.player_id;
+  if (req.method === 'GET' && url.pathname === '/api/session') return lobby(player);
+  const match = /^\/api\/rooms\/([a-z0-9-]+)(?:\/(actions|reports|history|requests|resume))?$/.exec(url.pathname);
   if (req.method === 'GET' && match && !match[2]) return roomView(match[1], player);
   if (req.method === 'GET' && match?.[2] === 'history') return roomHistory(match[1], player);
   if (req.method !== 'POST') reject(404, 'Endpoint unavailable.');
   const body = await payload(req);
   if (url.pathname === '/api/rooms') return createRoom(player, body.deckId);
-  if (url.pathname === '/api/join') return joinRoom(player, body.code, body.deckId);
+  if (url.pathname === '/api/join') return joinRoom(player, body.roomId, body.deckId);
+  if (match?.[2] === 'resume') return resumeRoom(player, match[1]);
   if (match?.[2] === 'actions') return move(match[1], player, body);
   if (match?.[2] === 'requests') return tableRequest(match[1], player, body);
   if (match?.[2] === 'reports') return report(match[1], player, body);

@@ -32,6 +32,29 @@ test("battlefield areas use public current-face types with one place for each pe
 function fixture() {
   return createMatch([deck("a"), deck("b")]);
 }
+
+test("manual battlefield markers follow a creature through entry, turns, changes of control and zone changes", () => {
+  let match = fixture();
+  const [creature, hasty] = match.players[0].zones.hand;
+  match.catalog[match.pieces[hasty].printing].oracleText = "Flying, haste";
+  match = change(match, {type:"cast",id:creature});
+  match = change(match, {type:"resolve",entry:match.stack[0].id});
+  assert.equal(match.pieces[creature].summoningSick, true);
+  match = change(match, {type:"move",id:hasty,zone:"battlefield"});
+  assert.equal(match.pieces[hasty].summoningSick, undefined);
+  match = change(match, {type:"markStatus",id:creature,status:"phasedOut",marked:true});
+  assert.equal(projectMatch(match,1).pieces[creature].phasedOut,true);
+  match = change(match, {type:"markStatus",id:creature,status:"phasedOut",marked:false});
+  match = change(match, {type:"nextTurn"});
+  assert.equal(match.pieces[creature].summoningSick,true);
+  match = change(match, {type:"nextTurn"});
+  assert.equal(match.pieces[creature].summoningSick,undefined);
+  match = change(match, {type:"control",id:creature});
+  assert.equal(match.pieces[creature].summoningSick,true);
+  match = change(match, {type:"move",id:creature,zone:"hand"});
+  assert.equal(match.pieces[creature].summoningSick,undefined);
+  assert.throws(() => applyAction(match, {type:"markStatus",id:creature,status:"summoningSick",marked:true}));
+});
 function change(state, action) {
   const next = applyAction(state, action);
   assert.ok(
@@ -40,6 +63,42 @@ function change(state, action) {
   );
   return next;
 }
+
+test("an issue report freezes the reporting seat's view, choices and public history", async () => {
+  const { captureForgeIssue, captureManualIssue, freezeGameIssue } = await import(moduleUrl("issue-report"));
+  const match = fixture();
+  const view = projectMatch(match, 1);
+  const history = [{ turn: 1, text: "Game started" }];
+  const manual = freezeGameIssue(captureManualIssue("game", 3, view, history), "test");
+  assert.equal(manual.viewer, "opponent");
+  assert.equal(manual.revision, 3);
+  assert.deepEqual(manual.board.players[0].zones.hand, []);
+  assert.deepEqual(manual.board.players[1].zones.library, []);
+  const hidden = match.players[0].zones.hand[0];
+  assert.ok(!Object.hasOwn(manual.board.pieces, hidden));
+  assert.ok(!Object.hasOwn(manual.board.catalog, match.pieces[hidden].printing));
+  history.push({ turn: 10, text: "Later event" });
+  assert.equal(manual.history.length, 1);
+
+  const position = {
+    revision: 12, stack: [{ name: "Shock" }], choices: [{ id: "c1", label: "Respond" }],
+    history: [{ turn: 2, text: "Shock was cast." }],
+  };
+  const forge = freezeGameIssue(captureForgeIssue("game", "player", position), "test", [{ label: "Pass" }], "Stack");
+  position.stack.pop();
+  position.choices[0].label = "Next";
+  position.history.length = 0;
+  assert.deepEqual(forge.board.stack, [{ name: "Shock" }]);
+  assert.equal(forge.actions[0].label, "Respond");
+  assert.equal(forge.visibleControls[0].label, "Pass");
+  assert.equal(forge.visibleDialog, "Stack");
+  assert.equal(forge.history[0].text, "Shock was cast.");
+  assert.equal(forge.id.length, 36);
+  assert.equal(forge.revision, 12);
+  const failed = captureForgeIssue("game", "player", null, "Forge could not start.");
+  assert.equal(failed.board, null);
+  assert.equal(failed.error, "Forge could not start.");
+});
 
 test("snapshots main-deck copies and creates a private view for either seat", () => {
   const decks = [deck("a"), deck("b")];

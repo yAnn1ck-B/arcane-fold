@@ -267,6 +267,23 @@ function detach(state: Match, id: string) {
   for (const card of Object.values(state.pieces))
     if (card.attachedTo === id) card.attachedTo = null;
 }
+function markNewController(state: Match, card: Piece) {
+  // Manual play can override a marker for granted haste, animation or a custom token.
+  // Only use the public face when determining the default.
+  if (card.faceDown) return;
+  const printed = card.printing ? state.catalog[card.printing] : undefined;
+  const face = card.back ? 1 : 0;
+  const type = printed?.typeLine.split(/\s*\/\/\s*/)[face] ?? "";
+  const knownCreature = /\bCreature\b/i.test(type.split(/[—–]|\s-\s/)[0]) || card.power !== undefined;
+  if (!knownCreature) return;
+  const text = printed?.oracleText.split(/\s*\/\/\s*/)[face] ?? "";
+  const haste = printed?.printedHaste?.[face] ?? text.split("\n").some(line => {
+    const abilities = line.replace(/\s*\([^)]*\)/g, "").trim();
+    return !/[.!?:"]/.test(abilities) && abilities.split(/,\s*/).some(ability => /^haste$/i.test(ability.trim()));
+  });
+  if (haste) delete card.summoningSick;
+  else card.summoningSick = true;
+}
 function put(state: Match, card: Piece, zone: Zone, bottom = false) {
   if (card.tokenName !== null && zone !== "battlefield" && zone !== "command") {
     delete state.pieces[card.id];
@@ -286,6 +303,7 @@ function move(state: Match, id: string, zone: Zone, bottom: boolean) {
   if (location.zone !== zone) {
     detach(state, id);
     state.pieces[id] = newPiece(id, card.owner, card.printing, card.tokenName);
+    if (zone === "battlefield") markNewController(state, state.pieces[id]);
   }
   if (zone === "library") state.pieces[id].revealed = false;
   put(state, state.pieces[id], zone, bottom);
@@ -328,10 +346,13 @@ function token(
   seat: Seat,
   name: string,
   printing: string | null = null,
+  back = false,
 ) {
   const id = "token-" + state.nextId++;
   const card = newPiece(id, seat, printing, textValue(name, "Token name"));
+  card.back = back;
   state.pieces[id] = card;
+  markNewController(state, card);
   put(state, card, "battlefield");
   return card;
 }
@@ -368,6 +389,7 @@ function finishEntry(
         card.printing,
         card.tokenName,
       );
+    if (zone === "battlefield") markNewController(state, state.pieces[card.id]);
     put(state, state.pieces[card.id], zone);
   } else if (item.copyKind === "spell" && action.type === "resolve") {
     const card = newPiece("", item.controller, item.copyPrinting, null);
@@ -377,8 +399,7 @@ function finishEntry(
       (action.zone ?? defaultDestination(state.catalog, card)) === "battlefield"
     ) {
       const name = item.copyFaceDown ? "2/2 creature" : item.label;
-      token(state, item.controller, name, item.copyPrinting).back =
-        item.copyBack;
+      token(state, item.controller, name, item.copyPrinting, item.copyBack);
     }
   }
 }
@@ -457,6 +478,12 @@ export function applyAction(previous: Match, action: Action): Match {
       card.tapped = !card.tapped;
       break;
     }
+    case "markStatus": {
+      const card = battlefieldPiece(state, action.id);
+      if (action.marked) card[action.status] = true;
+      else delete card[action.status];
+      break;
+    }
     case "tapMana": {
       const card = battlefieldPiece(state, action.id);
       requireThat(!card.tapped, "This permanent is already tapped.");
@@ -488,6 +515,7 @@ export function applyAction(previous: Match, action: Action): Match {
       const pile = state.players[card.controller].zones.battlefield;
       pile.splice(pile.indexOf(card.id), 1);
       card.controller = otherSeat(card.controller);
+      markNewController(state, card);
       card.combat = null;
       delete card.combatTargets;
       state.players[card.controller].zones.battlefield.unshift(card.id);
@@ -684,6 +712,7 @@ function isPrinting(id: string, card: unknown) {
     natural(card.owned) &&
     nullableText(card.imageUri) &&
     nullableText(card.backImageUri) &&
+    (card.printedHaste === undefined || (Array.isArray(card.printedHaste) && card.printedHaste.every(v => typeof v === "boolean"))) &&
     Array.isArray(card.colors) &&
     card.colors.every(text)
   );
