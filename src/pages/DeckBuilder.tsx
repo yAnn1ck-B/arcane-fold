@@ -264,13 +264,13 @@ function DeckCardTitle({
       <button
         type="button"
         className="deck-oracle-name"
-        title={card.name}
+        data-hint={card.name}
         onClick={onDetails}
       >
         {card.name}
       </button>
       {mana && (
-        <span className="deck-card-title-mana" title={mana}>
+        <span className="deck-card-title-mana" data-hint={mana}>
           {mana}
         </span>
       )}
@@ -314,6 +314,7 @@ function DeckDialog({
           size="icon"
           onClick={onClose}
           aria-label={`Close ${title}`}
+          data-hint="Close"
         >
           <X size={18} />
         </Button>
@@ -1293,7 +1294,7 @@ export default function DeckBuilder({
                 <select
                   id="deck-saved-selection"
                   value={id ?? ""}
-                  title={name || "Choose or create a deck"}
+                  data-hint={name || "Choose or create a deck"}
                   aria-busy={loadingDecks}
                   disabled={loadingDecks || !!busy || !decks.length}
                   onChange={(event) =>
@@ -1318,7 +1319,7 @@ export default function DeckBuilder({
               <Button
                 size="icon"
                 variant="ghost"
-                title="Rename deck"
+                data-hint="Rename deck"
                 aria-label="Rename deck"
                 disabled={!!busy}
                 onClick={() => {
@@ -1349,7 +1350,7 @@ export default function DeckBuilder({
               <Button
                 size="icon"
                 variant="ghost"
-                title="Copy deck"
+                data-hint="Copy deck"
                 aria-label="Copy deck"
                 disabled={!!busy || !id || hasUnownedCards}
                 onClick={promptForCopy}
@@ -1359,7 +1360,7 @@ export default function DeckBuilder({
               <Button
                 size="icon"
                 variant="ghost"
-                title="Download Forge deck (.dck)"
+                data-hint="Download Forge deck (.dck)"
                 aria-label="Download Forge deck (.dck)"
                 disabled={!!busy || !name.trim() || !entries.length}
                 onClick={downloadForgeDeck}
@@ -1370,7 +1371,7 @@ export default function DeckBuilder({
                 size="icon"
                 variant="ghost"
                 aria-label="Delete saved deck"
-                title="Delete saved deck"
+                data-hint="Delete saved deck"
                 disabled={!!busy || !selectedSummary}
                 onClick={() => {
                   setDeleteError(null);
@@ -1434,7 +1435,7 @@ export default function DeckBuilder({
                 aria-label={
                   browserOpen ? "Hide card browser" : "Show card browser"
                 }
-                title={browserOpen ? "Hide card browser" : "Show card browser"}
+                data-hint={browserOpen ? "Hide card browser" : "Show card browser"}
                 aria-expanded={browserOpen}
                 aria-controls="deck-browser"
                 onClick={() => setBrowserOpen((open) => !open)}
@@ -1501,6 +1502,7 @@ export default function DeckBuilder({
                           variant="ghost"
                           disabled={!!busy}
                           aria-label={`Remove one ${card.name} from ${section}`}
+                          data-hint="Remove one copy"
                           onClick={() => removeGroupCard(group)}
                         >
                           <Minus size={15} />
@@ -1514,7 +1516,7 @@ export default function DeckBuilder({
                           size="icon"
                           variant="ghost"
                           disabled={!!busy || !!reason}
-                          title={reason ?? "Add one copy"}
+                          data-hint={reason ?? "Add one copy"}
                           aria-label={`Add one ${card.name} to ${section}`}
                           onClick={() => changeCard(card, section, 1)}
                         >
@@ -1538,7 +1540,7 @@ export default function DeckBuilder({
                   <div
                     className="deck-curve-column"
                     key={index}
-                    title={`${index === 6 ? "6 or more" : index} mana: ${count} cards`}
+                    data-hint={`${index === 6 ? "6 or more" : index} mana · ${count} cards`}
                   >
                     <span className="deck-curve-value">{count || ""}</span>
                     <div className="deck-curve-track">
@@ -1553,7 +1555,7 @@ export default function DeckBuilder({
               <span className="eyebrow">CARD COLORS</span>
               <div>
                 {Object.keys(colorNames).map((key) => (
-                  <span key={key} title={colorNames[key]}>
+                  <span key={key} data-hint={colorNames[key]}>
                     <i className={`mana-color mana-${key.toLowerCase()}`}>
                       {key}
                     </i>
@@ -1587,7 +1589,7 @@ export default function DeckBuilder({
               <span className="eyebrow">MANA SOURCES · {manaSources} CARDS</span>
               <div>
                 {Object.entries(colorNames).map(([key, label]) => (
-                  <span key={key} title={label}>
+                  <span key={key} data-hint={label}>
                     <i
                       className={`mana-color mana-${key.toLowerCase()}`}
                       aria-label={label}
@@ -1646,6 +1648,7 @@ export default function DeckBuilder({
                 variant="ghost"
                 size="icon"
                 aria-label="Hide card browser"
+                data-hint="Hide card browser"
                 onClick={() => setBrowserOpen(false)}
               >
                 <PanelRightClose size={17} />
@@ -1731,7 +1734,7 @@ export default function DeckBuilder({
                         <div className="deck-browser-card-actions">
                           <span
                             className="deck-browser-card-remaining"
-                            title={unlimited ? "Unlimited basic land copies" : "Owned copies remaining"}
+                            data-hint={unlimited ? "Unlimited basic land copies" : "Owned copies remaining"}
                           >
                             {unlimited ? "∞" : remaining}
                           </span>
@@ -1739,7 +1742,7 @@ export default function DeckBuilder({
                             size="icon"
                             variant="secondary"
                             aria-label={`Add ${card.name} to ${section}`}
-                            title={reason ?? "Add one copy"}
+                            data-hint={reason ?? "Add one copy"}
                             disabled={!!busy || !!reason}
                             onClick={() => changeCard(card, section, 1)}
                           >
@@ -1758,6 +1761,7 @@ export default function DeckBuilder({
                   variant="ghost"
                   size="icon"
                   aria-label="Previous card page"
+                  data-hint="Previous card page"
                   disabled={query.page === 0 || pickerLoading}
                   onClick={() =>
                     setQuery((current) => ({
@@ -1775,6 +1779,7 @@ export default function DeckBuilder({
                   variant="ghost"
                   size="icon"
                   aria-label="Next card page"
+                  data-hint="Next card page"
                   disabled={
                     (query.page + 1) * pageSize >= pickerTotal || pickerLoading
                   }
@@ -2042,6 +2047,7 @@ export default function DeckBuilder({
                       variant="outline"
                       size="icon"
                       aria-label="Add fewer copies"
+                      data-hint="Add fewer copies"
                       disabled={!!busy || addFlow.quantity <= 1}
                       onClick={() => {
                         setTargetError(null);
@@ -2062,6 +2068,7 @@ export default function DeckBuilder({
                       variant="outline"
                       size="icon"
                       aria-label="Add more copies"
+                      data-hint="Add more copies"
                       disabled={
                         !!busy ||
                         !!blockedReason(

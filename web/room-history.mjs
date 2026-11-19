@@ -42,16 +42,27 @@ function legacyReferenceList(expected, actual, field) {
   });
 }
 
+function withoutBattlefieldGrouping(view) {
+  if (!view.players) return view;
+  return { ...view, players:Object.fromEntries(seats.map(seat => {
+    const board = view.players[seat];
+    return [seat, { ...board, battlefield:board.battlefield.map(({ groupingState, ...card }) => card) }];
+  })) };
+}
+
 function compareView(expected, actual, ignoreStops = false) {
-  const { revision: originalRevision, ...a } = expected;
+  // Snapshot-local grouping ordinals only affect layout.
+  const { revision: originalRevision, ...a } = withoutBattlefieldGrouping(expected);
   const restored = expected.battlefieldStatusVersion === undefined ? legacyBattlefieldView(actual) : actual;
-  const { revision: restoredRevision, ...b } = restored;
+  const { revision: restoredRevision, ...b } = withoutBattlefieldGrouping(restored);
+  if (a.damageAssignment === undefined) delete b.damageAssignment;
   if (b.stack) b.stack = legacyReferenceList(a.stack, b.stack, "targetRefs");
   if (b.choices) {
     if (!a.choices?.some(choice => choice.block?.reassign)) {
       b.choices = b.choices.filter(choice => !choice.block?.reassign);
     }
     b.choices = legacyReferenceList(a.choices, b.choices, "block");
+    b.choices = legacyReferenceList(a.choices, b.choices, "passTurnId");
   }
   if (b.players) b.players = Object.fromEntries(seats.map(seat => [seat, {
     ...b.players[seat],

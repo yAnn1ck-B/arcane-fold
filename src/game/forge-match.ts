@@ -38,12 +38,14 @@ export interface ForgeCard {
   manaCost?: string;
   damage?: number;
   counters?: Record<string, number>;
+  groupingState?: number; // Snapshot-local equivalence, with -1 for an ungroupable card.
 }
 
 export interface ForgeChoice {
   id: string;
   manaAbility?: boolean;
   endTurnId?: string;
+  passTurnId?: string;
   label: string;
   kind:
     | "card"
@@ -59,6 +61,24 @@ export interface ForgeChoice {
   cardId?: string;
   seat?: ForgeSeat;
   block?: { attackerId: string; remove: boolean; reassign?: boolean };
+}
+
+export interface ForgeDamageRecipient {
+  cardId?: string;
+  seat?: ForgeSeat;
+  label: string;
+  lethal: number;
+  assigned: number;
+  overflow?: true;
+}
+
+export interface ForgeDamageAssignment {
+  choiceId: string;
+  sourceCardId: string;
+  sourceName: string;
+  total: number;
+  recipients: ForgeDamageRecipient[];
+  deferId?: string;
 }
 
 interface ForgePlayer {
@@ -88,6 +108,7 @@ export interface ForgeMatch {
   phase: string;
   step?: string;
   librarySearch?: { title: string; operation?: string; cards: ForgeCard[] };
+  damageAssignment?: ForgeDamageAssignment;
   revealedToYou?: string[];
   players: Record<ForgeSeat, ForgePlayer>;
   stack: ForgeCard[];

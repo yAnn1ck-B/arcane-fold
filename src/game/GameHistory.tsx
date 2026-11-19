@@ -58,7 +58,7 @@ export function GameHistory({ entries, steps = [], onUndo, disabled }: {
                 {step && onUndo && (
                   <button type="button" className="pt-tool" disabled={disabled}
                     aria-label={`Request undo to step ${step.revision}: ${step.label}`}
-                    title="Request undo to this point" onClick={() => onUndo(step.revision)}>
+                    data-hint="Request undo to this point" onClick={() => onUndo(step.revision)}>
                     <Undo2 size={15} aria-hidden />
                   </button>
                 )}

@@ -502,7 +502,7 @@ function RevealedCard({
       <button type="button" className="booster-card-name" onClick={onSelect}>
         {card.name}
       </button>
-      <span title={`${expansion} #${card.collectorNumber} - ${card.rarity}`}>
+      <span data-hint={`${expansion} #${card.collectorNumber} · ${card.rarity}`}>
         {expansion} #{card.collectorNumber} · {card.rarity}
       </span>
     </article>
@@ -530,10 +530,11 @@ function HistoryRow({
         className="booster-history-toggle"
         onClick={onToggle}
         aria-expanded={expanded}
+        data-hint={expansion}
       >
         <Package size={18} />
         <span>
-          <strong title={expansion}>{expansion}</strong>
+          <strong>{expansion}</strong>
           <small>{formatDate(item.openedAt)}</small>
         </span>
         <span>{openingSummary(item.cards, item.duplicateWildcards)}</span>

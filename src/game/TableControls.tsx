@@ -553,7 +553,7 @@ function StackItem({
         )}
         <button
           type="button"
-          title="Copy onto the stack"
+          data-hint="Copy onto the stack"
           onClick={() =>
             dispatch({ type: "copy", entry: entry.id, seat: viewer })
           }
@@ -580,7 +580,7 @@ function StackItem({
             <button
               type="button"
               aria-label={`Move ${entry.label} up the stack`}
-              title="Move up the stack"
+              data-hint="Move up the stack"
               disabled={top}
               onClick={() =>
                 dispatch({
@@ -595,7 +595,7 @@ function StackItem({
             <button
               type="button"
               aria-label={`Move ${entry.label} down the stack`}
-              title="Move down the stack"
+              data-hint="Move down the stack"
               disabled={entry === view.stack.at(-1)}
               onClick={() =>
                 dispatch({

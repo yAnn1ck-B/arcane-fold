@@ -10,6 +10,7 @@ const {
   steps,
 } = await import(moduleUrl("engine", { "./types": moduleUrl("types") }));
 const { battlefieldGroup } = await import(moduleUrl("battlefield"));
+const { groupBattlefieldCards } = await import(moduleUrl("battlefield-groups"));
 
 test("battlefield areas use public current-face types with one place for each permanent", () => {
   for (const [card, group] of [
@@ -27,6 +28,41 @@ test("battlefield areas use public current-face types with one place for each pe
     [{ token: true }, "Other permanents"],
     [{}, "Other permanents"],
   ]) assert.equal(battlefieldGroup(card), group);
+});
+
+test("matching battlefield printings stack and regroup by tapped state", () => {
+  const forest = (id, patch = {}) => ({
+    id, name: "Forest", typeLine: "Basic Land — Forest",
+    setCode: "FDN", collectorNumber: "274", tapped: false, ...patch,
+  });
+  const forests = [forest("a"), forest("b"), forest("c")];
+  const ids = (cards) => groupBattlefieldCards(cards).map(group => group.map(card => card.id));
+  assert.deepEqual(ids(forests), [["a", "b", "c"]]);
+  forests[0] = forest("a", { tapped: true });
+  assert.deepEqual(ids(forests), [["a"], ["b", "c"]]);
+  forests[1] = forest("b", { tapped: true });
+  assert.deepEqual(ids(forests), [["a", "b"], ["c"]]);
+  assert.deepEqual(ids([...forests, forest("d", { collectorNumber: "272" })]), [["a", "b"], ["c"], ["d"]]);
+});
+
+test("creature stacks preserve distinct conditions, attachments, and combat positions", () => {
+  const creature = (id, patch = {}) => ({
+    id, name: "Llanowar Elves", tapped: false, summoningSick: true,
+    power: 2, toughness: 2, counters: { "+1/+1": 1, shield: 1 }, ...patch,
+  });
+  const cards = [
+    creature("same-a"), creature("same-b", { counters: { shield: 1, "+1/+1": 1 } }),
+    creature("ready", { summoningSick: false }), creature("damaged", { damage: 1 }),
+    creature("other-counter", { counters: { "+1/+1": 1 } }), creature("pumped", { power: 3 }),
+    creature("flying", { grantedKeywords: ["Flying"] }), creature("phased", { phasedOut: true }),
+    creature("different-effective-state", { groupingState: 2 }),
+    creature("linked-a", { groupingState: -1 }), creature("linked-b", { groupingState: -1 }),
+    creature("with-aura"), creature("attacker-a", { attacking: true }), creature("attacker-b", { attacking: true }),
+    creature("stack-target"), creature("face-down-a", { faceDown: true }), creature("face-down-b", { faceDown: true }),
+    { id: "aura", name: "Pacifism", tapped: false, attachedTo: "with-aura" },
+  ];
+  const groups = groupBattlefieldCards(cards, new Set(["stack-target"]));
+  assert.deepEqual(groups, [cards.slice(0, 2), ...cards.slice(2).map(card => [card])]);
 });
 
 function fixture() {

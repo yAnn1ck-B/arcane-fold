@@ -222,6 +222,7 @@ export default function CardDetails({
             variant="ghost"
             onClick={onClose}
             aria-label="Close card details"
+            data-hint="Close card details"
           >
             <X size={19} />
           </Button>

@@ -13,6 +13,7 @@ const units = [
 ];
 const sources = new URL("./forge-bridge/", import.meta.url);
 const jarName = "forge-gui-desktop-2.0.13-jar-with-dependencies.jar";
+const skipAttacksSuffix = "_skip_attacks";
 
 function requireSeat(seat) {
   if (!seats.includes(seat)) throw new Error("Unknown seat.");
@@ -76,6 +77,13 @@ function seatView(state, seat, revision, pending, seed) {
   };
   if (librarySearch) view.librarySearch = librarySearch;
   if (activeChoice && state.revealedToYou) view.revealedToYou = state.revealedToYou;
+  if (activeChoice && state.damageAssignment) {
+    const assignment = state.damageAssignment;
+    view.damageAssignment = {
+      ...assignment, sourceCardId: handle(assignment.sourceCardId),
+      recipients: assignment.recipients.map(item => item.cardId ? { ...item, cardId: handle(item.cardId) } : item),
+    };
+  }
   return structuredClone(view);
 }
 
@@ -100,29 +108,55 @@ export function legacyBattlefieldView(state) {
 function digest(state, includeBattlefieldStatus, includeBlockReferences = false) {
   // winner is terminal display metadata derived from Forge. Keep the version-1
   // replay input identical for journals created before it was exposed.
-  const { winner, ...replay } = includeBattlefieldStatus ? state : legacyBattlefieldView(state);
+  const { winner, damageAssignment, ...replay } = includeBattlefieldStatus ? state : legacyBattlefieldView(state);
   // Reassignments extend the UI choices. Their resulting assignments are
   // already checked by blockingIds, and older journal hashes omit the options.
   replay.choices = replay.choices.filter(choice => !choice.block?.reassign);
   const json = JSON.stringify(replay, (key, value) => {
     // Earlier journals hashed the original display snapshots. New moves also
     // verify the exact combat assignment when attackers share names.
-    if (key === "targetRefs" || (!includeBlockReferences && (key === "blockingIds" || key === "block"))) return undefined;
+    if (key === "passTurnId" || key === "targetRefs" || key === "groupingState" ||
+        (!includeBlockReferences && (key === "blockingIds" || key === "block"))) return undefined;
     if (!value || typeof value !== "object" || Array.isArray(value)) return value;
     return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]));
   });
   return createHash("sha256").update(json).digest("hex");
 }
 
+function legalDamageAssignment(assignment, payload) {
+  const values = payload.split(",");
+  if (values.length !== assignment.recipients.length) return false;
+  let remaining = assignment.total;
+  let lethalAssigned = true;
+  for (const [index, value] of values.entries()) {
+    if (!/^(?:0|[1-9][0-9]{0,9})$/.test(value)) return false;
+    const amount = Number(value);
+    const { lethal, overflow } = assignment.recipients[index];
+    if (amount > remaining || (overflow && amount > 0 && !lethalAssigned)) return false;
+    remaining -= amount;
+    if (amount < lethal) lethalAssigned = false;
+  }
+  return remaining === 0;
+}
+
 function legalAction(state, seat, action, pending) {
-  if (state.stage !== "decision" || state.actor !== seat ||
-      typeof action !== "string" || Buffer.byteLength(action) > 512 || /\p{Cc}/u.test(action)) return false;
+  if (state.stage !== "decision" || state.actor !== seat || typeof action !== "string") return false;
+  const damage = state.damageAssignment;
+  if (damage && action.startsWith(damage.choiceId + "|")) {
+    // At most a decimal int and one separator per recipient.
+    if (action.length > damage.choiceId.length + damage.recipients.length * 11) return false;
+    return legalDamageAssignment(damage, action.slice(damage.choiceId.length + 1));
+  }
+  if (Buffer.byteLength(action) > 512 || /\p{Cc}/u.test(action)) return false;
   const [id, cardName, ...extra] = action.split("|");
   if (extra.length) return false;
   const stop = pending[seat] ?? state.priorityStops[seat];
   return state.choices.some(option => {
-    if (action === option.endTurnId) return option.kind === "pass" && (stop === "auto" ||
-      (stop.startsWith("v2:") && !decodePriority(stop).own.length) || state.phase === "Ending phase");
+    if (action === option.passTurnId) return option.kind === "pass";
+    if (option.endTurnId && (action === option.endTurnId || action === option.endTurnId + skipAttacksSuffix)) {
+      return option.kind === "pass" && (stop === "auto" || (stop.startsWith("v2:") && !decodePriority(stop).own.length)
+        || state.phase === "Ending phase");
+    }
     if (id !== option.id) return false;
     return option.kind === "name" ? !!cardName?.trim() : cardName === undefined;
   });
@@ -345,7 +379,9 @@ export async function createGame({ decks, seed, checkpoint: saved, startingSeat,
             settings[owner] = encodePriority(decodePriority(previous));
           }
         }
-        await advance(seat, action, settings);
+        // Preserve the behavior of old journal moves and the choice ID on saved seat views.
+        const endTurn = state.choices.some(option => option.endTurnId && option.endTurnId === action);
+        await advance(seat, endTurn ? action + skipAttacksSuffix : action, settings);
         return view(seat);
       }),
       stop: (seat, stop, revision) => serialized(() => {

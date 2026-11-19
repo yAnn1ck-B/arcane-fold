@@ -76,6 +76,7 @@ export function TableDialog({
             className="pt-btn"
             autoFocus
             aria-label={closeLabel}
+            data-hint={closeLabel}
             onClick={onClose}
           >
             <X size={17} aria-hidden="true" />

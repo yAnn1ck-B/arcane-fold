@@ -203,7 +203,7 @@ function PlayerLeague({ user }: { user: NonNullable<AuthState["user"]> }) {
         <div className="web-account">
           <span className="web-avatar" aria-hidden>{user.name.charAt(0)}</span>
           <strong>{user.name}</strong>
-          <button type="button" onClick={() => void signOut()} disabled={signingOut} title="Sign out" aria-label="Sign out">
+          <button type="button" onClick={() => void signOut()} disabled={signingOut} data-hint="Sign out" aria-label="Sign out">
             <LogOut size={16} aria-hidden />
           </button>
         </div>

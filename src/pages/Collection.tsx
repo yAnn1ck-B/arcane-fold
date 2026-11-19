@@ -253,7 +253,7 @@ export default function Collection({
                 <button
                   className="card-name"
                   onClick={() => setSelected(card)}
-                  title={card.name}
+                  data-hint={card.name}
                 >
                   {card.name}
                 </button>

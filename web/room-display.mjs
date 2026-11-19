@@ -38,11 +38,19 @@ export function displayPosition(state, names, seat) {
       ...(handoff && {handoffDecision:{...handoff, text:prompt(handoff.text), choices:handoff.choices.map(prompt)}}),
     }};
   }
-  return {...state, history, prompt:prompt(state.prompt),
+  const displayPrompt = state.damageAssignment
+    ? `Assign combat damage from ${state.damageAssignment.sourceName}`
+    : prompt(state.prompt);
+  return {...state, history, prompt:displayPrompt,
     ...(state.priorityStop && {priorityStop:decodePriority(state.priorityStop)}),
     choices:state.choices?.map(choice => ({...choice, label:choice.kind === 'card' ? prompt(choice.label) : label(choice.label)})),
     stack:state.stack?.map(card => ({...card, ...(card.target && {target:label(card.target)}),
       ...(card.description && {description:label(card.description)})})),
+    ...(state.damageAssignment && {damageAssignment:{...state.damageAssignment,
+      recipients:state.damageAssignment.recipients.map(recipient => ({...recipient,
+        label:recipient.seat ? names[recipient.seat] : recipient.label,
+      })),
+    }}),
     ...(state.librarySearch && {librarySearch:{...state.librarySearch, title:prompt(state.librarySearch.title)}}),
   };
 }

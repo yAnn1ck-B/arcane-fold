@@ -93,6 +93,7 @@ export default function PrintingPicker({
           variant="ghost"
           size="icon"
           aria-label="Close printing picker"
+          data-hint="Close printing picker"
           onClick={onClose}
         >
           <X size={18} />

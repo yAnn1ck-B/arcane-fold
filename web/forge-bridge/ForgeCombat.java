@@ -1,36 +1,69 @@
 // Compiled in the same Java 17 source unit as ForgeMatch and its imports.
 final class ForgeCombat {
+    record DamageRecipient(forge.game.GameEntity entity, int lethal, boolean overflow) {
+        Card damageKey() { return overflow ? null : (Card) entity; }
+    }
+
+    record DamageAssignment(Card source, int total, List<DamageRecipient> recipients, Map<Card, Integer> assigned,
+            ForgeMatch.Choice defer) {
+        void apply(String payload) {
+            String[] values = payload.split(",", -1);
+            if (values.length != recipients.size()) throw new IllegalArgumentException("Invalid combat damage assignment.");
+            Map<Card, Integer> result = new LinkedHashMap<>();
+            boolean lethalAssigned = true;
+            int remaining = total;
+            for (int i = 0; i < values.length; i++) {
+                var recipient = recipients.get(i);
+                int amount = Integer.parseInt(values[i]);
+                if (amount < 0 || amount > remaining || (recipient.overflow() && amount > 0 && !lethalAssigned)) {
+                    throw new IllegalArgumentException("Invalid combat damage assignment.");
+                }
+                remaining -= amount;
+                if (amount < recipient.lethal()) lethalAssigned = false;
+                if (amount > 0) result.put(recipient.damageKey(), amount);
+            }
+            if (remaining != 0) throw new IllegalArgumentException("Assign all combat damage.");
+            assigned.clear();
+            assigned.putAll(result);
+        }
+    }
+
     static Map<Card, Integer> damage(ForgeMatch match, Player chooser, Card source, CardCollectionView recipients,
             CardCollectionView attackers, int total, forge.game.GameEntity defender) {
         boolean tramples = defender != null && source.isAttacking() && source.hasKeyword(forge.game.keyword.Keyword.TRAMPLE);
         boolean deathtouch = source.hasKeyword(forge.game.keyword.Keyword.DEATHTOUCH);
+        List<DamageRecipient> slots = new ArrayList<>();
+        for (Card card : recipients) slots.add(new DamageRecipient(card, Math.max(0, card.getExcessDamageValue(deathtouch)), false));
+        // Forge represents damage to the attacked player, planeswalker or battle with a null key.
+        if (tramples) slots.add(new DamageRecipient(defender, 0, true));
         Map<Card, Integer> assigned = new LinkedHashMap<>();
         boolean canDefer = attackers != null && source.isAttacking() && recipients.stream().anyMatch(blocker ->
                 match.phases.getCombat().getAttackersBlockedBy(blocker).stream().anyMatch(other -> other != source && attackers.contains(other)));
         int left = total;
         if (recipients.size() == 1 && !canDefer) {
             Card only = recipients.getFirst();
-            int forced = tramples ? Math.min(left, Math.max(0, only.getExcessDamageValue(deathtouch))) : left;
+            int forced = tramples ? Math.min(left, slots.get(0).lethal()) : left;
             if (forced > 0) assigned.put(only, forced);
             left -= forced;
         }
         while (left > 0) {
             List<ForgeMatch.Choice> options = new ArrayList<>();
             boolean blockersHaveLethal = true;
-            for (Card card : recipients) {
-                int needed = Math.max(0, card.getExcessDamageValue(deathtouch) - assigned.getOrDefault(card, 0));
+            for (var slot : slots) {
+                if (slot.overflow() && !blockersHaveLethal) break;
+                Card card = slot.damageKey();
+                int needed = Math.max(0, slot.lethal() - assigned.getOrDefault(card, 0));
                 if (needed > 0) blockersHaveLethal = false;
-                damageOptions(match, options, assigned, card, ForgeMatch.publicName(card), left, needed);
+                String name = slot.entity() instanceof Card c ? ForgeMatch.publicName(c) : slot.entity().getName();
+                damageOptions(match, options, assigned, card, name, left, needed);
             }
-            if (tramples && blockersHaveLethal) {
-                String name = defender instanceof Card c ? ForgeMatch.publicName(c) : defender.getName();
-                // Forge represents damage to the attacked player, planeswalker or battle with a null key.
-                damageOptions(match, options, assigned, null, name, left, 0);
-            }
+            // Keep the indexed choices so that saved incremental moves can be replayed.
             var defer = match.choice("Assign another attacker's damage first", "option", null, null, null);
-            if (canDefer && left == total) options.add(defer);
+            boolean offersDefer = canDefer && left == total;
+            if (offersDefer) options.add(defer);
+            var damage = new DamageAssignment(source, total, slots, assigned, offersDefer ? defer : null);
             var selected = match.ask(chooser, "Assign combat damage from " + ForgeMatch.publicName(source)
-                    + " (" + left + " remaining)", options);
+                    + " (" + left + " remaining)", options, damage);
             if (selected == defer) return null;
             selected.run();
             left = total - assigned.values().stream().mapToInt(Integer::intValue).sum();
@@ -50,7 +83,8 @@ final class ForgeCombat {
     }
 
     static void attackers(ForgeMatch practice, Player player, Combat combat) {
-        if (!practice.human(player) && CombatUtil.validateAttackers(combat)) return;
+        if ((!practice.human(player) || (practice.skipsOptionalAttacks(player) && combat.getAttackers().isEmpty()))
+                && CombatUtil.validateAttackers(combat)) return;
         while (true) {
             List<ForgeMatch.Choice> choices = new ArrayList<>();
             for (Card card : player.getCreaturesInPlay()) {

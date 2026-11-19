@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { listDecks } from "@/services/decks";
 import CardImage from "@/components/CardImage";
+import { wildcardHint } from "@/components/WildcardCounters";
 import { getBannerMoxes, listSets } from "@/services/cards";
 import "@/styles/dashboard-art.css";
 import type {
@@ -217,8 +218,9 @@ export default function Dashboard({
             >
               <summary
                 aria-label={`View ${league.enabledSets.length} unlocked expansions`}
+                data-hint={latestUnlockedName}
               >
-                <strong title={latestUnlockedName}>{latestUnlockedName}</strong>
+                <strong>{latestUnlockedName}</strong>
                 {league.enabledSets.length > 1 && <span className="dashboard-expansion-more">+{league.enabledSets.length - 1}</span>}
                 <ChevronDown size={14} aria-hidden="true" />
               </summary>
@@ -325,36 +327,29 @@ export default function Dashboard({
           </div>
           <div className="panel-body settings-stack">
             <div className="wildcard-balances">
-              {(["common", "uncommon", "rare", "mythic"] as const).map(
-                (rarity) => (
+              {(["common", "uncommon", "rare", "mythic", "discovery"] as const).map((kind) => {
+                const count = league.wildcards[kind] ?? 0;
+                const hint = wildcardHint(kind, count);
+                return (
                   <span
-                    className={`wildcard-balance wildcard-balance-${rarity}`}
-                    key={rarity}
-                    title={`${league.wildcards[rarity]} ${rarity} wildcards`}
-                    aria-label={`${league.wildcards[rarity]} ${rarity} wildcards`}
+                    className={`wildcard-balance wildcard-balance-${kind}`}
+                    key={kind}
+                    data-hint={hint}
+                    role="img"
+                    tabIndex={0}
+                    aria-label={hint}
                   >
                     <i
-                      className={`rarity-dot rarity-${rarity}`}
+                      className={`rarity-dot rarity-${kind}`}
                       aria-hidden="true"
                     />
                     <strong className="dashboard-wildcard-count">
-                      {league.wildcards[rarity]}
+                      {count}
                     </strong>
-                    <span className="dashboard-wildcard-label">{rarity}</span>
+                    <span className="dashboard-wildcard-label">{kind === "discovery" ? "Discovery" : kind}</span>
                   </span>
-                ),
-              )}
-              <span
-                className="wildcard-balance wildcard-balance-discovery"
-                title={`${league.wildcards.discovery ?? 0} Discovery wildcards — acquire a first copy`}
-                aria-label={`${league.wildcards.discovery ?? 0} Discovery wildcards`}
-              >
-                <i className="rarity-dot rarity-discovery" aria-hidden="true" />
-                <strong className="dashboard-wildcard-count">
-                  {league.wildcards.discovery ?? 0}
-                </strong>
-                <span className="dashboard-wildcard-label">Discovery</span>
-              </span>
+                );
+              })}
             </div>
             <Button variant="outline" onClick={onCollection}>
               Browse and craft <ArrowRight size={13} />

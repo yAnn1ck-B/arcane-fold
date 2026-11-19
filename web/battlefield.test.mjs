@@ -45,11 +45,18 @@ test('a pre-status creature journal restores sickness for both seats and rewinds
     const elf = view.players.player.battlefield.find(card => card.name === 'Llanowar Elves');
     assert.equal(elf.summoningSick,true);
     assert.equal(elf.tapped,false);
+    assert.equal(typeof elf.groupingState,'number');
     assert.equal(onBoard(game,'Forest',seat).summoningSick,undefined);
     assert.ok(view.players.player.hand.every(card => !card.summoningSick));
     // These are the two seat projections saved before the display upgrade.
     delete view.battlefieldStatusVersion;
     delete elf.summoningSick;
+    for (const board of Object.values(view.players)) {
+      for (const card of board.battlefield) {
+        if (seat === 'player') delete card.groupingState;
+        else card.groupingState = 999;
+      }
+    }
     position[seat] = view;
   }
   const room = {host_deck:decks[0],guest_deck:decks[1],seed,checkpoint};
@@ -130,6 +137,7 @@ test('a land animated the turn it enters has summoning sickness only while it is
   t.after(() => game.close());
   const factories = () => game.view('player').players.player.battlefield;
   await advanceUntil(game,() => factories().length === 2);
+  assert.equal(factories()[0].groupingState,factories()[1].groupingState);
   const newest = factories()[1].id;
   const factory = () => factories().find(card => card.id === newest);
   assert.equal(factory().summoningSick,undefined);
@@ -186,7 +194,7 @@ test('phasing a face-down permanent exposes only its public conditions', install
   assert.equal(manifest().name,'Face-down card');
   assert.equal(manifest().power,3);
   assert.equal(manifest().counters['+1/+1'],1);
-  for (const privateField of ['oracleText','setCode','collectorNumber','typeLine','manaCost','grantedKeywords']) {
+  for (const privateField of ['oracleText','setCode','collectorNumber','typeLine','manaCost','grantedKeywords','groupingState']) {
     assert.equal(manifest()[privateField],undefined);
   }
 });

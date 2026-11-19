@@ -185,6 +185,7 @@ export function TableBoard({
   handCount,
   handLabel = "Your hand",
   hand,
+  playableExile,
   stack,
   stackCount,
   stackTargets,
@@ -201,6 +202,7 @@ export function TableBoard({
   handCount: number;
   handLabel?: string;
   hand: ReactNode[];
+  playableExile?: ReactNode[];
   stack: ReactNode;
   stackCount: number;
   stackTargets?: boolean;
@@ -299,20 +301,30 @@ export function TableBoard({
       <div className={`pt-table-layout${panel ? " pt-with-panel" : ""}`}>
         <div className="pt-arena">
           {seats}
-          <section className="pt-hand" aria-label={handLabel}>
-            <div className="pt-zone-header">
-              <h3>
-                {handLabel} <small>{handCount}</small>
-              </h3>
-            </div>
-            <div className="pt-field">
-              {hand.length ? (
-                hand
-              ) : (
-                <span className="pt-empty">No cards in hand</span>
-              )}
-            </div>
-          </section>
+          <div className="pt-hand-row">
+            <section className="pt-hand" aria-label={handLabel}>
+              <div className="pt-zone-header">
+                <h3>
+                  {handLabel} <small>{handCount}</small>
+                </h3>
+              </div>
+              <div className="pt-field">
+                {hand.length ? (
+                  hand
+                ) : (
+                  <span className="pt-empty">No cards in hand</span>
+                )}
+              </div>
+            </section>
+            {!!playableExile?.length && (
+              <section className="pt-hand pt-hand-exile" aria-label="Playable cards from exile">
+                <div className="pt-zone-header">
+                  <h3>Exile</h3>
+                </div>
+                <div className="pt-field">{playableExile}</div>
+              </section>
+            )}
+          </div>
           {arenaOverlay}
         </div>
         <aside

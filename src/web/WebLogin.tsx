@@ -66,7 +66,7 @@ export default function WebLogin({ auth, loadError, onRetry, onSignedIn }: {
                 <Input id="league-password" name="password" type={visible ? "text" : "password"} autoComplete="current-password"
                   required disabled={pending} />
                 <button type="button" onClick={() => setVisible(!visible)}
-                  aria-label={visible ? "Hide password" : "Show password"} title={visible ? "Hide password" : "Show password"}>
+                  aria-label={visible ? "Hide password" : "Show password"} data-hint={visible ? "Hide password" : "Show password"}>
                   {visible ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>

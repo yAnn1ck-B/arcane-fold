@@ -20,7 +20,7 @@ Open **Play** and use the deck dropdown to choose one of your saved decks or a F
 
 Choose **Create game** to host. Your opponent chooses a deck and selects **Join game** in the lobby. The game randomly chooses who plays first. You share one current game, from waiting for an opponent through the final turn. Each player sees their own hand and makes their own decisions. The lobby keeps finished games available for review and preserves earlier unfinished games for later.
 
-Forge normally asks for decisions when there is a play or response to make. Open **Priority stops** in the three-dot menu to add manual stops on your turns, your opponent’s turns or both. **Select all** and **Clear all** apply to both columns. Checked stops repeat each turn. Your choices carry over to new games, even if you switch seats.
+Forge normally asks for decisions when there is a play or response to make. On your opponent’s turn, **Pass Turn** skips routine empty-stack priority prompts for the rest of that turn. Forge still pauses for available stack responses, priority stops and required decisions such as declaring blockers. Open **Priority stops** in the three-dot menu to add manual stops on your turns, your opponent’s turns or both. **Select all** and **Clear all** apply to both columns. Checked stops repeat each turn. Your choices carry over to new games, even if you switch seats.
 
 Battlefield cards show a status marker for summoning sickness, phasing, marked damage, counters and abilities granted by effects. Hover over a card or focus it with the keyboard to see the status details in the card preview. In manual play, open a permanent to adjust its sickness or phasing when resolving an effect yourself.
 

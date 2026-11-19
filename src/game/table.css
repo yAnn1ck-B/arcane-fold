@@ -191,27 +191,6 @@
   outline: 2px dashed var(--stack-target);
   outline-offset: 2px;
 }
-.pt-target-key {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .45rem .9rem;
-  margin-inline-end: auto;
-  font-size: .88em;
-  color: var(--tone-secondary);
-}
-.pt-target-key span {
-  display: inline-flex;
-  align-items: center;
-  gap: .45rem;
-}
-.pt-target-key i {
-  inline-size: .8em;
-  block-size: .8em;
-  border: 1px solid transparent;
-  border-radius: 2px;
-}
-.pt-forge .pt-target-key i.pt-stack-target { outline-offset: 0; }
 .pt-stack-target-line { color: var(--stack-target); }
 .pt-forge .pt-piece.pt-blocker-selected {
   border-color: var(--combat-link);
@@ -286,9 +265,37 @@
 .pt-own {
   border-block: 1px solid var(--tone-border, #cbd2c9);
 }
-.pt-hand {
+.pt-hand-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   background: var(--tone-bg1, #fafbf7);
   border-radius: 0 0 9px 9px;
+}
+.pt-hand-row:has(> .pt-hand-exile) {
+  grid-template-columns: fit-content(min(68%, 100% - 106px)) minmax(0, 1fr);
+}
+.pt-hand {
+  min-width: 0;
+}
+.pt-hand-exile {
+  --exile-play: light-dark(#944e38, #e3a38b);
+  border-inline-start: 1px solid var(--tone-border, #cbd2c9);
+}
+.pt-hand-exile .pt-zone-header h3 {
+  color: var(--exile-play);
+}
+.pt-forge .pt-hand-exile .pt-piece.has-action:not(.pt-legal-target):has(button.pt-piece-select:enabled) {
+  border-color: var(--exile-play);
+  box-shadow: 0 0 0 1px var(--exile-play);
+}
+@container arena (max-width: 250px) {
+  .pt-hand-row:has(> .pt-hand-exile) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pt-hand-exile {
+    border-inline-start: 0;
+    border-block-start: 1px solid var(--tone-border, #cbd2c9);
+  }
 }
 .pt-seat-heading {
   justify-content: flex-start;
@@ -379,36 +386,6 @@ span.pt-zone-chip {
 }
 .pt-tool:disabled {
   opacity: 0.5;
-}
-.pt-table [data-hint] {
-  position: relative;
-}
-.pt-table [data-hint]:is(:hover, :focus-visible)::before {
-  content: attr(data-hint);
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  pointer-events: none;
-  width: max-content;
-  max-width: min(16rem, 80vw);
-  z-index: 8;
-  line-height: 1.3;
-  white-space: normal;
-  padding: 5px 8px;
-  border-radius: 4px;
-  color: var(--tone-bg0);
-  background: var(--tone-text);
-  box-shadow: 0 2px 6px #0003;
-  font-size: 12px;
-  font-weight: 500;
-}
-.pt-table-tools [data-hint]:last-child:is(:hover, :focus-visible)::before,
-.pt-panel-header [data-hint]:is(:hover, :focus-visible)::before,
-.pt-piles [data-hint]:last-child:is(:hover, :focus-visible)::before {
-  left: auto;
-  right: 0;
-  transform: none;
 }
 .pt-table :is(.pt-tool, .pt-zone-chip):not(.pt-stack-target):focus-visible {
   outline: 2px solid var(--tone-accent);
@@ -517,6 +494,58 @@ button.pt-zone-chip:hover,
 }
 .pt-battlefield .pt-piece.is-tapped {
   flex-basis: calc(var(--permanent-width) * 88 / 63);
+}
+.pt-permanent-stack {
+  --stack-width: var(--permanent-width);
+  --stack-offset: 7px;
+  --stack-depth: 1;
+  position: relative;
+  flex: 0 0 calc(var(--stack-width) + var(--stack-depth) * var(--stack-offset));
+  padding-inline-end: calc(var(--stack-depth) * var(--stack-offset));
+  isolation: isolate;
+}
+.pt-permanent-stack[data-depth="2"] {
+  --stack-depth: 2;
+}
+.pt-permanent-stack[data-tapped="true"] {
+  --stack-width: calc(var(--permanent-width) * 88 / 63);
+}
+.pt-permanent-stack .pt-permanent-stack-layer {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(var(--stack-depth) * var(--stack-offset));
+  width: var(--stack-width);
+  pointer-events: none;
+}
+.pt-permanent-stack-layer + .pt-permanent-stack-layer {
+  inset-inline-start: var(--stack-offset);
+}
+.pt-permanent-stack-count {
+  position: absolute;
+  inset-block-end: 3px;
+  inset-inline-start: 3px;
+  min-width: 24px;
+  min-height: 24px;
+  border: 1px solid #ffffff75;
+  border-radius: 4px;
+  padding: 2px 4px;
+  background: #253b2e;
+  color: #fbfff7;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.pt-permanent-stack-count:hover {
+  background: #486651;
+}
+.pt-permanent-stack-count:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 1px;
+}
+.pt-permanent-stack:has(> .pt-piece > .pt-card-status) .pt-permanent-stack-count {
+  inset-block-end: 25px;
 }
 .pt-battlefield .pt-piece:has(> .card-image img) > .pt-piece-select {
   position: absolute;

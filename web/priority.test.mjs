@@ -89,6 +89,112 @@ test('Automatic retains affordable spells and stack responses while skipping man
   assert.ok(state.choices.some(c => c.label === 'Cast Dispel'));
 });
 
+test('End Turn skips optional attacks and honors the opponent’s stop with both replay behaviors', installed, async t => {
+  const config = {decks:['[main]\n12 Mountain\n12 Raging Goblin\n','[main]\n16 Forest\n'],seed:lands.seed};
+  // Recorded before the End Turn shortcut could skip optional attacks.
+  const checkpoint = {version:1,initial:'93352e9ef813204e264e4c84b5efd7003e274371ce0a9e594d27e56163098972',
+    moves:[
+      ['player','p1_0','ed9df7a18ec85489cd272ee838a5adf71b3ea1ef2c587603b3ca0829ab014685'],
+      ['opponent','p2_0','7430b1fa9693c0182a2f90d6e32e48d96c000edace989beb8abe067500a1c4bf'],
+      ['player','p3_0','79295334ed29cc08e65463ce9680d15f3c587dcbe0f812f30038618e4d2a6907'],
+      ['player','p4_0','fca5ca3ed3634fa887af1ddc2bd60765b55c05c471750d4aaf750d36caa19a60'],
+      ['player','p5_1','e4cc061c22c052e746a4c1fada67cd7d4c38b0e8d4e17b3c8e9362f896c0d936'],
+      ['opponent','p6_8_end','199bffa6137b218f330eb55032557c540e8eb54b5a731f50ed50c8655f043ae8'],
+      ['opponent','p7_0','1732866ee6498c9a23332cc5fd31c494ae2002ad317d0cf05004047e3d2c650f'],
+      ['player','p8_7_end','e7a9f1986f8096be863bab4f77e9d282cea5e4e5ca1836c160db180c4ab5d371'],
+    ].map(([seat,action,after],index) => ({seat,action,after,stops:index ? {} : {player:'v2::',opponent:'v2::'},
+      battlefieldStatusVersion:1,blockReferencesVersion:1})),pending:{}};
+  const oldGame = await createGame({...config,checkpoint});
+  t.after(() => oldGame.close());
+  assert.deepEqual(oldGame.checkpoint(),checkpoint);
+  assert.equal(decision(oldGame).prompt,'Declare attackers');
+  assert.ok(decision(oldGame).choices.some(c => c.kind === 'attack'));
+
+  const game = await createGame({...config,checkpoint:{...checkpoint,moves:checkpoint.moves.slice(0,-1)}});
+  t.after(() => game.close());
+  await game.stop('opponent',{own:[],opponent:['beginCombat']});
+  let state = decision(game);
+  await game.act('player',state.choices.find(pass).endTurnId,state.revision);
+  state = decision(game);
+  assert.equal(state.step,'Beginning of combat step');
+  assert.equal(state.actor,'opponent');
+  assert.equal(state.active,'player');
+  state = await take(game,pass);
+  assert.equal(state.active,'opponent');
+  assert.equal(state.players.opponent.life,20);
+
+  const resumed = await createGame({...config,checkpoint:game.checkpoint()});
+  t.after(() => resumed.close());
+  assert.deepEqual(decision(resumed),state);
+});
+
+test('End Turn still lets Forge enforce a required attack', installed, async t => {
+  const game = await createGame({decks:['[main]\n16 Mountain\n12 Bloodrock Cyclops\n','[main]\n18 Forest\n'],seed:lands.seed});
+  t.after(() => game.close());
+  await opening(game);
+  for (const label of ['Play Mountain','Play Forest','Play Mountain','Play Forest',
+    'Play Mountain','Cast Bloodrock Cyclops','Play Forest']) {
+    await take(game,c => c.label === label);
+  }
+  const state = decision(game);
+  assert.equal(state.active,'player');
+  assert.equal(state.phase,'Precombat main phase');
+  assert.equal(state.players.opponent.life,20);
+  await game.act('player',state.choices.find(pass).endTurnId,state.revision);
+  const next = decision(game);
+  assert.equal(next.active,'opponent');
+  assert.equal(next.players.opponent.life,17);
+});
+
+test('Pass Turn skips routine opposing priority, survives replay, and keeps stack responses and stops', installed, async t => {
+  const config = {decks:Array(2).fill('[main]\n12 Mountain\n12 Shock\n'), seed:lands.seed,
+    priorities:{player:{own:[],opponent:['endStep']}}};
+  const game = await createGame(config);
+  t.after(() => game.close());
+  await opening(game);
+  let state = await take(game,c => c.label === 'Play Mountain');
+  assert.equal(state.choices.find(pass).passTurnId, undefined);
+  await game.act('player',state.choices.find(pass).endTurnId,state.revision);
+  state = decision(game);
+  assert.equal(state.active,'opponent');
+  assert.equal(state.actor,'player');
+  assert.equal(state.step,'Upkeep step');
+  assert.ok(state.choices.some(c => c.label === 'Cast Shock'));
+  const shortcut = state.choices.find(pass).passTurnId;
+  assert.ok(shortcut);
+  assert.ok(game.view('opponent').choices.every(c => !c.passTurnId));
+  await assert.rejects(game.act('opponent',shortcut,state.revision), /unavailable/);
+  await game.act('player',shortcut,state.revision);
+  state = decision(game);
+  assert.equal(state.actor,'opponent');
+  assert.equal(state.phase,'Precombat main phase');
+
+  const resumed = await createGame({...config,checkpoint:game.checkpoint()});
+  t.after(() => resumed.close());
+  assert.deepEqual(decision(resumed),state);
+  await take(resumed,c => c.label === 'Play Mountain');
+  await take(resumed,c => c.label === 'Cast Shock');
+  state = await take(resumed,c => c.kind === 'target' && c.seat === 'player');
+  for (let i=0; i<8 && state.actor !== 'player'; i++) state = await take(resumed,pass);
+  assert.equal(state.actor,'player');
+  assert.ok(state.stack.some(c => c.name === 'Shock'));
+  assert.ok(state.choices.some(c => c.label === 'Cast Shock'));
+  assert.equal(state.choices.find(pass).passTurnId,undefined);
+  state = await take(resumed,pass);
+  for (let i=0; i<20 && state.actor === 'opponent'; i++) state = await take(resumed,pass);
+  assert.equal(state.actor,'player');
+  assert.equal(state.active,'opponent');
+  assert.equal(state.step,'End step');
+  assert.equal(state.choices.find(pass).passTurnId,undefined);
+  state = await take(resumed,pass);
+  for (let i=0; i<8 && state.active === 'opponent'; i++) {
+    state = await take(resumed,c => pass(c) || c.label.startsWith('Discard '));
+  }
+  assert.equal(state.active,'player');
+  assert.equal(state.actor,'player');
+  assert.ok(state.choices.some(c => c.label === 'Cast Shock'));
+});
+
 test('Automatic lets a player tap a threatened mana source in response', installed, async t => {
   const game = await createGame({decks:['[Main]\n12 Forest\n12 Llanowar Elves\n','[Main]\n12 Mountain\n12 Shock\n'],seed:lands.seed});
   t.after(() => game.close());

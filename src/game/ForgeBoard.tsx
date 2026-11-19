@@ -4,6 +4,7 @@ import {
   Layers,
   Search,
   Target,
+  UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,11 +25,14 @@ import { TableDialog } from "./TableDialog";
 import { ManaPip, ManaPool, manaNames } from "./ManaPool";
 import { manaTypes } from "./types";
 import { battlefieldGroup } from "./battlefield";
+import { groupBattlefieldCards } from "./battlefield-groups";
 import { CombatLinks } from "./CombatLinks";
+import { CombatDamageDialog } from "./CombatDamageDialog";
 import type { PriorityStop } from "./forge-match";
 import type {
   ForgeCard,
   ForgeChoice,
+  ForgeDamageRecipient,
   ForgeMatch,
   ForgeSeat,
 } from "./forge-match";
@@ -203,16 +207,20 @@ export default function ForgeBoard({
   matchTools: MatchTools;
 }) {
   const [pile, setPile] = useState<Pile | null>(null);
+  const [openStack, setOpenStack] = useState<{ id: string; revision: number } | null>(null);
   const [menuCard, setMenuCard] = useState<ForgeCard | null>(null);
   const [deferredSearch, setDeferredSearch] = useState<string>();
   const [cardFilter, setCardFilter] = useState("");
   const [blockSelection, setBlockSelection] = useState<{ id: string; revision: number } | null>(null);
   const [showBlockList, setShowBlockList] = useState(false);
+  const [dismissedDamage, setDismissedDamage] = useState<string>();
   const firstButton = useRef<HTMLButtonElement>(null);
   const firstBlockTarget = useRef<HTMLButtonElement>(null);
   const focusedRevision = useRef<number | undefined>(undefined);
   const { actor, players, stack, librarySearch, sharedSeats } = state;
-  const choices = viewer === actor ? state.choices : [];
+  const damageAssignment = viewer === actor && state.stage === "decision" ? state.damageAssignment : undefined;
+  const showDamageAssignment = !!damageAssignment && damageAssignment.choiceId !== dismissedDamage;
+  const choices = viewer === actor && !damageAssignment ? state.choices : [];
   const legalTargets = locked ? [] : choices.filter((choice) => choice.kind === "target");
   const legalCards = new Set(legalTargets.map((choice) => choice.cardId));
   const stackTargets = stack.flatMap((card) => card.targetRefs ?? []);
@@ -233,6 +241,31 @@ export default function ForgeBoard({
   const hand = players[handSeat].hand;
   const battlefield = [...players.player.battlefield, ...players.opponent.battlefield];
   const pieces = new Map(battlefield.map((piece) => [piece.id, piece]));
+  const individualCards = new Set(stackTargetCards);
+  const cardActions = new Map<string, ForgeChoice[]>();
+  for (const choice of choices) {
+    if (!choice.cardId || !pieces.has(choice.cardId)) continue;
+    if (choice.kind !== "ability") individualCards.add(choice.cardId);
+    const actions = cardActions.get(choice.cardId) ?? [];
+    actions.push(choice);
+    cardActions.set(choice.cardId, actions);
+  }
+  for (const card of battlefield) {
+    if (card.attachedTo) individualCards.add(card.attachedTo);
+  }
+  const actionKey = (card: ForgeCard) => JSON.stringify(cardActions.get(card.id)?.map(
+    ({ label, manaAbility }) => [label, !!manaAbility],
+  ) ?? []);
+  const groupsFor = (seat: ForgeSeat) => groupBattlefieldCards(players[seat].battlefield, individualCards)
+    .flatMap((group) => group.every((card) => actionKey(card) === actionKey(group[0]))
+      ? [group]
+      : group.map((card) => [card]));
+  const battlefieldGroups = { player: groupsFor("player"), opponent: groupsFor("opponent") };
+  const inspectedStack = openStack?.revision === state.revision
+    ? [...battlefieldGroups.player, ...battlefieldGroups.opponent].find(
+      (group) => group.length > 1 && group.some((card) => card.id === openStack.id),
+    )
+    : undefined;
   const blockChoices = choices.flatMap(choice => choice.kind === "block" && choice.cardId && choice.block
     ? [{ choice, blockerId: choice.cardId, ...choice.block }]
     : []);
@@ -279,11 +312,20 @@ export default function ForgeBoard({
       ? pileOwner.libraryTop ? [pileOwner.libraryTop] : []
       : pileOwner[pile.zone] ?? []
     : [];
+  // A pass choice distinguishes regular priority from a play offered by a resolving effect.
+  const hasPriority = choices.some((choice) => choice.kind === "pass");
+  const cardPlayIds = new Set(hasPriority
+    ? choices.filter((choice) => choice.kind === "card").map((choice) => choice.cardId)
+    : []);
+  const playableExile = opening ? [] : seatOrder.flatMap((seat) =>
+    (players[seat].exile ?? []).filter((card) => cardPlayIds.has(card.id)),
+  );
   const visibleCards = new Set(
     [
       ...hand,
       ...stack,
       ...pileCards,
+      ...playableExile,
       ...(librarySearch?.cards ?? []),
       ...battlefield,
     ].map((card) => card.id),
@@ -352,6 +394,7 @@ export default function ForgeBoard({
   function choose(choice: ForgeChoice) {
     setMenuCard(null);
     setPile(null);
+    setOpenStack(null);
     // When undoing a block, keep that creature selected for its next legal assignment.
     setBlockSelection(choice.block?.remove && choice.cardId
       ? { id: choice.cardId, revision: state.revision + 1 }
@@ -364,6 +407,7 @@ export default function ForgeBoard({
     if (choice.kind === "pass") {
       const ending = state.phase === "Ending phase";
       const endTurn = (!state.priorityStop.own.length || ending) && choice.endTurnId;
+      const passTurn = choice.passTurnId;
       const lastAdvance = !!endTurn && (ending || state.phase === "Postcombat main phase");
       const label = stack.length ? "Resolve" : state.active === viewer ? "Next" : "Pass";
       return (
@@ -380,6 +424,11 @@ export default function ForgeBoard({
           {endTurn && !lastAdvance && (
             <Button variant="outline" disabled={locked} onClick={() => onChoose(endTurn)}>
               End Turn
+            </Button>
+          )}
+          {passTurn && (
+            <Button variant="outline" disabled={locked} onClick={() => onChoose(passTurn)}>
+              Pass Turn
             </Button>
           )}
         </Fragment>
@@ -399,11 +448,15 @@ export default function ForgeBoard({
     );
   }
 
-  function tile(card: ForgeCard) {
+  function tile(card: ForgeCard, { copyNumber, besideHand = false }: {
+    copyNumber?: number;
+    besideHand?: boolean;
+  } = {}) {
     const name = card.faceDown ? "Face-down card" : card.name;
     const actions = choices.filter((choice) => choice.cardId === card.id);
     const blockTarget = blockTargets.get(card.id);
     const canSelectBlocker = blockers.has(card.id);
+    const removableBlocks = actions.filter((choice) => choice.kind === "block" && choice.block?.remove);
     const selected = selectedBlocker?.id === card.id;
     const mark = targetMark(legalCards.has(card.id) || !!blockTarget && !locked, stackTargetCards.has(card.id));
     const statuses = cardStatuses(card);
@@ -453,13 +506,22 @@ export default function ForgeBoard({
       setBlockSelection(selected ? null : { id: card.id, revision: state.revision });
       setShowBlockList(false);
     }
+    function removeBlock() {
+      if (removableBlocks.length === 1) {
+        choose(removableBlocks[0]);
+      } else {
+        setBlockSelection({ id: card.id, revision: state.revision });
+        setShowBlockList(true);
+      }
+    }
     return (
       <TableCard
         key={card.id}
         name={name}
         combatId={card.attacking || card.blockingIds?.length ? card.id : undefined}
         attackerNumber={attackNumbers.get(card.id)}
-        label={[label, ...mark.labels, ...statuses.map(s => s.label)].join(", ")}
+        label={[label, ...mark.labels, ...statuses.map(s => s.label),
+          ...(copyNumber === undefined ? [] : [`Copy ${copyNumber}`])].join(", ")}
         className={selected ? `${mark.className} pt-blocker-selected` : mark.className}
         statuses={statuses}
         tapped={card.tapped}
@@ -485,15 +547,22 @@ export default function ForgeBoard({
           </>
         }
         disabled={locked}
-        focusRef={
+        focusRef={copyNumber === undefined && (!besideHand || !pile) ? (
           selectedBlocks[0]?.attackerId === card.id ? firstBlockTarget :
             actions.some((c) => c.id === initialChoice) ? firstButton : undefined
-        }
+        ) : undefined}
+        onDoubleClick={!locked && removableBlocks.length ? removeBlock : undefined}
         onClick={
           blockTarget ? () => choose(blockTarget.choice)
             : canSelectBlocker ? selectBlocker
             : move
-            ? () => (actions.length === 1 ? choose(move) : setMenuCard(card))
+            ? () => {
+              if (actions.length === 1) choose(move);
+              else {
+                setOpenStack(null);
+                setMenuCard(card);
+              }
+            }
             : undefined
         }
         art={
@@ -502,6 +571,49 @@ export default function ForgeBoard({
           />
         }
       />
+    );
+  }
+
+  function groupTile(group: ForgeCard[]) {
+    const card = group.find((member) => cardActions.get(member.id)?.some((choice) => choice.id === initialChoice))
+      ?? group[0];
+    if (group.length === 1) return tile(card);
+    const layers = Math.min(group.length - 1, 2);
+    const countLabel = `View ${group.length} ${card.tapped ? "tapped " : ""}copies of ${card.name}`;
+    return (
+      <div key={group[0].id} className="pt-permanent-stack" data-depth={layers} data-tapped={card.tapped}>
+        {Array.from({ length: layers }, (_, index) => (
+          <div key={index} className={`pt-piece pt-permanent-stack-layer${card.tapped ? " is-tapped" : ""}`} inert>
+            <ForgeArt card={card} />
+          </div>
+        ))}
+        {tile(card)}
+        <button type="button" className="pt-permanent-stack-count"
+          aria-label={countLabel} data-hint={countLabel}
+          aria-haspopup="dialog" onClick={() => setOpenStack({ id: card.id, revision: state.revision })}>
+          ×{group.length}
+        </button>
+      </div>
+    );
+  }
+
+  function renderDamageRecipient(recipient: ForgeDamageRecipient, name: string) {
+    const card = recipient.cardId ? pieces.get(recipient.cardId) : undefined;
+    if (!card) {
+      return (
+        <div className="pt-damage-defender">
+          <UserRound size={32} aria-hidden />
+          <strong>{name}</strong>
+          {recipient.seat && <LifeValue life={players[recipient.seat].life} />}
+        </div>
+      );
+    }
+    const stats = card.power != null && card.toughness != null ? `${card.power}/${card.toughness}` : undefined;
+    const statuses = cardStatuses(card);
+    return (
+      <TableCard name={name} label={[name, stats, ...statuses.map((status) => status.label)].filter(Boolean).join(", ")}
+        art={<ForgeArt card={card} />} reading={<ForgeArt card={card} inspect />}
+        statuses={statuses} flags={stats && <span>{stats}</span>} />
     );
   }
 
@@ -585,9 +697,9 @@ export default function ForgeBoard({
             </div>
           </div>
         }
-        cards={data.battlefield.map((card) => ({
-          group: battlefieldGroup(card),
-          tile: tile(card),
+        cards={battlefieldGroups[seat].map((group) => ({
+          group: battlefieldGroup(group[0]),
+          tile: groupTile(group),
         }))}
       />
     );
@@ -621,18 +733,17 @@ export default function ForgeBoard({
               )}
             </div>
           )}
-          {(legalTargets.length > 0 || stackTargets.length > 0) && (
-            <div className="pt-target-key">
-              {legalTargets.length > 0 && <span><i className="pt-legal-target" aria-hidden />Legal target</span>}
-              {stackTargets.length > 0 && <span><i className="pt-stack-target" aria-hidden />Targeted on stack</span>}
-            </div>
-          )}
           {selectedBlocker && (
             <Button variant="outline" disabled={locked} aria-haspopup="dialog" onClick={() => setShowBlockList(true)}>
               Choose from list
             </Button>
           )}
           <div className="pt-forge-options pt-turn-actions">
+            {damageAssignment && !showDamageAssignment && (
+              <Button type="button" variant="outline" aria-haspopup="dialog" onClick={() => setDismissedDamage(undefined)}>
+                Assign damage
+              </Button>
+            )}
             {librarySearch && !showSearch && (
               <Button
                 variant="outline"
@@ -645,7 +756,7 @@ export default function ForgeBoard({
               <ForgeOpeningHand
                 playerName={seatNames[viewer]}
                 prompt={state.prompt}
-                hand={hand.map(tile)}
+                hand={hand.map((card) => tile(card))}
                 choices={toolbar}
                 onChoose={choose}
                 locked={locked}
@@ -671,6 +782,7 @@ export default function ForgeBoard({
       arenaOverlay={assignments.length > 0 ? <CombatLinks assignments={assignments} /> : undefined}
       handLabel={handLabel}
       handCount={players[handSeat].handCount}
+      playableExile={playableExile.map((card) => tile(card, { besideHand: true }))}
       hand={
         opening
           ? [
@@ -678,7 +790,7 @@ export default function ForgeBoard({
                 Review your opening hand
               </span>,
             ]
-          : hand.map(tile)
+          : hand.map((card) => tile(card))
       }
       stack={
         <StackPanel count={stack.length}>
@@ -772,6 +884,14 @@ export default function ForgeBoard({
           </div>
         </TableDialog>
       )}
+      {inspectedStack && (
+        <TableDialog title={inspectedStack[0].name} reportable={false}
+          closeLabel="Close grouped cards" onClose={() => setOpenStack(null)}>
+          <div className="pt-field">
+            {inspectedStack.map((card, index) => tile(card, { copyNumber: index + 1 }))}
+          </div>
+        </TableDialog>
+      )}
       {pile && (
         <TableDialog
           title={pile.zone === "library" ? `Top of ${seatNames[pile.seat]}’s library` : `${seatNames[pile.seat]}’s ${pile.zone}`}
@@ -780,7 +900,7 @@ export default function ForgeBoard({
           onClose={() => setPile(null)}
         >
           {pileCards.length ? (
-            <div className="pt-field">{pileCards.map(tile)}</div>
+            <div className="pt-field">{pileCards.map((card) => tile(card))}</div>
           ) : (
             <p className="pt-subtle">This zone is empty.</p>
           )}
@@ -811,7 +931,7 @@ export default function ForgeBoard({
               </label>
             )}
           {searchCards.length ? (
-            <div className="pt-field">{searchCards.map(tile)}</div>
+            <div className="pt-field">{searchCards.map((card) => tile(card))}</div>
           ) : (
             <p className="pt-subtle">
               {librarySearch.cards.length
@@ -825,6 +945,20 @@ export default function ForgeBoard({
               .map((choice) => option(choice))}
           </div>
         </TableDialog>
+      )}
+      {damageAssignment && (
+        <CombatDamageDialog
+          key={damageAssignment.choiceId}
+          assignment={damageAssignment}
+          sourceName={pieces.has(damageAssignment.sourceCardId) ? attackName(damageAssignment.sourceCardId) : damageAssignment.sourceName}
+          open={showDamageAssignment}
+          locked={locked}
+          error={matchTools.decisionError}
+          onClose={() => setDismissedDamage(damageAssignment.choiceId)}
+          onChoose={onChoose}
+          recipientName={(recipient) => recipient.seat ? seatNames[recipient.seat] : recipient.label}
+          renderRecipient={renderDamageRecipient}
+        />
       )}
     </TableBoard>
   );

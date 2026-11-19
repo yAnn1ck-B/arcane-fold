@@ -162,7 +162,7 @@ export default function CardFilters({
             size="icon"
             className="card-filter-advanced-toggle"
             aria-label="Advanced filters"
-            title="Advanced filters"
+            data-hint="Advanced filters"
             onClick={() => setAdvanced(!advanced)}
             aria-expanded={advanced}
             aria-controls={advancedId}
@@ -211,7 +211,7 @@ export default function CardFilters({
                   className={`card-filter-pill color-filter-pill ${colors.includes(color) ? "selected" : ""}`}
                   aria-pressed={colors.includes(color)}
                   aria-label={colorNames[color]}
-                  title={colorNames[color]}
+                  data-hint={colorNames[color]}
                   onClick={() =>
                     update({
                       colors: colors.includes(color)
@@ -394,6 +394,7 @@ export default function CardFilters({
                 <button
                   type="button"
                   aria-label="Clear creature type"
+                  data-hint="Clear creature type"
                   onClick={() => selectCreature("")}
                 >
                   <X size={13} />

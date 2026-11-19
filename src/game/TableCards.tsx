@@ -97,6 +97,7 @@ export function TableCard({
   statuses,
   quickAction,
   onClick,
+  onDoubleClick,
   disabled,
   opensDialog,
   pressed,
@@ -114,6 +115,7 @@ export function TableCard({
   statuses?: ReturnType<typeof cardStatuses>;
   quickAction?: ReactNode;
   onClick?: () => void;
+  onDoubleClick?: () => void;
   disabled?: boolean;
   opensDialog?: boolean;
   pressed?: boolean;
@@ -141,6 +143,7 @@ export function TableCard({
           className="pt-piece-select"
           data-combat-id={combatId}
           onClick={onClick}
+          onDoubleClick={onDoubleClick}
           disabled={disabled}
           aria-label={label}
           aria-haspopup={opensDialog ? "dialog" : undefined}
@@ -325,6 +328,7 @@ export function CardInspector({
           autoFocus
           onClick={close}
           aria-label="Close card"
+          data-hint="Close card"
         >
           <X size={17} />
         </button>
@@ -523,6 +527,7 @@ export function CardInspector({
                       <button
                         className="pt-btn"
                         aria-label="Remove counter"
+                        data-hint="Remove counter"
                         disabled={!piece.counters[counterName.trim()]}
                         onClick={() =>
                           dispatch({
@@ -538,6 +543,7 @@ export function CardInspector({
                       <button
                         className="pt-btn"
                         aria-label="Add counter"
+                        data-hint="Add counter"
                         disabled={!counterName.trim()}
                         onClick={() =>
                           dispatch({

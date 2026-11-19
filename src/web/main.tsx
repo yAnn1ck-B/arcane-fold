@@ -1,7 +1,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import Tooltips from "@/components/Tooltips";
 import WebApp from "./WebApp";
 import "@/styles.css";
 import "./web-shell.css";
 
-createRoot(document.getElementById("root")!).render(<StrictMode><WebApp /></StrictMode>);
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <WebApp />
+    <Tooltips />
+  </StrictMode>,
+);

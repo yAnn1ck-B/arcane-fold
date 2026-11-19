@@ -262,6 +262,7 @@ async function concede(db, room, player, body) {
       projection.revision = revision;
       projection.prompt = entry.text;
       projection.choices = [];
+      delete projection.damageAssignment;
       delete projection.librarySearch;
       delete projection.revealedToYou;
     }

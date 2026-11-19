@@ -12,6 +12,8 @@ class ForgeMatch {
     private CardCollectionView revealedHand;
     private int decision;
     private int yieldTurn = -1;
+    private boolean skipOptionalAttacks;
+    private final int[] passedOpponentTurn = {-1, -1};
     private final String[] priorityStops = {"auto", "auto"};
     private static final String PRIORITY_STOP_PROMPT = "At your stop — choose a play or continue";
     private final boolean sharedSeats;
@@ -121,7 +123,7 @@ class ForgeMatch {
             game.setStartingPlayer(first);
             phases.setupFirstTurn(first, null);
             while (!game.isGameOver()) phases.mainLoopStep();
-            emit(player, String.join(" ", game.getOutcome().getOutcomeStrings()), List.of(), true);
+            emit(player, String.join(" ", game.getOutcome().getOutcomeStrings()), List.of(), true, null);
         } catch (EndInput closed) {
             // The table closed while Forge was waiting for a controller decision.
         }
@@ -183,11 +185,28 @@ class ForgeMatch {
         return stop.equals("auto") || stop.startsWith("v2::");
     }
 
+    boolean skipsOptionalAttacks(Player actor) {
+        return skipOptionalAttacks && yieldTurn == phases.getTurn() && phases.isPlayerTurn(actor) && yieldsOwnTurn(actor);
+    }
+
+    private boolean passingOpponentTurn(Player actor) {
+        return !phases.isPlayerTurn(actor) && passedOpponentTurn[seatIndex(actor)] == phases.getTurn();
+    }
+
+    private boolean offersPassTurn(Player actor, Choice choice) {
+        return choice.kind().equals("pass") && !phases.isPlayerTurn(actor)
+                && game.getStack().isEmpty() && !passingOpponentTurn(actor);
+    }
+
     Choice ask(Player actor, String prompt, List<Choice> choices) {
+        return ask(actor, prompt, choices, null);
+    }
+
+    Choice ask(Player actor, String prompt, List<Choice> choices, ForgeCombat.DamageAssignment damage) {
         if (choices.isEmpty()) throw new IllegalStateException("Forge supplied no choices for " + prompt);
         decision++;
         try {
-            emit(actor, prompt, choices, false);
+            emit(actor, prompt, choices, false, damage);
             String selected = ForgeManual.readAction(input, () -> {
                 boolean opening = game.getAge() == GameStage.Mulligan;
                 var export = new ForgeManual(game, player);
@@ -214,11 +233,25 @@ class ForgeMatch {
                 }
                 selected = parts[3];
             }
+            String damagePrefix = choiceId(choices.size()) + "|";
+            if (damage != null && selected.startsWith(damagePrefix)) {
+                String amounts = selected.substring(damagePrefix.length());
+                yieldTurn = -1;
+                return new Choice("Assign combat damage", "option", null, null, () -> damage.apply(amounts));
+            }
             for (int i = 0; i < choices.size(); i++) {
                 Choice choice = choices.get(i);
-                if (selected.equals(choiceId(i) + "_end") && offersEndTurn(actor, prompt, choice)) {
+                String endTurn = choiceId(i) + "_end";
+                boolean skipAttacks = selected.equals(endTurn + "_skip_attacks");
+                if ((selected.equals(endTurn) || skipAttacks) && offersEndTurn(actor, prompt, choice)) {
                     yieldTurn = yieldsOwnTurn(actor) ? phases.getTurn() : -1;
+                    skipOptionalAttacks = skipAttacks;
                     history.add(actor.getName() + " chose to end the turn.");
+                    return choice;
+                }
+                if (selected.equals(choiceId(i) + "_yield") && offersPassTurn(actor, choice)) {
+                    passedOpponentTurn[seatIndex(actor)] = phases.getTurn();
+                    history.pass(actor);
                     return choice;
                 }
                 if (choices.get(i).kind().equals("name") && selected.startsWith(choiceId(i) + "|")) {
@@ -369,12 +402,42 @@ class ForgeMatch {
         return out;
     }
 
+    private List<Object> battlefieldGroupingState(Card card) {
+        var limitedUses = new ArrayList<List<Object>>();
+        for (SpellAbility ability : card.getSpellAbilities()) {
+            if (!ability.isActivatedAbility() || ability.isSuppressed()) continue;
+            var restrictions = ability.getRestrictions();
+            boolean perTurn = restrictions.getLimitToCheck() != null;
+            boolean perGame = restrictions.getGameLimitToCheck() != null;
+            if (!perTurn && !perGame) continue;
+            limitedUses.add(List.of(ability.getDescription(), perTurn ? ability.getActivationsThisTurn() : 0,
+                    perGame ? ability.getActivationsThisGame() : 0));
+        }
+        return List.of(seatId(card.getOwner()), card.getCurrentStateName(), card.getColor().getColor(),
+                card.getAbilityText(), card.getPlaneswalkerAbilityActivated(), limitedUses);
+    }
+
+    private List<Map<String, Object>> battlefield(Player controller) {
+        var groups = new java.util.HashMap<List<Object>, Integer>();
+        return controller.getCardsIn(ZoneType.Battlefield, false).stream().map(card -> {
+            var display = battlefieldCard(card);
+            if (!card.isFaceDown()) {
+                // This ordinal is scoped to one battlefield snapshot. Only the
+                // equivalence result is shared, with no extra card details or IDs.
+                int group = card.getPairedWith() != null || card.isMerged() ? -1
+                        : groups.computeIfAbsent(battlefieldGroupingState(card), ignored -> groups.size());
+                display.put("groupingState", group);
+            }
+            return display;
+        }).toList();
+    }
+
     private Map<String, Object> board(Player p, boolean revealHand) {
         var hand = p.getCardsIn(ZoneType.Hand);
         Map<String, Object> board = new LinkedHashMap<>(Map.of("life", p.getLife(), "mana", p.getManaPool().totalMana(),
                 "manaByColor", manaByColor(p), "libraryCount", p.getCardsIn(ZoneType.Library).size(), "handCount", hand.size(),
                 "hand", revealHand ? hand.stream().map(this::cardState).toList() : List.of(),
-                "battlefield", p.getCardsIn(ZoneType.Battlefield, false).stream().map(this::battlefieldCard).toList(),
+                "battlefield", battlefield(p),
                 "exile", p.getCardsIn(ZoneType.Exile).stream().map(this::cardState).toList(),
                 "graveyard", p.getCardsIn(ZoneType.Graveyard).stream().map(this::cardState).toList()));
         for (Card top : p.getTopXCardsFromLibrary(1)) {
@@ -398,7 +461,30 @@ class ForgeMatch {
         return amount == null ? name : name + " (" + amount + ")";
     }
 
-    void emit(Player actor, String prompt, List<Choice> choices, boolean finished) throws IOException {
+    private Map<String, Object> damageState(ForgeCombat.DamageAssignment damage, List<Choice> choices) {
+        var recipients = new ArrayList<Map<String, Object>>();
+        for (var slot : damage.recipients()) {
+            var out = new LinkedHashMap<String, Object>();
+            if (slot.entity() instanceof Card card) {
+                out.put("cardId", cardId(card));
+                out.put("label", publicName(card));
+            } else if (slot.entity() instanceof Player player) {
+                out.put("seat", seatId(player));
+                out.put("label", player.getName());
+            }
+            out.put("lethal", slot.lethal());
+            out.put("assigned", damage.assigned().getOrDefault(slot.damageKey(), 0));
+            if (slot.overflow()) out.put("overflow", true);
+            recipients.add(out);
+        }
+        var out = new LinkedHashMap<String, Object>(Map.of("choiceId", choiceId(choices.size()),
+                "sourceCardId", cardId(damage.source()), "sourceName", publicName(damage.source()),
+                "total", damage.total(), "recipients", recipients));
+        if (damage.defer() != null) out.put("deferId", choiceId(choices.indexOf(damage.defer())));
+        return out;
+    }
+
+    void emit(Player actor, String prompt, List<Choice> choices, boolean finished, ForgeCombat.DamageAssignment damage) throws IOException {
         var stack = new ArrayList<Map<String, Object>>();
         for (var instance : game.getStack()) {
             var out = cardState(instance.getSourceCard());
@@ -443,6 +529,7 @@ class ForgeMatch {
             String id = choiceId(options.size());
             out.put("id", id);
             if (offersEndTurn(actor, prompt, c)) out.put("endTurnId", id + "_end");
+            if (offersPassTurn(actor, c)) out.put("passTurnId", id + "_yield");
             out.put("label", c.label());
             out.put("kind", c.kind());
             if (c.manaAbility()) out.put("manaAbility", true);
@@ -465,6 +552,7 @@ class ForgeMatch {
         // Rust retains this snapshot and projects only the selected seat into the WebView.
         state.put("sharedSeats", sharedSeats);
         state.put("priorityStops", Map.of("player", priorityStops[0], "opponent", priorityStops[1]));
+        if (damage != null) state.put("damageAssignment", damageState(damage, choices));
         if (finished) {
             var outcome = game.getOutcome();
             state.put("winner", outcome.isDraw() ? "draw" :
@@ -1127,6 +1215,7 @@ class ForgeMatch {
             continueManaStop = false;
             boolean manaResponse = continueManaResponse || (!stopped && choices.isEmpty() && hasManaResponseToStack());
             continueManaResponse = false;
+            if (!stopped && game.getStack().isEmpty() && passingOpponentTurn(seat)) return null;
             boolean ownMain = seat == phases.getPlayerTurn() && phases.getPhase().isMain() && game.getStack().isEmpty();
             // Legacy journals stopped for land taps alone during the active
             // player's main phase. Their replay retains that exact sequence.

@@ -1,9 +1,15 @@
-import type { WildcardBalances } from "@/lib/types";
+import type { WildcardBalances, WildcardKind } from "@/lib/types";
 import "@/styles/wildcard-counters.css";
 
 interface WildcardCountersProps {
   balances: WildcardBalances;
   className?: string;
+}
+
+export function wildcardHint(kind: WildcardKind, count: number) {
+  const name = kind === "discovery" ? "Discovery" : kind;
+  const label = `${count} ${name} ${count === 1 ? "wildcard" : "wildcards"}`;
+  return kind === "discovery" ? `${label}. Acquire a first copy.` : label;
 }
 
 export default function WildcardCounters({
@@ -17,25 +23,23 @@ export default function WildcardCounters({
       aria-label="Wildcards"
     >
       <span className="wildcard-counters-label">Wildcards</span>
-      {(["common", "uncommon", "rare", "mythic"] as const).map((rarity) => (
-        <span
-          className="wildcard-counter"
-          key={rarity}
-          title={`${balances[rarity]} ${rarity} wildcards`}
-          aria-label={`${balances[rarity]} ${rarity} wildcards`}
-        >
-          <i className={`rarity-dot rarity-${rarity}`} aria-hidden="true" />
-          <strong>{balances[rarity]}</strong>
-        </span>
-      ))}
-      <span
-        className="wildcard-counter wildcard-counter-discovery"
-        title={`${balances.discovery ?? 0} Discovery wildcards — acquire a first copy`}
-        aria-label={`${balances.discovery ?? 0} Discovery wildcards`}
-      >
-        <i className="rarity-dot rarity-discovery" aria-hidden="true" />
-        <strong>{balances.discovery ?? 0}</strong>
-      </span>
+      {(["common", "uncommon", "rare", "mythic", "discovery"] as const).map((kind) => {
+        const count = balances[kind] ?? 0;
+        const hint = wildcardHint(kind, count);
+        return (
+          <span
+            className={`wildcard-counter${kind === "discovery" ? " wildcard-counter-discovery" : ""}`}
+            key={kind}
+            data-hint={hint}
+            role="img"
+            tabIndex={0}
+            aria-label={hint}
+          >
+            <i className={`rarity-dot rarity-${kind}`} aria-hidden="true" />
+            <strong>{count}</strong>
+          </span>
+        );
+      })}
     </div>
   );
 }
