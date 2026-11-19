@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 base=/opt/arcane-fold
 repo="$base/source.git"
@@ -54,7 +55,6 @@ if [[ -n "$previous" && -z "$requested" ]] &&
     exit 0
 fi
 
-export PATH=/usr/local/bin:/usr/bin:/bin
 scratch="$(mktemp -d "$base/.deploy.XXXXXX")"
 trap 'rm -rf -- "$scratch"' EXIT
 chmod 0755 "$scratch"

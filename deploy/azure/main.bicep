@@ -1,6 +1,6 @@
 param location string = resourceGroup().location
 param dnsLabel string = 'arcane-fold'
-param vmSize string = 'Standard_B2as_v2'
+param vmSize string = 'Standard_B2s_v2'
 param availabilityZone string = '2'
 param adminSshPublicKey string
 

@@ -1,6 +1,6 @@
 # Azure deployment
 
-Arcane Fold runs on an Ubuntu 24.04 VM in Japan East. Caddy serves `https://arcane-fold.japaneast.cloudapp.azure.com`. The Azure network security group allows HTTP and HTTPS. Use Azure VM Run Command for administration. Node listens on loopback, and PostgreSQL 18 uses a local Unix socket with peer authentication.
+Arcane Fold runs on a `Standard_B2s_v2` Ubuntu 24.04 VM in Japan East. Caddy serves `https://arcane-fold.japaneast.cloudapp.azure.com`. The Azure network security group allows HTTP and HTTPS. Use Azure VM Run Command for administration. Node listens on loopback, and PostgreSQL 18 uses a local Unix socket with peer authentication.
 
 ## Provision and start
 
