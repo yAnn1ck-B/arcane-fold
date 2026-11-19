@@ -23,15 +23,19 @@
 .ptc select {
   max-width: 100%;
 }
-.pt-priority-control {
+.pt-priority-control,
+.pt-priority-mode {
   display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
-  align-self: center;
-  font-weight: 600;
+  align-items: center;
+  gap: 6px;
 }
-.pt-priority-control select {
-  font-weight: normal;
+.pt-priority-control {
+  flex-wrap: wrap;
+  font-size: inherit;
+}
+.pt-priority-control label {
+  color: var(--tone-secondary, #486651);
+  font-weight: 600;
 }
 .ptc button,
 .ptc summary {

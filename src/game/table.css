@@ -35,7 +35,7 @@
   flex: 1 1 26rem;
   gap: 6px 12px;
 }
-.pt-turnbar :is(.pt-table-tools > button, .pt-forge-options > button, .ptc-turn > button) {
+.pt-turnbar :is(.pt-table-tools > button, .pt-forge-options > button, .ptc-turn > button, .pt-priority-control select) {
   height: var(--turn-button-height);
   min-height: var(--turn-button-height);
   font: inherit;

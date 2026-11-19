@@ -564,17 +564,19 @@ export default function ForgeBoard({
   const oneTimeStop = stop !== "auto" && stop !== "full";
   const priorityControl = state.stage === "decision" && (
     <div className="ptc pt-priority-control">
-      <label htmlFor={priorityId}>Stops</label>
-      <select
-        id={priorityId}
-        value={oneTimeStop ? "next" : stop}
-        disabled={locked}
-        onChange={(event) => onPriorityStop(event.currentTarget.value as PriorityStop)}
-      >
-        <option value="auto">Automatic</option>
-        <option value="next">Set a stop</option>
-        <option value="full">Full Control</option>
-      </select>
+      <div className="pt-priority-mode">
+        <label htmlFor={priorityId}>Stops</label>
+        <select
+          id={priorityId}
+          value={oneTimeStop ? "next" : stop}
+          disabled={locked}
+          onChange={(event) => onPriorityStop(event.currentTarget.value as PriorityStop)}
+        >
+          <option value="auto">Automatic</option>
+          <option value="next">Set a stop</option>
+          <option value="full">Full Control</option>
+        </select>
+      </div>
       {oneTimeStop && (
         <select
           aria-label="When to stop"
