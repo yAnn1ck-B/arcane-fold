@@ -132,6 +132,7 @@ export default function PlayPage({
           <Table
             key={session.saved.id}
             match={session.match}
+            reportContext={{ id: session.saved.id, revision: session.saved.revision, error: error || undefined }}
             matchTools={{
               history: session.history,
               undoDisabled: working || !session.saved.actions.length,

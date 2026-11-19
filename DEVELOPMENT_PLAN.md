@@ -10,6 +10,8 @@ The application manages a permanent Magic: The Gathering card collection. Users 
 
 ### Play (unreleased)
 
+Players can report an unexpected play from the table or a decision dialog. The report freezes the current seat’s view, actions, controls and public history when opened. An optional note describes the expected outcome. Desktop reports live in the local SQLite database.
+
 **Play** starts a local rules-enforced game from one or two saved main decks. Forge handles phases, priority, legal actions and player decisions. When one person tests both seats, the board opens the deciding seat’s view automatically. The opening-hand dialog handles keeping, mulligans and bottoming cards. The shared board puts the two battlefields and the current hand beside an optional right panel for the stack and public game log.
 
 An active game can switch permanently to manual play after confirmation. The native bridge exports the suspended position at its current revision. The app checks card conservation and writes a manual checkpoint before closing Forge. Replacing a saved manual game requires consent for that save revision. Manual Undo begins at the handoff. Both engines retain the public log; only the current seat's private cards are shown at the table.

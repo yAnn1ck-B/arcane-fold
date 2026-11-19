@@ -21,6 +21,7 @@ import {
   type Ref,
 } from "react";
 import { GameHistory } from "./GameHistory";
+import { GameIssueButton } from "./GameIssueButton";
 import type { BattlefieldGroup } from "./battlefield";
 import type { HistoryEntry } from "./types";
 import "./table.css";
@@ -240,6 +241,7 @@ export function TableBoard({
           </button>
           {switchPlayer}
           {matchTools.manualSwitch}
+          <GameIssueButton />
           <button
             type="button"
             className="pt-tool"

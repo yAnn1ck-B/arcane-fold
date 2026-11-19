@@ -26,6 +26,8 @@ import {
 } from "./TableBoard";
 import { TableDialog } from "./TableDialog";
 import { battlefieldGroup } from "./battlefield";
+import { GameIssueReporting } from "./GameIssueReporter";
+import { captureManualIssue } from "./issue-report";
 
 type Dispatch = (action: Action) => void;
 const pileZones = ["library", "hand", "graveyard", "exile", "command"] as const;
@@ -46,6 +48,7 @@ export default function Table({
   matchTools,
   initialViewer,
   requiredOpening,
+  reportContext,
 }: {
   match: Match;
   settings: AppSettings;
@@ -53,6 +56,7 @@ export default function Table({
   matchTools: MatchTools;
   initialViewer?: Seat;
   requiredOpening: boolean;
+  reportContext: TableViewProps["reportContext"];
 }) {
   const needsHand = (seat: Seat) => !match.players[seat].kept && match.players[seat].zones.hand.length > 0;
   const opening = requiredOpening && seats.some(needsHand);
@@ -70,6 +74,7 @@ export default function Table({
       match={match}
       matchTools={matchTools}
       requiredOpening={requiredOpening}
+      reportContext={reportContext}
       viewer={viewer}
       dispatch={dispatch}
       imageCacheDir={settings.forge.imageCacheDir}
@@ -79,6 +84,7 @@ export default function Table({
 }
 
 interface TableViewProps {
+  reportContext: { id: string; revision: string; error?: string };
   matchTools: MatchTools;
   requiredOpening: boolean;
   match: Match;
@@ -96,6 +102,7 @@ function TableView({
   dispatch,
   imageCacheDir,
   changeSeat,
+  reportContext,
 }: TableViewProps) {
   const [looked, setLooked] = useState<ReadonlySet<string>>(new Set());
   const view = projectMatch(match, viewer, looked);
@@ -162,6 +169,7 @@ function TableView({
   );
 
   return (
+    <GameIssueReporting capture={() => captureManualIssue(reportContext.id, reportContext.revision, view, matchTools.history, reportContext.error)}>
     <TableBoard
       label="Manual game"
       switchPlayer={<SwitchPlayer player={other + 1} onSwitch={changeSeat} />}
@@ -398,5 +406,6 @@ function TableView({
         </CardInspector>
       )}
     </TableBoard>
+    </GameIssueReporting>
   );
 }

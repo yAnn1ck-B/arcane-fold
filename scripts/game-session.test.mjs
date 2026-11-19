@@ -13,6 +13,35 @@ const { newSession, restoreSession, playAction, undoAction } = await import(
 const fresh = () => newSession(createMatch([deck("a"), deck("b")]));
 const save = (session) => JSON.parse(JSON.stringify(session.saved));
 
+test("a game issue freezes the reporting seat, choices and public history at the captured revision", async () => {
+  const { captureForgeIssue, captureManualIssue, freezeGameIssue } = await import(moduleUrl("issue-report"));
+  const session = fresh();
+  const view = projectMatch(session.match, 1);
+  const manual = freezeGameIssue(captureManualIssue(session.saved.id, session.saved.revision, view, session.history), "test");
+  assert.equal(manual.viewer, "opponent");
+  assert.equal(manual.revision, session.saved.revision);
+  assert.deepEqual(manual.board.players[0].zones.hand, []);
+  assert.deepEqual(manual.board.players[1].zones.library, []);
+  const hidden = session.match.players[0].zones.hand[0];
+  assert.ok(!Object.hasOwn(manual.board.pieces, hidden));
+  assert.ok(!Object.hasOwn(manual.board.catalog, session.match.pieces[hidden].printing));
+  session.history.push({ turn: 10, text: "Later event" });
+  assert.ok(!manual.history.some((entry) => entry.turn === 10));
+  const position = { revision: 12, stack: [{ name: "Shock" }], choices: [{ id: "c1", label: "Respond" }], history: [{ turn: 2, text: "Shock was cast." }] };
+  const forge = freezeGameIssue(captureForgeIssue("game", "player", position), "test", [{ label: "Pass" }], "Stack");
+  position.stack.pop(); position.choices[0].label = "Next"; position.history.length = 0;
+  assert.deepEqual(forge.board.stack, [{ name: "Shock" }]);
+  assert.equal(forge.actions[0].label, "Respond");
+  assert.equal(forge.visibleControls[0].label, "Pass");
+  assert.equal(forge.visibleDialog, "Stack");
+  assert.equal(forge.history[0].text, "Shock was cast.");
+  assert.equal(forge.id.length, 36);
+  assert.equal(forge.revision, 12);
+  const failed = captureForgeIssue("game", "player", null, "Forge could not start.");
+  assert.equal(failed.board, null);
+  assert.equal(failed.error, "Forge could not start.");
+});
+
 test("manually tapping for a chosen color saves and undoes the tap and pool together", () => {
   const game = fresh();
   const id = game.match.players[0].zones.hand[0];

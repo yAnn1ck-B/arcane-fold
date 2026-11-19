@@ -769,3 +769,20 @@ button.pt-piece-select::after {
     padding: 7px;
   }
 }
+.pt-dialog-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pt-issue-note {
+  display: grid;
+  gap: 6px;
+  margin: 1rem 0;
+}
+
+.pt-issue-note textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}

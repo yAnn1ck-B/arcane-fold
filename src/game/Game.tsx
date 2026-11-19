@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button";
 import { appLifecycle } from "@/lib/app-lifecycle";
 import type { DeckSummary } from "@/lib/types";
 import ForgeBoard from "./ForgeBoard";
+import { GameIssueButton } from "./GameIssueButton";
+import { GameIssueReporting } from "./GameIssueReporter";
+import { captureForgeIssue } from "./issue-report";
 import { ManualHandoffDialog } from "./ManualHandoffDialog";
 import { prepareForgeHandoff } from "./forge-handoff";
 import { saveSession } from "./storage";
@@ -326,11 +329,15 @@ export default function Game({
   );
 
   return (
+    <GameIssueReporting capture={() => captureForgeIssue(session.current!, viewer, state, error?.message)}>
     <section className="game-page pt-forge" aria-label="Game">
       {!state && (
+        <div className="pt-launch">
         <Button variant="outline" onClick={leave}>
           Leave game
         </Button>
+        <GameIssueButton />
+        </div>
       )}
       {error && (
         <div className="notice notice-error" role="alert">
@@ -393,5 +400,6 @@ export default function Game({
         />
       )}
     </section>
+    </GameIssueReporting>
   );
 }

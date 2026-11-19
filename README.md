@@ -14,6 +14,8 @@ Published **0.3.0 still has optional updates** and needs one ordinary upgrade to
 
 ## Play (upcoming release)
 
+Use **Report game issue** at the table or in a decision dialog when a play looks wrong. Opening the report captures that seat’s board, available choices and public game history at that moment. Add a short note about what you expected, or save immediately. The desktop app keeps the report in its SQLite database in `game_issue_reports`.
+
 Open **Play**, select the players’ saved decks, and choose **Start game**. You can use the same deck for both seats or choose a solo opponent that passes. Each selected main deck needs at least seven cards. Local rules-enforced play uses Forge Desktop 2.0.13 from Settings and a JDK 17 or newer with `java` on PATH.
 
 Keep your opening hand or mulligan. After a mulligan, choose the cards to put on the bottom. When testing both seats, the table switches directly to the player who needs to decide. The current seat sees its own hand. Use the switch-player icon near the end of the toolbar to inspect the other seat.

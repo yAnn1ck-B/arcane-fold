@@ -27,6 +27,7 @@ const TABLES: &[&str] = &[
     "set_booster_balances",
     "expansion_reward_claims",
     "booster_pack_queue",
+    "game_issue_reports",
 ];
 
 #[derive(Serialize)]
@@ -185,6 +186,7 @@ fn migration_sql(version: i64) -> Result<&'static str, String> {
         6 => Ok(include_str!("../migrations/006_catalog_eligibility.sql")),
         7 => Ok(include_str!("../migrations/007_pack_queue.sql")),
         8 => Ok(include_str!("../migrations/008_discovery_wildcards.sql")),
+        9 => Ok(include_str!("../migrations/009_game_issue_reports.sql")),
         _ => {
             Err("This backup requires a database migration unavailable in this app version.".into())
         }
@@ -646,7 +648,9 @@ mod tests {
             // Fingerprint every existing game table, including settings, receipts,
             // queues and saved deck allocations, before applying the new schema.
             let mut snapshots = Vec::new();
-            for table in TABLES {
+            let tables: Vec<String> = sqlx::query_scalar("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations'")
+                .fetch_all(&pool).await.unwrap();
+            for table in tables {
                 let columns: Vec<String> = sqlx::query(&format!("PRAGMA table_info({table})"))
                     .fetch_all(&pool)
                     .await
@@ -657,7 +661,7 @@ mod tests {
                 let query = format!("SELECT group_concat(snapshot, char(10)) FROM (SELECT {} AS snapshot FROM {table} ORDER BY snapshot)", columns.join(" || '|' || "));
                 let before: Option<String> =
                     sqlx::query_scalar(&query).fetch_one(&pool).await.unwrap();
-                snapshots.push((*table, query, before));
+                snapshots.push((table, query, before));
             }
             let mut transaction = pool.begin().await.unwrap();
             sqlx::raw_sql(migration_sql(8).unwrap())
@@ -710,7 +714,7 @@ mod tests {
     fn snapshots_include_wal_and_restore_all_data_without_replacing_connections() {
         tauri::async_runtime::block_on(async {
             let directory = tempfile::tempdir().unwrap();
-            let pool = fixture(&directory.path().join("live.sqlite"), 7).await;
+            let pool = fixture(&directory.path().join("live.sqlite"), 9).await;
             seed(&pool).await;
             let backup = directory.path().join("backup.sqlite");
             let saved = backup_pool(&pool, &backup).await.unwrap();
@@ -790,7 +794,7 @@ mod tests {
     fn invalid_and_incompatible_backups_preserve_the_live_database() {
         tauri::async_runtime::block_on(async {
             let directory = tempfile::tempdir().unwrap();
-            let pool = fixture(&directory.path().join("live.sqlite"), 7).await;
+            let pool = fixture(&directory.path().join("live.sqlite"), 9).await;
             seed(&pool).await;
             let corrupt = directory.path().join("bad.sqlite");
             fs::write(&corrupt, b"not a sqlite backup").unwrap();
@@ -831,7 +835,7 @@ mod tests {
             let backup = directory.path().join("old-backup.sqlite");
             backup_pool(&old, &backup).await.unwrap();
             old.close().await;
-            let pool = fixture(&directory.path().join("live.sqlite"), 7).await;
+            let pool = fixture(&directory.path().join("live.sqlite"), 9).await;
             restore_pool(&pool, &backup, directory.path())
                 .await
                 .unwrap();
@@ -871,7 +875,7 @@ mod tests {
     fn a_restore_insert_failure_rolls_back_every_live_table() {
         tauri::async_runtime::block_on(async {
             let directory = tempfile::tempdir().unwrap();
-            let pool = fixture(&directory.path().join("live.sqlite"), 7).await;
+            let pool = fixture(&directory.path().join("live.sqlite"), 9).await;
             seed(&pool).await;
             let backup = directory.path().join("invalid-data.sqlite");
             backup_pool(&pool, &backup).await.unwrap();

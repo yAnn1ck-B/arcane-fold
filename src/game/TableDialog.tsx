@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { GameIssueButton } from "./GameIssueButton";
 
 /** Native modal keeps focus and keyboard navigation in the open zone. */
 export function TableDialog({
@@ -9,6 +10,7 @@ export function TableDialog({
   closeLabel = "Close",
   onClose,
   className = "",
+  reportable = true,
   children,
 }: {
   title: string;
@@ -17,6 +19,7 @@ export function TableDialog({
   closeLabel?: string;
   onClose?: () => void;
   className?: string;
+  reportable?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -65,6 +68,8 @@ export function TableDialog({
             {title}
           </h2>
         </div>
+        <div className="pt-dialog-tools">
+        {reportable && <GameIssueButton />}
         {onClose && (
           <button
             type="button"
@@ -76,6 +81,7 @@ export function TableDialog({
             <X size={17} aria-hidden="true" />
           </button>
         )}
+        </div>
       </header>
       <div className="pt-zone-body">{children}</div>
     </dialog>

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Report an issue from a Forge or manual game with the current seat’s position, choices, public history and an optional note about the expected play.
+
 - Arrange creatures, lands and support cards on a shared tabletop. Show game-log entries newest first and allow confirmed removal of a saved manual game.
 - Switch directly to the next decision maker and keep opening hands focused on mulligans. Add colored mana-pool details, manual mana activation, three stop settings and contextual Next, Pass, Resolve and End Turn actions.
 - Add a local Playtest table for saved decks, with manual zones, a shared stack, mana pools and resumable matches.

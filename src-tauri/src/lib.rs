@@ -1,4 +1,5 @@
 mod play;
+mod game_issues;
 mod card_policy;
 mod catalog;
 mod decks;
@@ -82,11 +83,18 @@ pub fn run() {
                             sql: include_str!("../migrations/008_discovery_wildcards.sql"),
                             kind: MigrationKind::Up,
                         },
+                        Migration {
+                            version: 9,
+                            description: "game_issue_reports",
+                            sql: include_str!("../migrations/009_game_issue_reports.sql"),
+                            kind: MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            game_issues::save_game_issue,
             play::start_game,
             play::act_game,
             play::view_game_seat,
