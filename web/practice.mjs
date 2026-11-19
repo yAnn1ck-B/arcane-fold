@@ -12,6 +12,6 @@ export const practiceDecks = [
   ]),
   deck('practice-fire', 'Burn', 'Red', [
     '12 Mountain|FDN', '4 Burst Lightning|FDN', '4 Goblin Boarders|FDN',
-    '4 Shivan Dragon|FDN', '4 Goblin Surprise|FDN', '2 Abrade|FDN',
+    '1 Shivan Dragon|FDN', '4 Goblin Surprise|FDN', '4 Abrade|FDN', '1 Frenzied Goblin|FDN',
   ]),
 ];
