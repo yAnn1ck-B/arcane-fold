@@ -1,4 +1,4 @@
-// Desktop adapter for a saved-deck game. Its inputs are prepared by the native Play command.
+// Headless adapter for a saved-deck game. The caller supplies the seed and starting seat.
 class ForgeGame {
     public static void main(String[] args) {
         try {
@@ -6,7 +6,8 @@ class ForgeGame {
             Path scratch = Path.of(args[1]);
             loadForge(install, scratch, true);
             forge.util.MyRandom.setRandom(new java.util.Random(Long.parseLong(args[2])));
-            new ForgeMatch(scratch, Files.isRegularFile(scratch.resolve("opponent.dck"))).run();
+            new ForgeMatch(scratch, Files.isRegularFile(scratch.resolve("opponent.dck")),
+                    args.length > 3 && args[3].equals("opponent")).run();
         } catch (Exception | LinkageError ex) {
             Throwable cause = ex;
             while (cause.getCause() != null) cause = cause.getCause();

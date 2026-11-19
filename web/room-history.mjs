@@ -37,6 +37,11 @@ function compareView(expected, actual, ignoreStops = false) {
   const { revision: originalRevision, ...a } = expected;
   const restored = expected.battlefieldStatusVersion === undefined ? legacyBattlefieldView(actual) : actual;
   const { revision: restoredRevision, ...b } = restored;
+  if (b.stack) b.stack = b.stack.map((card, index) => {
+    if (a.stack?.[index]?.targetRefs !== undefined) return card;
+    const { targetRefs, ...legacy } = card;
+    return legacy;
+  });
   if (ignoreStops) { delete a.priorityStop; delete b.priorityStop; }
   // PostgreSQL JSON and HTTP omit undefined optional fields in engine projections.
   return isDeepStrictEqual(a,JSON.parse(JSON.stringify(b)));
@@ -50,13 +55,13 @@ export function replayPrefix(journal, cursor) {
   }
   const moves = journal.moves.slice(0, cursor.moveCount);
   if ((moves.at(-1)?.after ?? null) !== cursor.lastMoveDigest) throw new Error('The saved decision could not be verified.');
-  return { version: journal.version, initial: journal.initial, moves, pending: cursor.pending };
+  return { ...journal, moves, pending: cursor.pending };
 }
 
 // Old snapshots have both complete seat projections but no replay offset. Accept a
 // legacy position only if verified replay produces a unique matching decision.
 async function locateLegacy(config, journal, position) {
-  const probe = await createGame(config);
+  const probe = await createGame({ ...config, startingSeat: journal.startingSeat });
   let found;
   try {
     if (probe.checkpoint().initial !== journal.initial) throw new Error('The original opening could not be verified.');
@@ -69,7 +74,7 @@ async function locateLegacy(config, journal, position) {
           const saved = position[seat].priorityStop;
           if (saved !== undefined) pending[seat] = saved;
         }
-        found = { version: journal.version, initial: journal.initial, moves: journal.moves.slice(0,i), pending };
+        found = { ...journal, moves: journal.moves.slice(0,i), pending };
       }
       if (i === limit) break;
       const move = journal.moves[i];

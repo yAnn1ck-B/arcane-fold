@@ -27,6 +27,7 @@ export interface ForgeCard {
   power?: number;
   toughness?: number;
   target?: string;
+  targetRefs?: { cardId?: string; seat?: ForgeSeat }[];
   description?: string;
   oracleText?: string;
   typeLine?: string;

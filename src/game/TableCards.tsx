@@ -89,6 +89,7 @@ export function TableCard({
   name,
   label,
   art,
+  className,
   tapped,
   flags,
   statuses,
@@ -103,6 +104,7 @@ export function TableCard({
   name: string;
   label: string;
   art: ReactNode;
+  className?: string;
   tapped?: boolean;
   flags?: ReactNode;
   statuses?: ReturnType<typeof cardStatuses>;
@@ -117,7 +119,8 @@ export function TableCard({
   return (
     <PreviewAnchor
       reading={reading}
-      className={`pt-piece ${tapped ? "is-tapped" : ""} ${onClick ? "has-action" : ""}${statuses?.some(s => s.kind === "phased") ? " is-phased" : ""}`}
+      className={["pt-piece", tapped && "is-tapped", onClick && "has-action",
+        statuses?.some(s => s.kind === "phased") && "is-phased", className].filter(Boolean).join(" ")}
     >
       {art}
       <div className="pt-piece-flags" aria-hidden="true">

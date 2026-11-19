@@ -57,12 +57,14 @@ export function ZoneCounter({
   label,
   onOpen,
   open,
+  className,
 }: {
   zone: keyof typeof zoneIcons;
   count: number;
   label: string;
   onOpen?: () => void;
   open?: boolean;
+  className?: string;
 }) {
   const Icon = zoneIcons[zone];
   const content = (
@@ -74,7 +76,7 @@ export function ZoneCounter({
   return onOpen ? (
     <button
       type="button"
-      className="pt-zone-chip"
+      className={className ? `pt-zone-chip ${className}` : "pt-zone-chip"}
       data-hint={label}
       aria-label={label}
       aria-haspopup="dialog"
@@ -85,7 +87,7 @@ export function ZoneCounter({
     </button>
   ) : (
     <span
-      className="pt-zone-chip"
+      className={className ? `pt-zone-chip ${className}` : "pt-zone-chip"}
       tabIndex={0}
       role="img"
       data-hint={label}
@@ -184,6 +186,7 @@ export function TableBoard({
   hand,
   stack,
   stackCount,
+  stackTargets,
   matchTools,
   children,
 }: {
@@ -198,6 +201,7 @@ export function TableBoard({
   hand: ReactNode[];
   stack: ReactNode;
   stackCount: number;
+  stackTargets?: boolean;
   matchTools: MatchTools;
   children?: ReactNode;
 }) {
@@ -262,10 +266,10 @@ export function TableBoard({
         <div className="pt-table-tools" role="group" aria-label="Game tools">
           <button
             type="button"
-            className="pt-tool"
+            className={stackTargets ? "pt-tool pt-legal-target" : "pt-tool"}
             ref={stackTrigger}
-            aria-label={`Stack, ${stackCount} ${stackCount === 1 ? "entry" : "entries"}`}
-            data-hint="Stack"
+            aria-label={`Stack, ${stackCount} ${stackCount === 1 ? "entry" : "entries"}${stackTargets ? ", contains a legal target" : ""}`}
+            data-hint={stackTargets ? "Stack · Contains a legal target" : "Stack"}
             aria-controls={panelId}
             aria-expanded={panel === "stack"}
             onClick={() => togglePanel("stack")}

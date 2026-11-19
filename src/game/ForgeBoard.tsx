@@ -34,8 +34,14 @@ import type {
 
 export const ForgeImageSource = createContext<((card: ForgeCard) => string) | undefined>(undefined);
 
-const pileNames = { graveyard: "Graveyard", exile: "Exile", library: "Top of library" } as const;
-type Pile = { seat: ForgeSeat; zone: keyof typeof pileNames };
+type Pile = { seat: ForgeSeat; zone: "graveyard" | "exile" | "library" };
+
+function targetMark(legal: boolean, stacked: boolean) {
+  return {
+    className: [legal && "pt-legal-target", stacked && "pt-stack-target"].filter(Boolean).join(" "),
+    labels: [legal && "Legal target", stacked && "Targeted on stack"].filter(Boolean),
+  };
+}
 
 function AbilityLabel({ label }: { label: string }) {
   const separator = label.indexOf(":");
@@ -202,7 +208,13 @@ export default function ForgeBoard({
   const [cardFilter, setCardFilter] = useState("");
   const firstButton = useRef<HTMLButtonElement>(null);
   const focusedRevision = useRef<number | undefined>(undefined);
-  const { actor, players, stack, choices, librarySearch, sharedSeats } = state;
+  const { actor, players, stack, librarySearch, sharedSeats } = state;
+  const choices = viewer === actor ? state.choices : [];
+  const legalTargets = locked ? [] : choices.filter((choice) => choice.kind === "target");
+  const legalCards = new Set(legalTargets.map((choice) => choice.cardId));
+  const stackTargets = stack.flatMap((card) => card.targetRefs ?? []);
+  const stackTargetCards = new Set(stackTargets.map((target) => target.cardId));
+  const stackTargetSeats = new Set(stackTargets.filter((target) => !target.cardId).map((target) => target.seat));
   const { seatNames } = matchTools;
   const searchId = librarySearch ? choices[0]?.id : undefined;
   const libraryOperation = librarySearch?.operation ?? "Library search";
@@ -331,6 +343,8 @@ export default function ForgeBoard({
       <Button
         key={choice.id}
         ref={focusRef}
+        className={!locked && choice.kind === "target" ? "pt-legal-target" : undefined}
+        variant={choice.kind === "target" ? "outline" : undefined}
         disabled={locked}
         onClick={() => choose(choice)}
       >
@@ -342,6 +356,7 @@ export default function ForgeBoard({
   function tile(card: ForgeCard) {
     const name = card.faceDown ? "Face-down card" : card.name;
     const actions = choices.filter((choice) => choice.cardId === card.id);
+    const mark = targetMark(legalCards.has(card.id), stackTargetCards.has(card.id));
     const statuses = cardStatuses(card);
     const move = actions[0];
     const abilityCount = actions.filter(
@@ -382,7 +397,8 @@ export default function ForgeBoard({
       <TableCard
         key={card.id}
         name={name}
-        label={[label, ...statuses.map(s => s.label)].join(", ")}
+        label={[label, ...mark.labels, ...statuses.map(s => s.label)].join(", ")}
+        className={mark.className}
         statuses={statuses}
         tapped={card.tapped}
         opensDialog={actions.length > 1}
@@ -429,6 +445,10 @@ export default function ForgeBoard({
     const targets = choices.filter(
       (choice) => isLifeTarget(choice) && choice.seat === seat,
     );
+    const lifeMark = targetMark(!locked && targets.length > 0, stackTargetSeats.has(seat));
+    const libraryTop = data.libraryTop;
+    const libraryMark = targetMark(!!libraryTop && legalCards.has(libraryTop.id),
+      !!libraryTop && stackTargetCards.has(libraryTop.id));
     const life = <LifeValue life={data.life} />;
     return (
       <TableSeat
@@ -441,9 +461,10 @@ export default function ForgeBoard({
               <ZoneCounter
                 zone="library"
                 count={data.libraryCount}
-                label={`${seatNames[seat]}'s library, ${data.libraryCount} cards${data.libraryTop ? " · View top card" : ""}`}
+                className={libraryMark.className}
+                label={[`${seatNames[seat]}'s library, ${data.libraryCount} cards${libraryTop ? " · View top card" : ""}`, ...libraryMark.labels].join(" · ")}
                 open={pile?.seat === seat && pile.zone === "library"}
-                onOpen={data.libraryTop ? () => setPile({ seat, zone: "library" }) : undefined}
+                onOpen={libraryTop ? () => setPile({ seat, zone: "library" }) : undefined}
               />
             )}
             <ZoneCounter
@@ -454,13 +475,16 @@ export default function ForgeBoard({
             {(["graveyard", "exile"] as const).map((zone) => {
               const cards = data[zone];
               if (!cards) return null;
+              const mark = targetMark(cards.some((card) => legalCards.has(card.id)),
+                cards.some((card) => stackTargetCards.has(card.id)));
               return (
                 <ZoneCounter
                   key={zone}
                   zone={zone}
                   count={cards.length}
                   open={pile?.seat === seat && pile.zone === zone}
-                  label={`${seatNames[seat]}'s ${zone}, ${cards.length} ${cards.length === 1 ? "card" : "cards"}`}
+                  className={mark.className}
+                  label={[`${seatNames[seat]}'s ${zone}, ${cards.length} ${cards.length === 1 ? "card" : "cards"}`, ...mark.labels].join(" · ")}
                   onOpen={() => setPile({ seat, zone })}
                 />
               );
@@ -475,18 +499,21 @@ export default function ForgeBoard({
                   <button
                     type="button"
                     key={choice.id}
-                    className="ptc-accent"
-                    aria-label={choice.label}
+                    className={lifeMark.className}
+                    aria-label={[choice.label, ...lifeMark.labels].join(", ")}
                     ref={focusFor(choice)}
                     disabled={locked}
                     onClick={() => choose(choice)}
                   >
-                    <Target size={14} />
+                    <Target size={14} aria-hidden />
                     {choice.label} · {life}
                   </button>
                 ))
               ) : (
-                <div className="ptc-life">{life}</div>
+                <div className={`ptc-life ${lifeMark.className}`}>
+                  {life}
+                  {lifeMark.labels.length > 0 && <span className="sr-only">{lifeMark.labels.join(", ")}</span>}
+                </div>
               )}
               <ManaPool playerName={seatNames[seat]} amounts={data.manaByColor} total={data.mana} />
             </div>
@@ -506,6 +533,7 @@ export default function ForgeBoard({
       switchPlayer={switchButton(!choices.length && state.stage === "decision" ? firstButton : undefined)}
       matchTools={matchTools}
       stackCount={stack.length}
+      stackTargets={stack.some((card) => legalCards.has(card.id))}
       toolbar={<TurnSummary turn={state.turn} activeName={seatNames[state.active]} />}
       priorityControl={state.stage === "decision" ? {
         stops: state.priorityStop, locked, opponentName: seatNames[viewer === "player" ? "opponent" : "player"],
@@ -525,6 +553,12 @@ export default function ForgeBoard({
               {!!state.revealedToYou?.length && (
                 <small>Revealed to you: {state.revealedToYou.join(", ")}</small>
               )}
+            </div>
+          )}
+          {(legalTargets.length > 0 || stackTargets.length > 0) && (
+            <div className="pt-target-key">
+              {legalTargets.length > 0 && <span><i className="pt-legal-target" aria-hidden />Legal target</span>}
+              {stackTargets.length > 0 && <span><i className="pt-stack-target" aria-hidden />Targeted on stack</span>}
             </div>
           )}
           <div className="pt-forge-options pt-turn-actions">
@@ -582,8 +616,9 @@ export default function ForgeBoard({
                 const actions = choices.filter(
                   (choice) => choice.cardId === card.id,
                 );
+                const mark = targetMark(legalCards.has(card.id), stackTargetCards.has(card.id));
                 return (
-                  <li key={card.id} className="ptc-stack-entry">
+                  <li key={card.id} className={`ptc-stack-entry ${mark.className}`}>
                     {index === 0 && (
                       <div className="ptc-stack-meta">
                         <span>Top</span>
@@ -598,8 +633,9 @@ export default function ForgeBoard({
                         />
                       }
                     />
+                    {mark.labels.length > 0 && <span className="sr-only">{mark.labels.join(", ")}</span>}
                     {card.description && <small>{card.description}</small>}
-                    {card.target && <small>Targeting {card.target}</small>}
+                    {card.target && <small className={card.targetRefs?.length ? "pt-stack-target-line" : undefined}>Targeting {card.target}</small>}
                     {actions.map((choice) => option(choice, focusFor(choice)))}
                   </li>
                 );
@@ -659,9 +695,8 @@ export default function ForgeBoard({
       )}
       {pile && (
         <TableDialog
-          title={pileNames[pile.zone]}
-          label={`${seatNames[pile.seat]}'s ${pile.zone}`}
-          subtitle={`${seatNames[pile.seat]} · ${pileCards.length} ${pileCards.length === 1 ? "card" : "cards"}`}
+          title={pile.zone === "library" ? `Top of ${seatNames[pile.seat]}’s library` : `${seatNames[pile.seat]}’s ${pile.zone}`}
+          reportable={false}
           closeLabel="Close zone"
           onClose={() => setPile(null)}
         >
@@ -676,6 +711,7 @@ export default function ForgeBoard({
         <TableDialog
           title={librarySearch.title}
           label={libraryOperation}
+          reportable={false}
           closeLabel={`Close ${libraryOperation.toLowerCase()}`}
           onClose={() => setDeferredSearch(searchId)}
         >

@@ -159,7 +159,9 @@ export async function joinRoom(player, roomId, deckId, database = pool) {
 export async function startForgeGame(db, room, guest, guestDeck) {
   const {rows} = await db.query('SELECT id,priority_settings FROM web_players WHERE id IN ($1,$2)', [room.host,guest]);
   const priorities = Object.fromEntries(rows.map(row => [seatFor(room,row.id),row.priority_settings]));
-  return createGame({decks:[room.host_deck,guestDeck],seed:room.seed,priorities});
+  // The private room seed is uniformly random. Its low bit makes the choice stable across a retried join.
+  const startingSeat = (BigInt(room.seed) & 1n) === 0n ? 'player' : 'opponent';
+  return createGame({decks:[room.host_deck,guestDeck],seed:room.seed,startingSeat,priorities});
 }
 export async function roomView(id, player) {
   return readSeatPosition(pool, id, player);

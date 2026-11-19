@@ -84,7 +84,7 @@ export function ManaPool({
         <Droplet size={14} aria-hidden /> <b>{total}</b>
       </button>
       {open && (
-        <TableDialog title="Mana pool" label={title} subtitle={`${playerName} · ${total} mana`} onClose={() => setOpen(false)} className="pt-mana-dialog">
+        <TableDialog title={`${playerName}’s mana pool`} reportable={false} onClose={() => setOpen(false)} className="pt-mana-dialog">
           {amounts || total === 0 ? (
             <ul className="pt-mana-balances">
               {manaTypes.map((color) => (
@@ -101,7 +101,7 @@ export function ManaPool({
                 </li>
               ))}
             </ul>
-          ) : <p>This match has no color breakdown.</p>}
+          ) : <p>{total} mana. This match has no color breakdown.</p>}
           {onClear && <button type="button" disabled={!total} onClick={onClear}>Clear pool</button>}
         </TableDialog>
       )}

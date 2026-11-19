@@ -24,7 +24,9 @@ function seatView(state, seat, revision, pending, seed) {
   requireSeat(seat);
   const activeChoice = state.actor === seat;
   const handle = id => createHmac("sha256", seed).update(seat + "/" + id).digest("hex").slice(0, 32);
+  const visibleIds = new Set();
   const card = item => {
+    visibleIds.add(item.id);
     const result = { ...item, id: handle(item.id) };
     if (item.attachedTo) result.attachedTo = handle(item.attachedTo);
     return result;
@@ -42,18 +44,28 @@ function seatView(state, seat, revision, pending, seed) {
     const top = board.libraryTopBySeat?.[seat];
     if (top) players[owner].libraryTop = card(top);
   }
+  const librarySearch = activeChoice && state.librarySearch
+    ? { ...state.librarySearch, cards: state.librarySearch.cards.map(card) }
+    : null;
+  const stack = state.stack.map(({ targetRefs, ...entry }) => card(entry));
+  for (const [index, entry] of state.stack.entries()) {
+    if (!entry.targetRefs) continue;
+    // A reference can point into a private zone. Only link cards already
+    // present in this seat's projection, and use the same opaque IDs.
+    const refs = entry.targetRefs.filter(ref => ref.seat || visibleIds.has(ref.cardId))
+      .map(ref => ref.cardId ? { cardId: handle(ref.cardId) } : ref);
+    if (refs.length) stack[index].targetRefs = refs;
+  }
   const view = {
     revision, canUndo: false, sharedSeats: true, battlefieldStatusVersion: 1, stage: state.stage, turn: state.turn,
     active: state.active, actor: state.actor, phase: state.phase, step: state.step,
     prompt: activeChoice || state.stage === "finished" ? state.prompt : "Waiting for your opponent.",
     priorityStop: pending[seat] ?? state.priorityStops[seat],
-    history: state.history, stack: state.stack.map(card), players,
+    history: state.history, stack, players,
     choices: activeChoice ? state.choices.map(option => option.cardId
       ? { ...option, cardId: handle(option.cardId) } : option) : [],
   };
-  if (activeChoice && state.librarySearch) {
-    view.librarySearch = { ...state.librarySearch, cards: state.librarySearch.cards.map(card) };
-  }
+  if (librarySearch) view.librarySearch = librarySearch;
   if (activeChoice && state.revealedToYou) view.revealedToYou = state.revealedToYou;
   return structuredClone(view);
 }
@@ -80,7 +92,10 @@ function digest(state, includeBattlefieldStatus) {
   // winner is terminal display metadata derived from Forge. Keep the version-1
   // replay input identical for journals created before it was exposed.
   const { winner, ...replay } = includeBattlefieldStatus ? state : legacyBattlefieldView(state);
-  const json = JSON.stringify(replay, (_key, value) => {
+  const json = JSON.stringify(replay, (key, value) => {
+    // References annotate the existing stack target text for display. The
+    // underlying decisions and legacy replay digests remain identical.
+    if (key === "targetRefs") return undefined;
     if (!value || typeof value !== "object" || Array.isArray(value)) return value;
     return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]));
   });
@@ -117,7 +132,7 @@ function validateDeck(deck) {
   if (total < 7 || total > 2000) throw new Error("Web matches support 7 to 2,000 main-deck cards per seat.");
 }
 
-async function launch(install, decks, seed) {
+async function launch(install, decks, seed, startingSeat) {
   if (!install) throw new Error("Configure FORGE_INSTALL for Forge Desktop 2.0.13.");
   const directory = resolve(install);
   const jar = join(directory, jarName);
@@ -140,7 +155,7 @@ async function launch(install, decks, seed) {
     const child = spawn(process.env.JAVA_EXECUTABLE || "java", [
       "-Xmx512m", "-Djava.awt.headless=true", "-Dfile.encoding=UTF-8",
       "-Duser.home=" + scratch, "-Djava.io.tmpdir=" + scratch,
-      "-cp", jar, join(scratch, "ForgeGame.java"), directory, scratch, seed,
+      "-cp", jar, join(scratch, "ForgeGame.java"), directory, scratch, seed, startingSeat,
     ], { cwd: scratch, env, windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
 
     let pending;
@@ -209,13 +224,17 @@ async function launch(install, decks, seed) {
 
 // The caller persists checkpoint() alongside the immutable decks and private seed.
 // Supplying that checkpoint verifies each historical decision before accepting moves.
-export async function createGame({ decks, seed, checkpoint: saved, priorities = {}, install = process.env.FORGE_INSTALL }) {
+export async function createGame({ decks, seed, checkpoint: saved, startingSeat, priorities = {}, install = process.env.FORGE_INSTALL }) {
   if (!Array.isArray(decks) || decks.length !== 2) throw new Error("Two saved decks are required.");
   decks.forEach(validateDeck);
   if (!/^-?\d{1,20}$/.test(String(seed)) || (typeof seed === "number" && !Number.isSafeInteger(seed)) ||
       BigInt.asIntN(64, BigInt(seed)) !== BigInt(seed)) throw new Error("A signed 64-bit game seed is required.");
   const seedText = String(BigInt(seed));
-  const engine = await launch(install, decks, seedText);
+  // Earlier journals always started with the host. Only new games record a choice.
+  const recordedStarter = saved == null ? startingSeat : saved.startingSeat;
+  const starter = recordedStarter === undefined ? "player" : recordedStarter;
+  requireSeat(starter);
+  const engine = await launch(install, decks, seedText, starter);
   let closed = false;
   let state;
   let initial;
@@ -296,7 +315,8 @@ export async function createGame({ decks, seed, checkpoint: saved, priorities = 
         const match = await engine.next("EXPORT_MANUAL " + nonce, nonce);
         return { match, history: structuredClone(state.history), actor: state.actor };
       }),
-      checkpoint: () => structuredClone({ version: 1, initial, moves, pending }),
+      checkpoint: () => structuredClone({ version: 1, initial, moves, pending,
+        ...(recordedStarter !== undefined && { startingSeat: recordedStarter }) }),
       act: (seat, action, revision) => serialized(async () => {
         checkRevision(revision);
         // Replay uses its original protocol throughout. On the first live move

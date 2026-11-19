@@ -4,6 +4,7 @@ class ForgeMatch {
     final Player opponent;
     final Game game;
     final PhaseHandler phases;
+    private final Player startingPlayer;
     private final ForgeHistory history;
     private final Path scratch;
     private final BufferedReader input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
@@ -19,7 +20,7 @@ class ForgeMatch {
     private final int[] mulligans = {0, 0};
     private final Map<Player, CardCollection> openingBottom = new java.util.IdentityHashMap<>();
 
-    ForgeMatch(Path scratch, boolean sharedSeats) {
+    ForgeMatch(Path scratch, boolean sharedSeats, boolean guestStarts) {
         this.scratch = scratch;
         this.sharedSeats = sharedSeats;
         game = new Match(new GameRules(GameType.Constructed),
@@ -28,7 +29,8 @@ class ForgeMatch {
         player = game.getPlayers().get(0);
         opponent = game.getPlayers().get(1);
         phases = game.getPhaseHandler();
-        game.setStartingPlayer(player);
+        startingPlayer = sharedSeats && guestStarts ? opponent : player;
+        game.setStartingPlayer(startingPlayer);
         for (Player p : game.getPlayers()) {
             p.setStartingLife(20);
             p.setLife(20, null);
@@ -107,7 +109,7 @@ class ForgeMatch {
             p.drawCards(p.getStartingHandSize());
         }
         StaticData.instance().setMulliganRule(forge.MulliganDefs.MulliganRule.London);
-        new MulliganService(player).perform();
+        new MulliganService(startingPlayer).perform();
     }
 
     void run() throws IOException {
@@ -132,7 +134,7 @@ class ForgeMatch {
             var action = game.getAction();
             var opening = forge.game.GameAction.class.getDeclaredMethod("runOpeningHandActions", Player.class);
             opening.setAccessible(true);
-            return (Player) opening.invoke(action, player);
+            return (Player) opening.invoke(action, startingPlayer);
         } catch (java.lang.reflect.InvocationTargetException error) {
             if (error.getCause() instanceof RuntimeException cause) throw cause;
             throw new IllegalStateException("Forge failed to resolve an opening-hand action.", error.getCause());
@@ -398,12 +400,24 @@ class ForgeMatch {
                 out.put("description", out.containsKey("description") ? out.get("description") + " (" + announcement + ")" : announcement);
             }
             var targets = new ArrayList<String>();
+            var targetRefs = new ArrayList<Map<String, String>>();
             for (var group : instance.getSpellAbility().getAllTargetChoices()) {
-                for (GameObject t : group) {
-                    targets.add(targetWithAmount(targetName(t), group, t));
+                for (GameObject target : group) {
+                    targets.add(targetWithAmount(targetName(target), group, target));
+                    if (target instanceof Player seat) {
+                        targetRefs.add(Map.of("seat", seatId(seat)));
+                    } else {
+                        if (target instanceof Card card) {
+                            Card current = game.getCardState(card);
+                            if (current == null || !card.equalsWithGameTimestamp(current)) continue;
+                        }
+                        String anchor = targetAnchor(target);
+                        if (anchor != null) targetRefs.add(Map.of("cardId", anchor));
+                    }
                 }
             }
             if (!targets.isEmpty()) out.put("target", String.join(", ", targets));
+            if (!targetRefs.isEmpty()) out.put("targetRefs", targetRefs);
             stack.add(out);
         }
         var options = new ArrayList<Map<String, Object>>();
@@ -487,17 +501,21 @@ class ForgeMatch {
         }
     }
 
-    private Choice targetChoice(GameObject target, Runnable select) {
-        String anchor = target instanceof Card c ? cardId(c) : null;
+    private String targetAnchor(GameObject target) {
+        if (target instanceof Card card) return cardId(card);
         if (target instanceof SpellAbility spell) {
             for (var entry : game.getStack()) {
                 if (entry.getSpellAbility() == spell) {
-                    anchor = spell.isSpell() ? cardId(entry.getSourceCard()) : "s" + entry.getId();
-                    break;
+                    return spell.isSpell() ? cardId(entry.getSourceCard()) : "s" + entry.getId();
                 }
             }
         }
-        return new Choice("Target " + targetName(target), "target", anchor, target instanceof Player p ? p : null, select);
+        return null;
+    }
+
+    private Choice targetChoice(GameObject target, Runnable select) {
+        return new Choice("Target " + targetName(target), "target", targetAnchor(target),
+                target instanceof Player p ? p : null, select);
     }
 
     private boolean pickTargets(SpellAbility ability, Player actor) {

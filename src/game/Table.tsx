@@ -32,14 +32,6 @@ import { captureManualIssue, type GameIssueReport } from "./issue-report";
 
 type Dispatch = (action: Action) => void;
 const pileZones = ["library", "hand", "graveyard", "exile", "command"] as const;
-const zoneNames: Record<Zone, string> = {
-  library: "Library",
-  hand: "Hand",
-  battlefield: "Battlefield",
-  graveyard: "Graveyard",
-  exile: "Exile",
-  command: "Command",
-};
 type Pile = { seat: Seat; zone: (typeof pileZones)[number] };
 
 export default function Table({
@@ -326,9 +318,8 @@ export function ProjectedTable({ matchTools, requiredOpening, view, viewer, disp
       />}
       {pile && (
         <TableDialog
-          title={zoneNames[pile.zone]}
-          label={`${seatNames[pile.seat]}'s ${pile.zone}`}
-          subtitle={`${seatNames[pile.seat]} · ${view.players[pile.seat].counts[pile.zone]} cards`}
+          title={`${seatNames[pile.seat]}’s ${pile.zone}`}
+          reportable={false}
           closeLabel="Close zone"
           onClose={() => closePile()}
         >

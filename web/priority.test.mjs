@@ -152,6 +152,7 @@ test('priority checklists are private to the signed-in account and follow it int
     [id,id,yannick,jef,...lands.decks,lands.seed]);
   const game = await startForgeGame(db,room,jef,lands.decks[1]);
   t.after(() => game.close());
+  assert.equal(game.checkpoint().startingSeat,'opponent');
   await savePosition(db,room,game);
   const changed = {own:['draw'],opponent:['beginCombat','endStep']};
   const automatic = {own:[],opponent:[]};
@@ -163,8 +164,9 @@ test('priority checklists are private to the signed-in account and follow it int
   assert.deepEqual(result.state.priorityStop,changed);
   assert.deepEqual((await readSeatPosition(db,id,yannick)).state.priorityStop,automatic);
   await assert.rejects(applyMove(db,id,jef,{...payload,stop:automatic},track),{status:409});
-  const next = await startForgeGame(db,{...room,host:jef},yannick,lands.decks[1]);
+  const next = await startForgeGame(db,{...room,host:jef,seed:'814290991530'},yannick,lands.decks[1]);
   t.after(() => next.close());
+  assert.equal(next.checkpoint().startingSeat,'player');
   assert.deepEqual(decodePriority(next.view('player').priorityStop),changed);
   assert.deepEqual(decodePriority(next.view('opponent').priorityStop),automatic);
 });
